@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Confirmation - QuickCart</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .email-header {
+            background: linear-gradient(135deg, #5b7ce6 0%, #6b8af0 100%);
+            padding: 40px 20px;
+            text-align: center;
+            color: #ffffff;
+        }
+        
+        .email-header h1 {
+            font-size: 32px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .email-header p {
+            font-size: 16px;
+            opacity: 0.95;
+        }
+        
+        .email-body {
+            padding: 40px 30px;
+            text-align: center;
+        }
+        
+        .email-body h2 {
+            font-size: 24px;
+            color: #333333;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+        
+        .email-greeting {
+            font-size: 16px;
+            color: #555555;
+            margin-bottom: 20px;
+        }
+        
+        .email-message {
+            font-size: 15px;
+            color: #666666;
+            line-height: 1.7;
+            margin-bottom: 30px;
+            text-align: left;
+        }
+        
+        .confirm-button {
+            display: inline-block;
+            background: linear-gradient(135deg, #5b7ce6 0%, #6b8af0 100%);
+            color: #ffffff;
+            text-decoration: none;
+            padding: 14px 40px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: 500;
+            margin: 20px 0;
+            transition: transform 0.2s ease;
+        }
+        
+        .confirm-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(91, 124, 230, 0.4);
+        }
+        
+        .expiry-notice {
+            font-size: 14px;
+            color: #888888;
+            margin-top: 25px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+        }
+        
+        .email-footer {
+            background-color: #f8f9fa;
+            padding: 30px 20px;
+            text-align: center;
+            border-top: 1px solid #e5e5e5;
+        }
+        
+        .footer-text {
+            font-size: 13px;
+            color: #888888;
+            margin-bottom: 8px;
+        }
+        
+        .footer-link {
+            color: #5b7ce6;
+            text-decoration: none;
+        }
+        
+        .footer-link:hover {
+            text-decoration: underline;
+        }
+        
+        .company-name {
+            color: #ff9500;
+            font-weight: 600;
+        }
+        
+        .copyright {
+            font-size: 13px;
+            color: #999999;
+            margin-top: 12px;
+        }
+        
+        .divider {
+            height: 1px;
+            background-color: #e5e5e5;
+            margin: 20px 0;
+        }
+        
+        /* Responsive Design */
+        @media only screen and (max-width: 600px) {
+            .email-container {
+                margin: 0;
+                border-radius: 0;
+            }
+            
+            .email-header {
+                padding: 30px 15px;
+            }
+            
+            .email-header h1 {
+                font-size: 26px;
+            }
+            
+            .email-body {
+                padding: 30px 20px;
+            }
+            
+            .email-body h2 {
+                font-size: 20px;
+            }
+            
+            .confirm-button {
+                padding: 12px 30px;
+                font-size: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <!-- Header Section -->
+        <div class="email-header">
+            <h1>Welcome!</h1>
+            <p>Thanks for joining our community</p>
+        </div>
+        
+        <!-- Body Section -->
+        <div class="email-body">
+            <h2>Confirm Your Email Address</h2>
+            
+            <p class="email-greeting">Hi there!</p>
+            
+            <p class="email-message">
+                Thank you for signing up! To complete your registration and start enjoying all our features, please confirm your email address by clicking the button below.
+            </p>
+            
+            <a href="https://quickcart.com/verify?token=123456" class="confirm-button">
+                Confirm My Email
+            </a>
+            
+            <div class="expiry-notice">
+                This confirmation link will expire in 24 hours for security reasons.
+            </div>
+        </div>
+        
+        <!-- Footer Section -->
+        <div class="email-footer">
+            <p class="footer-text">
+                If you didn't create an account with us, you can safely ignore this email.
+            </p>
+            
+            <div class="divider"></div>
+            
+            <p class="footer-text">
+                Need help? Contact our support team at 
+                <a href="mailto:markgeforce4080@gmail.com" class="footer-link">markgeforce4080@gmail.com</a>
+            </p>
+            
+            <p class="copyright">
+                © 2025 <span class="company-name">QuickCart</span>. All rights reserved.
+            </p>
+            
+            <p class="footer-text" style="margin-top: 8px;">
+                Alexandria, Al Agamy, Al Hanouvel
+            </p>
+        </div>
+    </div>
+</body>
+</html>
