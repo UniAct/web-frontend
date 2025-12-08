@@ -244,16 +244,29 @@ class ApiClient {
   // Available only when accessing from superadmin context (localhost)
 
   /**
+   * Create new university (SuperAdmin only)
+   */
+  async createUniversity(data: {
+    name: string;
+    address?: string;
+    phone?: string;
+    email?: string;
+    website?: string;
+    established_date?: string;
+    accreditation?: string;
+  }): Promise<ApiResponse<any>> {
+    return this.request<any>('POST', '/university/create', data);
+  }
+
+  /**
    * Create new tenant (SuperAdmin only)
+   * Note: University should be created first via createUniversity()
    */
   async createTenant(data: {
     name: string;
     subdomain: string;
     db_schema: string;
-    address?: string;
-    phone?: string;
-    email?: string;
-    website?: string;
+    university_id?: number;
   }): Promise<ApiResponse<Tenant>> {
     return this.request<Tenant>('POST', '/tenant/create', data);
   }

@@ -89,7 +89,9 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
     address: '',
     phone: '',
     email: '',
-    website: ''
+    website: '',
+    established_date: '',
+    accreditation: ''
   });
 
   // Super Admins state
@@ -181,19 +183,46 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
 
     try {
       setIsLoadingTenants(true);
-      const response = await apiClient.createTenant({
+
+      // Step 1: Create University record first
+      let universityId: number | null = null;
+      try {
+        const universityResponse = await apiClient.createUniversity({
+          name: formData.name,
+          address: formData.address,
+          phone: formData.phone,
+          email: formData.email,
+          website: formData.website,
+          established_date: formData.established_date,
+          accreditation: formData.accreditation,
+        });
+
+        if (universityResponse.status === 'success' && universityResponse.data) {
+          universityId = universityResponse.data.id;
+          console.log('[SUCCESS] University created:', universityId);
+        } else {
+          throw new Error(universityResponse.message || 'Failed to create university record');
+        }
+      } catch (universityError: any) {
+        toast.error(universityError.message || 'Failed to create university');
+        return;
+      }
+
+      // Step 2: Create Tenant linked to University
+      const tenantResponse = await apiClient.createTenant({
         name: formData.name,
         subdomain: formData.subdomain,
-        db_schema: formData.db_schema
+        db_schema: formData.db_schema,
+        university_id: universityId,
       });
 
-      if (response.status === 'success' && response.data) {
-        setUniversities([...universities, response.data]);
+      if (tenantResponse.status === 'success' && tenantResponse.data) {
+        setUniversities([...universities, tenantResponse.data]);
         setShowAddModal(false);
-        setFormData({ name: '', subdomain: '', db_schema: '', address: '', phone: '', email: '', website: '' });
-        toast.success('University added successfully!');
+        setFormData({ name: '', subdomain: '', db_schema: '', address: '', phone: '', email: '', website: '', established_date: '', accreditation: '' });
+        toast.success('University and Tenant created successfully!');
       } else {
-        toast.error(response.message || 'Failed to add university');
+        toast.error(tenantResponse.message || 'Failed to create tenant');
       }
     } catch (error: any) {
       console.error('Error adding university:', error);
@@ -215,7 +244,7 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
         : uni
     ));
     setEditingUniversity(null);
-    setFormData({ name: '', subdomain: '', db_schema: '', address: '', phone: '', email: '', website: '' });
+    setFormData({ name: '', subdomain: '', db_schema: '', address: '', phone: '', email: '', website: '', established_date: '', accreditation: '' });
     toast.success('University updated successfully');
   };
 
@@ -242,7 +271,9 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
       address: '',
       phone: '',
       email: '',
-      website: ''
+      website: '',
+      established_date: '',
+      accreditation: ''
     });
   };
 
@@ -723,10 +754,10 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
         if (!open) {
           setShowAddModal(false);
           setEditingUniversity(null);
-          setFormData({ name: '', subdomain: '', db_schema: '', address: '', phone: '', email: '', website: '' });
+          setFormData({ name: '', subdomain: '', db_schema: '', address: '', phone: '', email: '', website: '', established_date: '', accreditation: '' });
         }
       }}>
-        <ModalContent>
+        <ModalContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
           <ModalHeader>
             <ModalTitle>
               {editingUniversity ? 'Edit University' : 'Add New University'}
@@ -736,102 +767,141 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
             </ModalDescription>
           </ModalHeader>
 
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                University Name *
-              </label>
-              <Input
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="e.g., Alexandria National University"
-              />
-            </div>
+          {/* Scrollable form content */}
+          <div className="flex-1 overflow-y-auto px-6">
+            <div className="grid grid-cols-2 gap-4 pb-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  University Name *
+                </label>
+                <Input
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="e.g., Alexandria National University"
+                  className="text-sm"
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Subdomain *
-              </label>
-              <Input
-                value={formData.subdomain}
-                onChange={(e) => setFormData({ ...formData, subdomain: e.target.value })}
-                placeholder="e.g., anu (will be anu:5173)"
-              />
-              <p className="text-xs text-slate-500 mt-1">Lowercase letters, numbers, and hyphens only</p>
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Subdomain *
+                </label>
+                <Input
+                  value={formData.subdomain}
+                  onChange={(e) => setFormData({ ...formData, subdomain: e.target.value })}
+                  placeholder="e.g., anu (will be anu:5173)"
+                  className="text-sm"
+                />
+                <p className="text-xs text-slate-500 mt-1">Lowercase letters, numbers, and hyphens only</p>
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Database Schema *
-              </label>
-              <Input
-                value={formData.db_schema}
-                onChange={(e) => setFormData({ ...formData, db_schema: e.target.value })}
-                placeholder="e.g., alexandria_national_university"
-              />
-              <p className="text-xs text-slate-500 mt-1">Database schema for tenant data isolation</p>
-            </div>
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Database Schema *
+                </label>
+                <Input
+                  value={formData.db_schema}
+                  onChange={(e) => setFormData({ ...formData, db_schema: e.target.value })}
+                  placeholder="e.g., alexandria_national_university"
+                  className="text-sm"
+                />
+                <p className="text-xs text-slate-500 mt-1">Database schema for tenant data isolation</p>
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Address
-              </label>
-              <Input
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                placeholder="e.g., 123 University Street, Cairo"
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Address
+                </label>
+                <Input
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  placeholder="e.g., 123 University Street, Cairo"
+                  className="text-sm"
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Phone
-              </label>
-              <Input
-                value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                placeholder="e.g., +20 3 5921911"
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Phone
+                </label>
+                <Input
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  placeholder="e.g., +20 3 5921911"
+                  className="text-sm"
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Email
-              </label>
-              <Input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                placeholder="e.g., info@university.edu.eg"
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Email
+                </label>
+                <Input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  placeholder="e.g., info@university.edu.eg"
+                  className="text-sm"
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Website
-              </label>
-              <Input
-                value={formData.website}
-                onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-                placeholder="e.g., https://www.university.edu.eg"
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Website
+                </label>
+                <Input
+                  value={formData.website}
+                  onChange={(e) => setFormData({ ...formData, website: e.target.value })}
+                  placeholder="e.g., https://www.university.edu.eg"
+                  className="text-sm"
+                />
+              </div>
 
-            <div className="flex justify-end gap-3 pt-4">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowAddModal(false);
-                  setEditingUniversity(null);
-                  setFormData({ name: '', subdomain: '', db_schema: '', address: '', phone: '', email: '', website: '' });
-                }}
-              >
-                Cancel
-              </Button>
-              <Button onClick={editingUniversity ? handleEditUniversity : handleAddUniversity}>
-                {editingUniversity ? 'Update' : 'Add'} University
-              </Button>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Established Date
+                </label>
+                <Input
+                  type="date"
+                  value={formData.established_date}
+                  onChange={(e) => setFormData({ ...formData, established_date: e.target.value })}
+                  className="text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Accreditation
+                </label>
+                <Input
+                  value={formData.accreditation}
+                  onChange={(e) => setFormData({ ...formData, accreditation: e.target.value })}
+                  placeholder="e.g., Accreditation ID or status"
+                  className="text-sm"
+                />
+              </div>
             </div>
+          </div>
+
+          {/* Fixed footer buttons */}
+          <div className="flex justify-end gap-3 p-6 border-t bg-slate-50">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowAddModal(false);
+                setEditingUniversity(null);
+                setFormData({ name: '', subdomain: '', db_schema: '', address: '', phone: '', email: '', website: '', established_date: '', accreditation: '' });
+              }}
+              className="px-4"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={editingUniversity ? handleEditUniversity : handleAddUniversity}
+              className="px-6"
+            >
+              {editingUniversity ? 'Update' : 'Add'} University
+            </Button>
           </div>
         </ModalContent>
       </Modal>
