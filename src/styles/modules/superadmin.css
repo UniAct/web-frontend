@@ -1,0 +1,5 @@
+@layer components {
+  .superadmin-academic-year {
+    @apply text-blue-700 font-medium;
+  }
+}

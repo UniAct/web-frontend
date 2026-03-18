@@ -1,233 +1,175 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Modal, ModalContent, ModalDescription, ModalHeader, ModalTitle } from '../ui/modal';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Checkbox } from '../ui/checkbox';
-import { Switch } from '../ui/switch';
 import {
   Plus,
   Search,
-  Edit,
   Trash2,
   Shield,
-  User,
-  Mail,
-  Calendar,
-  Settings,
-  Users,
-  BookOpen,
-  BarChart3,
-  UserCog,
-  Clock
+  KeyRound,
+  Loader2,
+  RefreshCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
-
-interface Admin {
-  id: string;
-  name: string;
-  email: string;
-  role: 'super_admin' | 'admin' | 'registrar' | 'academic_admin';
-  status: 'active' | 'inactive' | 'pending';
-  permissions: string[];
-  lastLogin: string;
-  createdAt: string;
-}
+import { RBACService } from '../../api';
+import type { Permission, Role } from '../../api';
 
 interface UniversityAdminsPageProps {
   selectedUniversity: string | null;
   setSelectedUniversity: (id: string | null) => void;
 }
 
-const AVAILABLE_PERMISSIONS = [
-  { id: 'statistics', label: 'Statistics', description: 'Access visual insights & analytics' },
-  { id: 'admins', label: 'Admins', description: 'Manage administrator accounts' },
-  { id: 'staff', label: 'Staff', description: 'Manage faculty & teaching assistants' },
-  { id: 'students', label: 'Students', description: 'Manage student accounts & data' },
-  { id: 'programs', label: 'Programs', description: 'Manage academic programs & faculties' },
-  { id: 'rooms', label: 'Rooms', description: 'Manage rooms & facilities' },
-  { id: 'timetabling', label: 'Timetabling', description: 'Create and modify schedules' },
-  { id: 'enrollment', label: 'Enrollment', description: 'Manage student enrollments' },
-  { id: 'level-tables', label: 'Level Tables', description: 'Manage level & schedule tables' },
-  { id: 'attendance', label: 'Attendance', description: 'Track and manage attendance' },
-  { id: 'grades', label: 'Grades', description: 'Manage student grades' },
-  { id: 'announcements', label: 'Announcements', description: 'Create and manage announcements' },
-  { id: 'audit-logs', label: 'Audit Logs', description: 'View system activity logs' },
-  { id: 'settings', label: 'Settings', description: 'Modify system settings' },
-];
+interface RoleFormState {
+  name: string;
+  description: string;
+  permissions: string[];
+}
 
-// Mock data
-const mockAdmins: Admin[] = [
-  {
-    id: '1',
-    name: 'Dr. Ahmed Hassan',
-    email: 'ahmed.hassan@anu.edu.eg',
-    role: 'admin',
-    status: 'active',
-    permissions: ['statistics', 'staff', 'students', 'programs', 'timetabling', 'enrollment'],
-    lastLogin: '2024-01-20T10:30:00Z',
-    createdAt: '2023-09-15T08:00:00Z'
-  },
-  {
-    id: '2',
-    name: 'Sarah Mohamed',
-    email: 'sarah.mohamed@anu.edu.eg',
-    role: 'registrar',
-    status: 'active',
-    permissions: ['students', 'enrollment', 'attendance', 'statistics'],
-    lastLogin: '2024-01-19T14:20:00Z',
-    createdAt: '2023-10-01T09:15:00Z'
-  },
-  {
-    id: '3',
-    name: 'Prof. Omar Ali',
-    email: 'omar.ali@anu.edu.eg',
-    role: 'academic_admin',
-    status: 'pending',
-    permissions: ['programs', 'timetabling', 'grades', 'announcements'],
-    lastLogin: 'Never',
-    createdAt: '2024-01-15T11:00:00Z'
-  }
-];
+const emptyForm: RoleFormState = {
+  name: '',
+  description: '',
+  permissions: [],
+};
 
 export function UniversityAdminsPage({ selectedUniversity }: UniversityAdminsPageProps) {
-  const [admins, setAdmins] = useState<Admin[]>(mockAdmins);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [permissions, setPermissions] = useState<Permission[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [editingAdmin, setEditingAdmin] = useState<Admin | null>(null);
-  const [filterRole, setFilterRole] = useState<'all' | Admin['role']>('all');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [showRoleModal, setShowRoleModal] = useState(false);
+  const [editingRole, setEditingRole] = useState<Role | null>(null);
+  const [form, setForm] = useState<RoleFormState>(emptyForm);
 
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    role: 'admin' as Admin['role'],
-    permissions: [] as string[]
-  });
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [loadedRoles, loadedPermissions] = await Promise.all([
+        RBACService.getAllRoles(),
+        RBACService.getAllPermissions(),
+      ]);
 
-  const filteredAdmins = admins.filter(admin => {
-    const matchesSearch = admin.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      admin.email.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesRole = filterRole === 'all' || admin.role === filterRole;
-    return matchesSearch && matchesRole;
-  });
-
-  const handleAddAdmin = () => {
-    if (!formData.name || !formData.email) {
-      toast.error('Please fill in all required fields');
-      return;
+      setRoles(loadedRoles);
+      setPermissions(loadedPermissions);
+    } catch (error: any) {
+      console.error('Failed to load RBAC data:', error);
+      toast.error(error.message || 'Failed to load roles and permissions');
+    } finally {
+      setLoading(false);
     }
-
-    const newAdmin: Admin = {
-      id: Date.now().toString(),
-      name: formData.name,
-      email: formData.email,
-      role: formData.role,
-      status: 'pending',
-      permissions: formData.permissions,
-      lastLogin: 'Never',
-      createdAt: new Date().toISOString()
-    };
-
-    setAdmins([...admins, newAdmin]);
-    setShowAddModal(false);
-    resetForm();
-    toast.success('Admin added successfully');
   };
 
-  const handleEditAdmin = () => {
-    if (!editingAdmin || !formData.name || !formData.email) {
-      toast.error('Please fill in all required fields');
-      return;
-    }
+  useEffect(() => {
+    if (!selectedUniversity) return;
+    void loadData();
+  }, [selectedUniversity]);
 
-    setAdmins(admins.map(admin =>
-      admin.id === editingAdmin.id
-        ? {
-          ...admin,
-          name: formData.name,
-          email: formData.email,
-          role: formData.role,
-          permissions: formData.permissions
-        }
-        : admin
-    ));
-    setEditingAdmin(null);
-    resetForm();
-    toast.success('Admin updated successfully');
-  };
+  const filteredRoles = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return roles;
 
-  const handleDeleteAdmin = (id: string) => {
-    setAdmins(admins.filter(admin => admin.id !== id));
-    toast.success('Admin deleted successfully');
-  };
-
-  const openEditModal = (admin: Admin) => {
-    setEditingAdmin(admin);
-    setFormData({
-      name: admin.name,
-      email: admin.email,
-      role: admin.role,
-      permissions: [...admin.permissions]
+    return roles.filter((role) => {
+      const rolePermissions = role.permissions ?? [];
+      return (
+        role.name.toLowerCase().includes(query) ||
+        (role.description ?? '').toLowerCase().includes(query) ||
+        rolePermissions.some((permission) => permission.toLowerCase().includes(query))
+      );
     });
-  };
+  }, [roles, searchQuery]);
 
   const resetForm = () => {
-    setFormData({
-      name: '',
-      email: '',
-      role: 'admin',
-      permissions: []
+    setForm(emptyForm);
+    setEditingRole(null);
+  };
+
+  const openCreateModal = () => {
+    resetForm();
+    setShowRoleModal(true);
+  };
+
+  const openEditModal = (role: Role) => {
+    setEditingRole(role);
+    setForm({
+      name: role.name,
+      description: role.description ?? '',
+      permissions: role.permissions ?? [],
     });
+    setShowRoleModal(true);
   };
 
-  const handlePermissionChange = (permissionId: string, checked: boolean) => {
-    if (checked) {
-      setFormData({
-        ...formData,
-        permissions: [...formData.permissions, permissionId]
-      });
-    } else {
-      setFormData({
-        ...formData,
-        permissions: formData.permissions.filter(p => p !== permissionId)
-      });
+  const togglePermission = (permissionName: string, checked: boolean) => {
+    setForm((current) => ({
+      ...current,
+      permissions: checked
+        ? [...new Set([...current.permissions, permissionName])]
+        : current.permissions.filter((item) => item !== permissionName),
+    }));
+  };
+
+  const handleSaveRole = async () => {
+    if (!form.name.trim()) {
+      toast.error('Role name is required');
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      let savedRole: Role;
+      if (editingRole) {
+        savedRole = await RBACService.updateRole(editingRole.id, {
+          name: form.name.trim(),
+          description: form.description.trim() || undefined,
+        });
+      } else {
+        savedRole = await RBACService.createRole({
+          name: form.name.trim(),
+          description: form.description.trim() || undefined,
+        });
+      }
+
+      if (form.permissions.length > 0) {
+        await RBACService.assignPermissionsToRole(savedRole.id, form.permissions);
+      }
+
+      await loadData();
+      setShowRoleModal(false);
+      resetForm();
+      toast.success(editingRole ? 'Role updated successfully' : 'Role created successfully');
+    } catch (error: any) {
+      console.error('Failed to save role:', error);
+      toast.error(error.message || 'Failed to save role');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const getRoleColor = (role: Admin['role']) => {
-    switch (role) {
-      case 'super_admin': return 'bg-red-100 text-red-800 border-red-200';
-      case 'admin': return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'registrar': return 'bg-green-100 text-green-800 border-green-200';
-      case 'academic_admin': return 'bg-purple-100 text-purple-800 border-purple-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
+  const handleDeleteRole = async (role: Role) => {
+    try {
+      await RBACService.deleteRole(role.id);
+      setRoles((current) => current.filter((item) => item.id !== role.id));
+      toast.success(`Role "${role.name}" deleted successfully`);
+    } catch (error: any) {
+      console.error('Failed to delete role:', error);
+      toast.error(error.message || 'Failed to delete role');
     }
-  };
-
-  const getStatusColor = (status: Admin['status']) => {
-    switch (status) {
-      case 'active': return 'bg-green-100 text-green-800 border-green-200';
-      case 'inactive': return 'bg-red-100 text-red-800 border-red-200';
-      case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
-
-  const formatLastLogin = (lastLogin: string) => {
-    if (lastLogin === 'Never') return 'Never';
-    return new Date(lastLogin).toLocaleDateString();
   };
 
   if (!selectedUniversity) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
-          <Shield className="w-12 h-12 text-slate-400 mb-4" />
-          <h3 className="text-lg font-medium text-slate-900 mb-2">No University Selected</h3>
-          <p className="text-slate-600 text-center">Please select a university from the Universities page to manage its administrators.</p>
+          <Shield className="mb-4 h-12 w-12 text-slate-400" />
+          <h3 className="mb-2 text-lg font-medium text-slate-900">No University Selected</h3>
+          <p className="text-center text-slate-600">
+            Please select a university first so we can manage its roles and permissions.
+          </p>
         </CardContent>
       </Card>
     );
@@ -235,308 +177,227 @@ export function UniversityAdminsPage({ selectedUniversity }: UniversityAdminsPag
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-semibold text-slate-900">University Administrators</h2>
-          <p className="text-slate-600 mt-1">Manage administrators and their permissions</p>
+          <h2 className="text-2xl font-semibold text-slate-900">Roles & Permissions</h2>
+          <p className="mt-1 text-slate-600">
+            Create role templates and choose what each admin can do in this university.
+          </p>
         </div>
-        <Button onClick={() => setShowAddModal(true)} className="gap-2">
-          <Plus className="w-4 h-4" />
-          Add Administrator
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => void loadData()} disabled={loading}>
+            <RefreshCcw className="mr-2 h-4 w-4" />
+            Refresh
+          </Button>
+          <Button onClick={openCreateModal}>
+            <Plus className="mr-2 h-4 w-4" />
+            New Role
+          </Button>
+        </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Card>
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-600">Total Admins</p>
-                <p className="text-2xl font-semibold text-slate-900">{admins.length}</p>
-              </div>
-              <Users className="w-8 h-8 text-blue-600" />
-            </div>
+            <p className="text-sm text-slate-600">Total Roles</p>
+            <p className="text-2xl font-semibold text-slate-900">{roles.length}</p>
           </CardContent>
         </Card>
-
         <Card>
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-600">Active Admins</p>
-                <p className="text-2xl font-semibold text-green-600">
-                  {admins.filter(a => a.status === 'active').length}
-                </p>
-              </div>
-              <Shield className="w-8 h-8 text-green-600" />
-            </div>
+            <p className="text-sm text-slate-600">Available Permissions</p>
+            <p className="text-2xl font-semibold text-slate-900">{permissions.length}</p>
           </CardContent>
         </Card>
-
         <Card>
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-600">Pending Approval</p>
-                <p className="text-2xl font-semibold text-orange-600">
-                  {admins.filter(a => a.status === 'pending').length}
-                </p>
-              </div>
-              <Clock className="w-8 h-8 text-orange-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-600">Super Admins</p>
-                <p className="text-2xl font-semibold text-red-600">
-                  {admins.filter(a => a.role === 'super_admin').length}
-                </p>
-              </div>
-              <UserCog className="w-8 h-8 text-red-600" />
-            </div>
+            <p className="text-sm text-slate-600">Configured Roles</p>
+            <p className="text-2xl font-semibold text-slate-900">
+              {roles.filter((role) => (role.permissions?.length ?? 0) > 0).length}
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Filters and Search */}
       <Card>
         <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <Input
-                placeholder="Search administrators..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-
-            <select
-              value={filterRole}
-              onChange={(e) => setFilterRole(e.target.value as any)}
-              className="px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">All Roles</option>
-              <option value="super_admin">Super Admin</option>
-              <option value="admin">Admin</option>
-              <option value="registrar">Registrar</option>
-              <option value="academic_admin">Academic Admin</option>
-            </select>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              className="pl-10"
+              placeholder="Search roles or permissions..."
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
           </div>
         </CardContent>
       </Card>
 
-      {/* Administrators Table */}
       <Card>
+        <CardHeader>
+          <CardTitle>Configured Roles</CardTitle>
+          <CardDescription>
+            Create role templates and assign permissions so each admin can access the right tools.
+          </CardDescription>
+        </CardHeader>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Administrator</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Permissions</TableHead>
-                <TableHead>Last Login</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredAdmins.map((admin) => (
-                <TableRow key={admin.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <Avatar className="w-10 h-10">
-                        <AvatarImage src="" />
-                        <AvatarFallback className="bg-blue-100 text-blue-700">
-                          {admin.name.split(' ').map(n => n[0]).join('')}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="font-medium text-slate-900">{admin.name}</p>
-                        <p className="text-sm text-slate-500">{admin.email}</p>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge className={getRoleColor(admin.role)}>
-                      {admin.role.replace('_', ' ')}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge className={getStatusColor(admin.status)}>
-                      {admin.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {admin.permissions.slice(0, 2).map(permission => (
-                        <Badge key={permission} variant="outline" className="text-xs">
-                          {AVAILABLE_PERMISSIONS.find(p => p.id === permission)?.label}
-                        </Badge>
-                      ))}
-                      {admin.permissions.length > 2 && (
-                        <Badge variant="outline" className="text-xs">
-                          +{admin.permissions.length - 2} more
-                        </Badge>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>{formatLastLogin(admin.lastLogin)}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openEditModal(admin)}
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteAdmin(admin.id)}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
+          {loading ? (
+            <div className="flex items-center justify-center py-10 text-slate-600">
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+              Loading roles...
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead>Permissions</TableHead>
+                  <TableHead className="w-[140px]">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filteredRoles.length > 0 ? (
+                  filteredRoles.map((role) => (
+                    <TableRow key={role.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Shield className="h-4 w-4 text-blue-600" />
+                          <span className="font-medium text-slate-900">{role.name}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>{role.description || '-'}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-2">
+                          {(role.permissions ?? []).length > 0 ? (
+                            (role.permissions ?? []).map((permission) => (
+                              <Badge key={permission} variant="outline" className="gap-1">
+                                <KeyRound className="h-3 w-3" />
+                                {permission}
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-slate-500">No permissions assigned</span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <Button variant="ghost" size="sm" onClick={() => openEditModal(role)}>
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700"
+                            onClick={() => void handleDeleteRole(role)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={4} className="py-10 text-center text-slate-500">
+                      No roles matched your search.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
-      {/* Add/Edit Modal */}
-      <Modal open={showAddModal || !!editingAdmin} onOpenChange={(open) => {
-        if (!open) {
-          setShowAddModal(false);
-          setEditingAdmin(null);
-          resetForm();
-        }
-      }}>
-        <ModalContent className="max-w-2xl max-h-[90vh] flex flex-col p-0">
-          <div className="px-6 pt-6 pb-4 border-b border-slate-200 flex-shrink-0">
-            <ModalHeader className="mb-0">
-              <ModalTitle>
-                {editingAdmin ? 'Edit Administrator' : 'Add New Administrator'}
-              </ModalTitle>
-              <ModalDescription>
-                {editingAdmin ? 'Update administrator information and permissions' : 'Create a new administrator account'}
-              </ModalDescription>
-            </ModalHeader>
-          </div>
+      <Modal
+        open={showRoleModal}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowRoleModal(false);
+            resetForm();
+          }
+        }}
+      >
+        <ModalContent className="max-w-3xl">
+          <ModalHeader>
+            <ModalTitle>{editingRole ? 'Edit Role' : 'Create Role'}</ModalTitle>
+            <ModalDescription>
+              Create or update a role, then choose the permissions it should include.
+            </ModalDescription>
+          </ModalHeader>
 
-          <div className="flex-1 overflow-y-auto px-6 py-4">
-            <div className="space-y-5">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Full Name *
-                  </label>
-                  <Input
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="e.g., Dr. Ahmed Hassan"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Email Address *
-                  </label>
-                  <Input
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    placeholder="e.g., ahmed.hassan@anu.edu.eg"
-                  />
-                </div>
-              </div>
-
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Role
-                </label>
-                <select
-                  value={formData.role}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value as Admin['role'] })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="admin">Admin</option>
-                  <option value="registrar">Registrar</option>
-                  <option value="academic_admin">Academic Admin</option>
-                  <option value="super_admin">Super Admin</option>
-                </select>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Role Name *</label>
+                <Input
+                  value={form.name}
+                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                  placeholder="e.g. Registrar"
+                />
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Permissions
-                </label>
-                <div className="border border-slate-200 rounded-lg p-3 bg-slate-50">
-                  <div className="space-y-2">
-                    {AVAILABLE_PERMISSIONS.map((permission) => (
-                      <div
-                        key={permission.id}
-                        className="flex items-center justify-between p-2.5 bg-white rounded-lg border border-slate-200 hover:border-blue-300 transition-colors"
-                      >
-                        <div className="flex-1 min-w-0 mr-3">
-                          <label
-                            htmlFor={permission.id}
-                            className="text-sm font-medium text-slate-900 cursor-pointer"
-                          >
-                            {permission.label}
-                          </label>
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            {permission.description}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <span className={`text-xs font-medium min-w-[24px] text-center ${formData.permissions.includes(permission.id)
-                              ? 'text-green-600'
-                              : 'text-slate-400'
-                            }`}>
-                            {formData.permissions.includes(permission.id) ? 'Yes' : 'No'}
-                          </span>
-                          <Switch
-                            id={permission.id}
-                            checked={formData.permissions.includes(permission.id)}
-                            onCheckedChange={(checked) =>
-                              handlePermissionChange(permission.id, checked as boolean)
-                            }
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Description</label>
+                <Input
+                  value={form.description}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, description: event.target.value }))
+                  }
+                  placeholder="Short role description"
+                />
               </div>
             </div>
-          </div>
 
-          <div className="px-6 py-4 border-t border-slate-200 flex-shrink-0">
-            <div className="flex justify-end gap-3">
+            <div>
+              <p className="mb-3 text-sm font-medium text-slate-700">Permissions</p>
+              <div className="grid max-h-72 grid-cols-1 gap-3 overflow-y-auto rounded-lg border p-4 md:grid-cols-2">
+                {permissions.map((permission) => {
+                  const checked = form.permissions.includes(permission.name);
+                  return (
+                    <label
+                      key={permission.name}
+                      className="flex items-start gap-3 rounded-md border p-3 text-sm"
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(value) =>
+                          togglePermission(permission.name, Boolean(value))
+                        }
+                      />
+                      <div>
+                        <p className="font-medium text-slate-900">{permission.name}</p>
+                        <p className="text-slate-500">{permission.description || 'No description'}</p>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 border-t pt-4">
               <Button
                 variant="outline"
                 onClick={() => {
-                  setShowAddModal(false);
-                  setEditingAdmin(null);
+                  setShowRoleModal(false);
                   resetForm();
                 }}
+                disabled={saving}
               >
                 Cancel
               </Button>
-              <Button onClick={editingAdmin ? handleEditAdmin : handleAddAdmin}>
-                {editingAdmin ? 'Update' : 'Add'} Administrator
+              <Button onClick={() => void handleSaveRole()} disabled={saving}>
+                {saving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : editingRole ? (
+                  'Update Role'
+                ) : (
+                  'Create Role'
+                )}
               </Button>
             </div>
           </div>

@@ -202,7 +202,7 @@ export function AdminAttendancePage({ selectedUniversity }: AdminAttendancePageP
             <SelectContent>
               {courses.map((course) => (
                 <SelectItem key={course.id} value={course.id}>
-                  {course.name} • {course.students} students • {course.room}
+                  {course.name} - {course.students} students - {course.room}
                 </SelectItem>
               ))}
             </SelectContent>

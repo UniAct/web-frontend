@@ -3,7 +3,18 @@ import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
-import { apiClient } from '../api/client';
+import { apiClient } from '../api';
+import { TenantDetectionService } from '../services/TenantDetectionService';
+
+const decodeTokenPayload = (token: string) => {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    return JSON.parse(atob(parts[1]));
+  } catch {
+    return null;
+  }
+};
 
 export default function VerifyRootAccountPage() {
   const [searchParams] = useSearchParams();
@@ -18,20 +29,27 @@ export default function VerifyRootAccountPage() {
   const universityParam = searchParams.get('university');
 
   useEffect(() => {
+    const decoded = token ? decodeTokenPayload(token) : null;
+    const decodedUniversityName =
+      typeof decoded?.university_name === 'string' ? decoded.university_name : undefined;
+    const decodedSchemaName =
+      typeof decoded?.schema_name === 'string' ? decoded.schema_name : undefined;
+
     // If backend redirected with success status, show success immediately
     if (redirectStatus === 'success' && universityParam) {
       setStatus('success');
       setMessage('Your account has been verified successfully!');
 
-      const subdomain = universityParam
-        .split(' ')
-        .map((word: string) => word[0])
-        .join('')
-        .toLowerCase();
+      const subdomain = TenantDetectionService.buildTenantKey(
+        decodedSchemaName || universityParam,
+      );
+      const displayName = decodedUniversityName || universityParam;
+
+      TenantDetectionService.rememberTenantMapping(displayName, subdomain);
 
       setUniversityData({
         subdomain,
-        name: universityParam,
+        name: displayName,
       });
       return;
     }
@@ -51,35 +69,30 @@ export default function VerifyRootAccountPage() {
       setMessage('Verifying your account...');
 
       // Decode the JWT to extract information
-      const parts = token!.split('.');
-      if (parts.length !== 3) {
-        throw new Error('Invalid token format');
-      }
-
-      const decoded = JSON.parse(atob(parts[1]));
-      const universityName = decoded.university_name;
-
-      if (!universityName) {
-        throw new Error('University name not found in token');
-      }
+      const decoded = decodeTokenPayload(token!);
+      const universityName =
+        typeof decoded?.university_name === 'string' ? decoded.university_name : undefined;
+      const schemaName =
+        typeof decoded?.schema_name === 'string' ? decoded.schema_name : undefined;
 
       // Call the verification endpoint
       const response = await apiClient.verifyRootAccount(token!);
 
       if (response.status === 'success') {
-        // Convert university name to subdomain
-        // e.g., "Alexandria National University" -> "anu"
-        const subdomain = universityName
-          .split(' ')
-          .map((word: string) => word[0])
-          .join('')
-          .toLowerCase();
+        const subdomain = TenantDetectionService.buildTenantKey(schemaName || universityName || '');
+        const displayName = universityName || schemaName || 'your university';
+
+        if (!subdomain) {
+          throw new Error('Tenant key could not be detected from the verification token');
+        }
+
+        TenantDetectionService.rememberTenantMapping(displayName, subdomain);
 
         setStatus('success');
         setMessage('Your account has been verified successfully!');
         setUniversityData({
           subdomain,
-          name: universityName,
+          name: displayName,
         });
       } else {
         setStatus('error');
@@ -94,10 +107,7 @@ export default function VerifyRootAccountPage() {
 
   const handleNavigateToTenant = () => {
     if (universityData?.subdomain) {
-      const protocol = window.location.protocol;
-      const port = window.location.port ? `:${window.location.port}` : '';
-      const newUrl = `${protocol}//${universityData.subdomain}${port}`;
-      window.location.href = newUrl;
+      TenantDetectionService.navigateToTenant(universityData.subdomain);
     }
   };
 

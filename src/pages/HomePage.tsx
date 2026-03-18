@@ -16,7 +16,6 @@ import {
   Mail,
   Phone,
   ChevronRight,
-  Award,
   Building2,
   Globe,
   ArrowRight,
@@ -37,38 +36,15 @@ import {
   Loader2
 } from 'lucide-react';
 import { motion, useInView } from 'framer-motion';
-import { apiClient } from '../api/client';
+import { AuthService, UniversityService } from '../api';
 import { TenantDetectionService } from '../services/TenantDetectionService';
+import { homeEvents, homeFaculties, homeHeroImages } from '../features/home';
+import type { PublicTenantProfile } from '../api';
 import type { UserRole } from '../App';
+import type { Faculty, HomeEvent } from '../features/home';
 
 interface HomePageProps {
   onLogin: (email: string, role: UserRole) => void;
-}
-
-interface Faculty {
-  id: number;
-  name: string;
-  description: string;
-  fullDescription: string;
-  programs: string[];
-  students: number;
-  icon: any;
-  color: string;
-  type: string;
-  years: number;
-}
-
-interface Event {
-  id: number;
-  title: string;
-  date: string;
-  time: string;
-  location: string;
-  type: string;
-  description: string;
-  icon: any;
-  attendees: number;
-  images?: string[];
 }
 
 export function HomePage({ onLogin }: HomePageProps) {
@@ -77,10 +53,9 @@ export function HomePage({ onLogin }: HomePageProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
-  const [selectedRole, setSelectedRole] = useState<UserRole>('student');
   const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
   const [selectedFaculty, setSelectedFaculty] = useState<Faculty | null>(null);
-  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<HomeEvent | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [showProgramsModal, setShowProgramsModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
@@ -90,6 +65,7 @@ export function HomePage({ onLogin }: HomePageProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState<string>('');
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [tenantProfile, setTenantProfile] = useState<PublicTenantProfile | null>(null);
 
   // Counter animation states
   const [studentsCount, setStudentsCount] = useState(0);
@@ -108,131 +84,33 @@ export function HomePage({ onLogin }: HomePageProps) {
   useEffect(() => {
     const tenantContext = TenantDetectionService.detectTenant();
     setIsSuperAdmin(tenantContext.isSuperAdmin);
+
+    if (tenantContext.isSuperAdmin || !tenantContext.subdomain) {
+      return;
+    }
+
+    let isMounted = true;
+
+    UniversityService.getPublicTenantProfile(tenantContext.subdomain)
+      .then((profile) => {
+        if (isMounted) {
+          setTenantProfile(profile);
+        }
+      })
+      .catch((error) => {
+        console.warn('[HomePage] Failed to load public tenant profile:', error);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  // University hero images
-  const heroImages = [
-    'https://images.unsplash.com/photo-1632834380561-d1e05839a33a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx1bml2ZXJzaXR5JTIwY2FtcHVzJTIwc3R1ZGVudHN8ZW58MXx8fHwxNzU5ODc1NjQ0fDA&ixlib=rb-4.1.0&q=80&w=1080',
-    'https://images.unsplash.com/photo-1722248540590-ba8b7af1d7b2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjb2xsZWdlJTIwbGlicmFyeSUyMHN0dWR5aW5nfGVufDF8fHx8MTc1OTk3MDA4M3ww&ixlib=rb-4.1.0&q=80&w=1080',
-    'https://images.unsplash.com/photo-1738949538943-e54722a44ffc?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx1bml2ZXJzaXR5JTIwZ3JhZHVhdGlvbiUyMGNlcmVtb255fGVufDF8fHx8MTc1OTk0Mjc4MXww&ixlib=rb-4.1.0&q=80&w=1080',
-    'https://images.unsplash.com/photo-1713721332588-122f666e2525?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjYW1wdXMlMjBidWlsZGluZyUyMGFyY2hpdGVjdHVyZXxlbnwxfHx8fDE3NTk5NjY2MTZ8MA&ixlib=rb-4.1.0&q=80&w=1080'
-  ];
-
-  const faculties: Faculty[] = [
-    {
-      id: 1,
-      name: 'Faculty of Engineering',
-      description: 'Leading innovation in technology and engineering solutions',
-      fullDescription: 'Our Faculty of Engineering is at the forefront of technological innovation, offering cutting-edge programs that prepare students for the challenges of tomorrow. With state-of-the-art laboratories and world-renowned faculty, we foster an environment of creativity, critical thinking, and practical problem-solving.',
-      programs: ['Computer Science', 'Electrical Engineering', 'Mechanical Engineering', 'Civil Engineering'],
-      students: 2500,
-      icon: FlaskConical,
-      color: 'from-blue-500 to-cyan-500',
-      type: 'Bachelor & Master',
-      years: 4
-    },
-    {
-      id: 2,
-      name: 'Faculty of Medicine',
-      description: 'Excellence in medical education and healthcare research',
-      fullDescription: 'The Faculty of Medicine is dedicated to training the next generation of healthcare professionals through rigorous academic programs and hands-on clinical experience. Our commitment to research and patient care ensures that our graduates are well-equipped to make meaningful contributions to the field of medicine.',
-      programs: ['Medicine', 'Dentistry', 'Pharmacy', 'Nursing'],
-      students: 1800,
-      icon: Microscope,
-      color: 'from-green-500 to-emerald-500',
-      type: 'Bachelor & Doctorate',
-      years: 6
-    },
-    {
-      id: 3,
-      name: 'Faculty of Business',
-      description: 'Developing future business leaders and entrepreneurs',
-      fullDescription: 'Our Faculty of Business cultivates the entrepreneurial spirit and leadership skills necessary for success in today\'s dynamic global marketplace. Through innovative curriculum, industry partnerships, and real-world projects, we prepare students to become visionary leaders and change-makers in business.',
-      programs: ['Business Administration', 'Economics', 'Finance', 'Marketing', 'Entrepreneurship'],
-      students: 2100,
-      icon: Briefcase,
-      color: 'from-purple-500 to-violet-500',
-      type: 'Bachelor & MBA',
-      years: 4
-    },
-    {
-      id: 4,
-      name: 'Faculty of Arts',
-      description: 'Fostering creativity and critical thinking in humanities',
-      fullDescription: 'The Faculty of Arts celebrates human creativity, cultural diversity, and intellectual exploration. Our programs encourage students to think critically about society, culture, and the human experience while developing their creative expression and analytical skills.',
-      programs: ['Literature', 'History', 'Philosophy', 'Fine Arts', 'Languages'],
-      students: 1200,
-      icon: Palette,
-      color: 'from-orange-500 to-amber-500',
-      type: 'Bachelor',
-      years: 4
-    }
-  ];
-
-  const events: Event[] = [
-    {
-      id: 1,
-      title: 'Tech Innovation Summit 2024',
-      date: '2024-04-15',
-      time: '9:00 AM',
-      location: 'Main Auditorium',
-      type: 'Conference',
-      description: 'Join industry leaders discussing the future of technology and innovation.',
-      icon: Rocket,
-      attendees: 500,
-      images: [
-        'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=800&h=600&fit=crop',
-        'https://images.unsplash.com/photo-1591115765373-5207764f72e7?w=800&h=600&fit=crop',
-        'https://images.unsplash.com/photo-1505373877841-8d25f7d46678?w=800&h=600&fit=crop'
-      ]
-    },
-    {
-      id: 2,
-      title: 'International Research Symposium',
-      date: '2024-04-20',
-      time: '2:00 PM',
-      location: 'Research Center',
-      type: 'Academic',
-      description: 'Showcase of groundbreaking research from our faculty and students.',
-      icon: Microscope,
-      attendees: 300,
-      images: [
-        'https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=800&h=600&fit=crop',
-        'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=800&h=600&fit=crop'
-      ]
-    },
-    {
-      id: 3,
-      title: 'Career Fair 2024',
-      date: '2024-04-25',
-      time: '10:00 AM',
-      location: 'Student Center',
-      type: 'Career',
-      description: 'Connect with top employers and explore career opportunities.',
-      icon: Briefcase,
-      attendees: 800,
-      images: [
-        'https://images.unsplash.com/photo-1511578314322-379afb476865?w=800&h=600&fit=crop',
-        'https://images.unsplash.com/photo-1556761175-5973dc0f32e7?w=800&h=600&fit=crop',
-        'https://images.unsplash.com/photo-1552581234-26160f608093?w=800&h=600&fit=crop'
-      ]
-    },
-    {
-      id: 4,
-      title: 'Cultural Heritage Festival',
-      date: '2024-05-01',
-      time: '6:00 PM',
-      location: 'Campus Grounds',
-      type: 'Cultural',
-      description: 'Celebrating our diverse cultural heritage with performances and exhibitions.',
-      icon: PartyPopper,
-      attendees: 1200,
-      images: [
-        'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=800&h=600&fit=crop',
-        'https://images.unsplash.com/photo-1533174072545-7a4b6ad7a6c3?w=800&h=600&fit=crop'
-      ]
-    }
-  ];
+  const universityName = tenantProfile?.name ?? 'UniAct';
+  const universityContactName = tenantProfile?.name ?? 'our university';
+  const heroImages = homeHeroImages;
+  const faculties = homeFaculties;
+  const events = homeEvents;
 
   // Animated counter effect with easing for smooth animation
   useEffect(() => {
@@ -294,7 +172,7 @@ export function HomePage({ onLogin }: HomePageProps) {
   const handleEmailSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
-    
+
     // For both SuperAdmin and tenant context, just validate email format
     if (email && email.includes('@')) {
       setCompletedSteps(prev => new Set(prev).add('email'));
@@ -307,7 +185,7 @@ export function HomePage({ onLogin }: HomePageProps) {
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
-    
+
     if (!password) {
       setLoginError('Please enter a password');
       return;
@@ -319,12 +197,12 @@ export function HomePage({ onLogin }: HomePageProps) {
       if (isSuperAdmin) {
         // SuperAdmin login - call API immediately after password
         console.log('[HomePage] SuperAdmin login attempt:', email);
-        const response = await apiClient.loginSuperAdmin(email, password);
+        const response = await AuthService.loginSuperAdmin(email, password);
         console.log('[HomePage] SuperAdmin login successful:', response);
-        
+
         // Call the onLogin callback with superadmin role
         onLogin(email, 'superadmin' as UserRole);
-        
+
         // Close modal and reset form
         setShowLoginModal(false);
         setLoginStep('email');
@@ -334,13 +212,13 @@ export function HomePage({ onLogin }: HomePageProps) {
         setCompletedSteps(new Set());
       } else {
         // Tenant user login - still show password validation, then proceed to login
-        console.log('[HomePage] Tenant user login attempt:', email, 'Role:', selectedRole);
-        const response = await apiClient.loginStaff(email, password);
+        console.log('[HomePage] Tenant user login attempt:', email);
+        const response = await AuthService.loginStaff(email, password);
         console.log('[HomePage] Tenant user login successful:', response);
-        
-        // Call the onLogin callback with selected role
-        onLogin(email, selectedRole);
-        
+
+        // App.tsx resolves the final role from backend token/session roles.
+        onLogin(email, 'student');
+
         // Close modal and reset form
         setShowLoginModal(false);
         setLoginStep('email');
@@ -377,13 +255,6 @@ export function HomePage({ onLogin }: HomePageProps) {
     if (step === 'password') return completedSteps.has('email');
     return false;
   };
-
-  const roleOptions = [
-    { value: 'student', label: 'Student', icon: GraduationCap },
-    { value: 'faculty', label: 'Faculty', icon: Users },
-    { value: 'admin', label: 'Administrator', icon: Building2 },
-    { value: 'alumni', label: 'Alumni', icon: Award }
-  ];
 
   const scrollToSection = (sectionId: string) => {
     const element = document.getElementById(sectionId);
@@ -437,30 +308,32 @@ export function HomePage({ onLogin }: HomePageProps) {
                 <GraduationCap className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h1 className="text-xl text-blue-900">ANU UniAct</h1>
-                <p className="text-xs text-blue-600">Alexandria National University</p>
+                <h1 className="text-xl text-blue-900">{isSuperAdmin ? 'UniAct' : universityName}</h1>
+                <p className="text-xs text-blue-600">
+                  {isSuperAdmin ? 'System Administration Portal' : 'University Portal'}
+                </p>
               </div>
             </motion.div>
 
             {/* Navigation Links */}
             <div className="hidden md:flex items-center gap-8">
-              <button onClick={() => scrollToSection('faculties')} className="text-gray-600 hover:text-blue-600 transition-colors relative group">
+              <button onClick={() => scrollToSection('faculties')} className="ui-nav-link group">
                 Faculties
                 <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-blue-600 transition-all group-hover:w-full"></span>
               </button>
-              <button onClick={() => setShowProgramsModal(true)} className="text-gray-600 hover:text-blue-600 transition-colors relative group">
+              <button onClick={() => setShowProgramsModal(true)} className="ui-nav-link group">
                 Programs
                 <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-blue-600 transition-all group-hover:w-full"></span>
               </button>
-              <button onClick={() => scrollToSection('events')} className="text-gray-600 hover:text-blue-600 transition-colors relative group">
+              <button onClick={() => scrollToSection('events')} className="ui-nav-link group">
                 Events
                 <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-blue-600 transition-all group-hover:w-full"></span>
               </button>
-              <button onClick={() => setShowAboutModal(true)} className="text-gray-600 hover:text-blue-600 transition-colors relative group">
+              <button onClick={() => setShowAboutModal(true)} className="ui-nav-link group">
                 About
                 <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-blue-600 transition-all group-hover:w-full"></span>
               </button>
-              <button onClick={() => scrollToSection('contact')} className="text-gray-600 hover:text-blue-600 transition-colors relative group">
+              <button onClick={() => scrollToSection('contact')} className="ui-nav-link group">
                 Contact
                 <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-blue-600 transition-all group-hover:w-full"></span>
               </button>
@@ -504,7 +377,7 @@ export function HomePage({ onLogin }: HomePageProps) {
                 <Button
                   size="lg"
                   onClick={() => scrollToSection('faculties')}
-                  className="bg-blue-600 hover:bg-blue-700 transition-all hover:shadow-lg hover:-translate-y-0.5"
+                  className="rounded-xl px-6"
                 >
                   Explore Programs
                   <ArrowRight className="w-4 h-4 ml-2" />
@@ -512,7 +385,7 @@ export function HomePage({ onLogin }: HomePageProps) {
                 <Button
                   variant="outline"
                   size="lg"
-                  className="transition-all hover:shadow-md hover:-translate-y-0.5"
+                  className="rounded-xl px-6"
                 >
                   <Play className="w-4 h-4 mr-2" />
                   Watch Demo
@@ -520,7 +393,7 @@ export function HomePage({ onLogin }: HomePageProps) {
               </div>
 
               {/* Statistics Counter Section */}
-              <div ref={statsRef} className="grid grid-cols-1 sm:grid-cols-3 gap-6 lg:gap-8 max-w-4xl plt-[-4px] plt-[-3px] plt-[-2px] pr-[0px] plr-[0px] pb-[0px] pl-[0px] pt-[-3px]">
+              <div ref={statsRef} className="home-stats-grid">
                 {/* Students Counter */}
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
@@ -635,8 +508,8 @@ export function HomePage({ onLogin }: HomePageProps) {
                           key={index}
                           onClick={() => setHeroImageIndex(index)}
                           className={`transition-all duration-300 ${index === heroImageIndex
-                              ? 'bg-white w-8 h-2'
-                              : 'bg-white/60 hover:bg-white/80 w-2 h-2'
+                            ? 'bg-white w-8 h-2'
+                            : 'bg-white/60 hover:bg-white/80 w-2 h-2'
                             } rounded-full`}
                           aria-label={`Go to image ${index + 1}`}
                         />
@@ -850,7 +723,7 @@ export function HomePage({ onLogin }: HomePageProps) {
                   <GraduationCap className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-lg">ANU UniAct</h3>
+                  <h3 className="text-lg">{isSuperAdmin ? 'UniAct' : universityName}</h3>
                   <p className="text-xs text-gray-400">Digital University Ecosystem</p>
                 </div>
               </div>
@@ -899,7 +772,7 @@ export function HomePage({ onLogin }: HomePageProps) {
           </div>
 
           <div className="border-t border-gray-800 mt-8 pt-8 text-center text-sm text-gray-400">
-            <p>&copy; 2024 Alexandria National University. All rights reserved.</p>
+            <p>&copy; 2024 {isSuperAdmin ? 'UniAct' : universityName}. All rights reserved.</p>
           </div>
         </div>
       </footer>
@@ -922,10 +795,10 @@ export function HomePage({ onLogin }: HomePageProps) {
                 type="button"
                 onClick={() => handleTabNavigation('email')}
                 className={`text-center py-2 px-3 rounded-md text-sm transition-all ${loginStep === 'email'
-                    ? 'bg-background shadow-sm'
-                    : canNavigateToStep('email')
-                      ? 'text-muted-foreground hover:bg-background/50 cursor-pointer'
-                      : 'text-muted-foreground cursor-not-allowed'
+                  ? 'bg-background shadow-sm'
+                  : canNavigateToStep('email')
+                    ? 'text-muted-foreground hover:bg-background/50 cursor-pointer'
+                    : 'text-muted-foreground cursor-not-allowed'
                   }`}
                 disabled={!canNavigateToStep('email')}
               >
@@ -936,10 +809,10 @@ export function HomePage({ onLogin }: HomePageProps) {
                 type="button"
                 onClick={() => handleTabNavigation('password')}
                 className={`text-center py-2 px-3 rounded-md text-sm transition-all ${loginStep === 'password'
-                    ? 'bg-background shadow-sm'
-                    : canNavigateToStep('password')
-                      ? 'text-muted-foreground hover:bg-background/50 cursor-pointer'
-                      : 'text-muted-foreground cursor-not-allowed'
+                  ? 'bg-background shadow-sm'
+                  : canNavigateToStep('password')
+                    ? 'text-muted-foreground hover:bg-background/50 cursor-pointer'
+                    : 'text-muted-foreground cursor-not-allowed'
                   }`}
                 disabled={!canNavigateToStep('password')}
               >
@@ -972,9 +845,9 @@ export function HomePage({ onLogin }: HomePageProps) {
                       {isSuperAdmin ? 'Use your SuperAdmin email' : 'Enter your institutional email'}
                     </p>
                   </div>
-                  <Button 
-                    type="submit" 
-                    className="w-full" 
+                  <Button
+                    type="submit"
+                    className="w-full"
                     disabled={!email || isLoading}
                   >
                     Continue
@@ -998,32 +871,9 @@ export function HomePage({ onLogin }: HomePageProps) {
                     />
                   </div>
 
-                  {!isSuperAdmin && (
-                    <div>
-                      <p className="text-sm mb-3">Select your role:</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        {roleOptions.map((role) => (
-                          <button
-                            key={role.value}
-                            type="button"
-                            onClick={() => setSelectedRole(role.value as UserRole)}
-                            disabled={isLoading}
-                            className={`p-3 rounded-lg border-2 transition-all ${selectedRole === role.value
-                                ? 'border-blue-500 bg-blue-50'
-                                : 'border-gray-200 hover:border-gray-300'
-                              } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          >
-                            <role.icon className="w-5 h-5 mx-auto mb-1" />
-                            <p className="text-sm">{role.label}</p>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <Button 
-                    type="submit" 
-                    className="w-full" 
+                  <Button
+                    type="submit"
+                    className="w-full"
                     disabled={!password || isLoading}
                   >
                     {isLoading ? (
@@ -1159,8 +1009,8 @@ export function HomePage({ onLogin }: HomePageProps) {
                             key={index}
                             onClick={() => setCurrentImageIndex(index)}
                             className={`w-2 h-2 rounded-full transition-all ${index === currentImageIndex
-                                ? 'bg-white w-6'
-                                : 'bg-white/60 hover:bg-white/80'
+                              ? 'bg-white w-6'
+                              : 'bg-white/60 hover:bg-white/80'
                               }`}
                           />
                         ))}
@@ -1324,7 +1174,9 @@ export function HomePage({ onLogin }: HomePageProps) {
                 <Building2 className="w-6 h-6 text-white" />
               </div>
               <div>
-                <DialogTitle className="text-2xl">About ANU UniAct</DialogTitle>
+                <DialogTitle className="text-2xl">
+                  About {isSuperAdmin ? 'UniAct' : universityName}
+                </DialogTitle>
                 <DialogDescription>
                   Our mission, vision, and policies
                 </DialogDescription>
@@ -1337,7 +1189,7 @@ export function HomePage({ onLogin }: HomePageProps) {
             <div>
               <h3 className="text-lg font-medium text-gray-900 mb-3">Our Mission</h3>
               <p className="text-gray-600 leading-relaxed">
-                Alexandria National University is committed to providing world-class education that empowers students
+                {universityContactName} is committed to providing world-class education that empowers students
                 to become innovative leaders and responsible global citizens. Through cutting-edge research,
                 collaborative learning, and community engagement, we strive to advance knowledge and create positive
                 societal impact.
@@ -1434,7 +1286,7 @@ export function HomePage({ onLogin }: HomePageProps) {
                   <CardContent className="p-4">
                     <h4 className="font-medium text-gray-900 mb-2">Equal Opportunity Policy</h4>
                     <p className="text-sm text-gray-600 leading-relaxed">
-                      Alexandria National University is committed to providing equal opportunities to all individuals
+                      {universityContactName} is committed to providing equal opportunities to all individuals
                       regardless of race, color, religion, gender, age, national origin, disability, or any other
                       protected characteristic.
                     </p>

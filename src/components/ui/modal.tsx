@@ -4,6 +4,8 @@ import ReactDOM from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from './utils';
 
+const ModalContext = React.createContext<{ onClose: () => void } | null>(null);
+
 interface ModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -44,23 +46,16 @@ export function Modal({ open, onOpenChange, children }: ModalProps) {
     >
       {/* Overlay */}
       <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[10000] pointer-events-auto"
+        className="fixed inset-0 bg-black/45 backdrop-blur-[2px] z-[10000] pointer-events-auto"
         onClick={() => onOpenChange(false)}
         data-testid="modal-overlay"
       />
 
       {/* Centered content wrapper (higher z) */}
-      <div className="relative z-[10001] w-full max-w-md mx-4">
-        {children}
-        {/* close button if desired — optional, remove if you already render a close button in children */}
-        <button
-          onClick={() => onOpenChange(false)}
-          className="absolute right-3 top-3 inline-flex items-center justify-center rounded p-1 focus:outline-none"
-          aria-label="Close modal"
-          type="button"
-        >
-          <X className="h-4 w-4" />
-        </button>
+      <div className="relative z-[10001] flex min-h-full w-full items-center justify-center px-4 sm:px-6">
+        <ModalContext.Provider value={{ onClose: () => onOpenChange(false) }}>
+          {children}
+        </ModalContext.Provider>
       </div>
     </div>,
     // ensure portal target exists
@@ -74,19 +69,31 @@ interface ModalContentProps {
 }
 
 export function ModalContent({ className, children }: ModalContentProps) {
+  const modalContext = React.useContext(ModalContext);
+
   return (
     <div
       className={cn(
-        "bg-background rounded-lg border shadow-lg p-6 w-full animate-in fade-in-0 zoom-in-95 duration-300 relative",
+        "bg-white text-slate-900 rounded-2xl border border-slate-200 shadow-2xl p-6 w-full max-h-[90vh] overflow-y-auto animate-in fade-in-0 zoom-in-95 duration-300 relative",
         className
       )}
     >
+      {modalContext ? (
+        <button
+          onClick={modalContext.onClose}
+          className="absolute right-4 top-4 inline-flex items-center justify-center rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus:outline-none"
+          aria-label="Close modal"
+          type="button"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      ) : null}
       {children}
     </div>
   );
 }
 
-/* ModalHeader / ModalTitle / ModalDescription unchanged — keep them as-is */
+/* ModalHeader / ModalTitle / ModalDescription unchanged - keep them as-is */
 interface ModalHeaderProps {
   children: React.ReactNode;
   className?: string;

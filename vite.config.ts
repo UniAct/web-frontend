@@ -1,43 +1,51 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import type { ProxyOptions } from "vite";
 
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    host: '0.0.0.0',  // Listen on all network interfaces
-    port: 5173,
-    allowedHosts: [
-      'localhost',
-      '127.0.0.1',
-      'anu',
-      'auc',
-      'sa',
-      'sa-3',
-      'ras',
-      'admin',
-      'public',
-      'uniact.local',
-      // Allow any host (for development)
-      '.local',
-    ],
-    // Proxy API requests to backend
-    // This ensures requests go to the correct backend server based on hostname
-    proxy: {
-      '/api': {
-        // Dynamic target: use same subdomain for backend
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-        rewrite: (path) => path,
-        configure: (proxy: any, options: ProxyOptions) => {
-          proxy.on('proxyReq', (proxyReq: any, req: any, res: any) => {
-            const hostname = req.headers.host?.split(':')[0] || 'localhost';
-            const newTarget = `http://${hostname}:3000`;
-            console.log(`[Vite Proxy] Proxying to ${newTarget}`);
-            proxyReq.setHeader('host', hostname);
-          });
-        },
-      } as ProxyOptions
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, '.', '');
+  const backendPort = new URL(env.VITE_API_BASE || 'http://localhost:3001').port || '3001';
+  const proxyTarget = `http://127.0.0.1:${backendPort}`;
+
+  return {
+    plugins: [react()],
+    server: {
+      host: '0.0.0.0',
+      port: 5173,
+      allowedHosts: [
+        'localhost',
+        '127.0.0.1',
+        'anu',
+        'auc',
+        'sa',
+        'sa-3',
+        'ras',
+        'admin',
+        'public',
+        'uniact.local',
+        // Allow any host (for development)
+        '.local',
+        'buc',
+        'cairo_modern'
+      ],
+      // Proxy API requests to backend
+      proxy: {
+        '/api': {
+          target: proxyTarget,
+          changeOrigin: false,
+          rewrite: (path) => path,
+          configure: (proxy: any, options: ProxyOptions) => {
+            proxy.on('proxyReq', (proxyReq: any, req: any, res: any) => {
+              const hostname = req.headers.host?.split(':')[0] || 'localhost';
+              proxyReq.setHeader('host', `${hostname}:${backendPort}`);
+              console.log(`[Vite Proxy] ${req.method} ${req.url} -> ${proxyTarget} (host: ${hostname}:${backendPort})`);
+            });
+            proxy.on('error', (error: Error, req: any) => {
+              console.error(`[Vite Proxy] ${req?.method || 'GET'} ${req?.url || ''} failed: ${error.message}`);
+            });
+          },
+        } as ProxyOptions
+      }
     }
-  }
+  };
 });

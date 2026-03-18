@@ -1,4 +1,4 @@
-﻿@tailwind base;
+@tailwind base;
 @tailwind components;
 @tailwind utilities;
 @custom-variant dark (&:is(.dark *));
@@ -42,6 +42,102 @@
   --sidebar-accent-foreground: #1e293b;
   --sidebar-border: #e2e8f0;
   --sidebar-ring: #93c5fd;
+
+  /* Role identity tokens (default: student/guest) */
+  --role-button-bg: #1d4ed8;
+  --role-button-hover: #1e40af;
+  --role-button-text: #ffffff;
+  --role-soft-bg: #eff6ff;
+  --role-soft-hover: #dbeafe;
+  --role-soft-text: #1d4ed8;
+  --role-border: #93c5fd;
+  --role-tab-list-bg: #eff6ff;
+  --role-tab-list-border: #bfdbfe;
+  --role-tab-active-bg: #ffffff;
+  --role-tab-active-text: #1d4ed8;
+  --role-tab-hover-bg: #dbeafe;
+  --role-tab-hover-text: #1e3a8a;
+}
+
+:root[data-user-role="student"],
+:root[data-user-role="guest"] {
+  --role-button-bg: #1d4ed8;
+  --role-button-hover: #1e40af;
+  --role-button-text: #ffffff;
+  --role-soft-bg: #eff6ff;
+  --role-soft-hover: #dbeafe;
+  --role-soft-text: #1d4ed8;
+  --role-border: #93c5fd;
+  --role-tab-list-bg: #eff6ff;
+  --role-tab-list-border: #bfdbfe;
+  --role-tab-active-bg: #ffffff;
+  --role-tab-active-text: #1d4ed8;
+  --role-tab-hover-bg: #dbeafe;
+  --role-tab-hover-text: #1e3a8a;
+}
+
+:root[data-user-role="faculty"] {
+  --role-button-bg: #065f46;
+  --role-button-hover: #064e3b;
+  --role-button-text: #ffffff;
+  --role-soft-bg: #ecfdf5;
+  --role-soft-hover: #d1fae5;
+  --role-soft-text: #065f46;
+  --role-border: #6ee7b7;
+  --role-tab-list-bg: #ecfdf5;
+  --role-tab-list-border: #a7f3d0;
+  --role-tab-active-bg: #ffffff;
+  --role-tab-active-text: #065f46;
+  --role-tab-hover-bg: #d1fae5;
+  --role-tab-hover-text: #064e3b;
+}
+
+:root[data-user-role="alumni"] {
+  --role-button-bg: #b45309;
+  --role-button-hover: #92400e;
+  --role-button-text: #ffffff;
+  --role-soft-bg: #fffbeb;
+  --role-soft-hover: #fef3c7;
+  --role-soft-text: #b45309;
+  --role-border: #fcd34d;
+  --role-tab-list-bg: #fffbeb;
+  --role-tab-list-border: #fde68a;
+  --role-tab-active-bg: #ffffff;
+  --role-tab-active-text: #b45309;
+  --role-tab-hover-bg: #fef3c7;
+  --role-tab-hover-text: #92400e;
+}
+
+:root[data-user-role="admin"] {
+  --role-button-bg: #111827;
+  --role-button-hover: #030712;
+  --role-button-text: #f9fafb;
+  --role-soft-bg: #f3f4f6;
+  --role-soft-hover: #e5e7eb;
+  --role-soft-text: #111827;
+  --role-border: #6b7280;
+  --role-tab-list-bg: #f3f4f6;
+  --role-tab-list-border: #d1d5db;
+  --role-tab-active-bg: #ffffff;
+  --role-tab-active-text: #111827;
+  --role-tab-hover-bg: #e5e7eb;
+  --role-tab-hover-text: #030712;
+}
+
+:root[data-user-role="superadmin"] {
+  --role-button-bg: #0b0f19;
+  --role-button-hover: #000000;
+  --role-button-text: #f9fafb;
+  --role-soft-bg: #eef2ff;
+  --role-soft-hover: #e0e7ff;
+  --role-soft-text: #0b0f19;
+  --role-border: #4b5563;
+  --role-tab-list-bg: #f3f4f6;
+  --role-tab-list-border: #d1d5db;
+  --role-tab-active-bg: #ffffff;
+  --role-tab-active-text: #0b0f19;
+  --role-tab-hover-bg: #e5e7eb;
+  --role-tab-hover-text: #000000;
 }
 
 .dark {
@@ -132,6 +228,147 @@
   }
 }
 
+@layer components {
+  .btn-role-primary {
+    background-color: var(--role-button-bg, #1d4ed8);
+    color: var(--role-button-text, #ffffff);
+    border: 1px solid transparent;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+  }
+
+  .btn-role-primary:hover {
+    background-color: var(--role-button-hover, #1e40af);
+    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.18);
+  }
+
+  .btn-role-outline {
+    background-color: var(--role-soft-bg, #eff6ff);
+    color: var(--role-soft-text, #1d4ed8);
+    border: 1px solid var(--role-border, #93c5fd);
+  }
+
+  .btn-role-outline:hover {
+    background-color: var(--role-soft-hover, #dbeafe);
+    color: var(--role-button-hover, #1e40af);
+    border-color: var(--role-button-hover, #1e40af);
+  }
+
+  .btn-role-ghost {
+    background-color: transparent;
+    color: var(--role-soft-text, #1d4ed8);
+    border: 1px solid transparent;
+  }
+
+  .btn-role-ghost:hover {
+    background-color: var(--role-soft-bg, #eff6ff);
+    color: var(--role-button-hover, #1e40af);
+  }
+
+  .tabs-role-list {
+    background-color: var(--role-tab-list-bg, #eff6ff);
+    border-color: var(--role-tab-list-border, #bfdbfe);
+  }
+
+  .tabs-role-trigger {
+    color: var(--role-soft-text, #1d4ed8);
+  }
+
+  .tabs-role-trigger:hover {
+    background-color: var(--role-tab-hover-bg, #dbeafe);
+    color: var(--role-tab-hover-text, #1e3a8a);
+  }
+
+  .tabs-role-trigger[data-state="active"] {
+    background-color: var(--role-tab-active-bg, #ffffff);
+    color: var(--role-tab-active-text, #1d4ed8);
+    border-color: var(--role-tab-list-border, #bfdbfe);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  }
+}
+
+/* Semantic utility bridge for tokenized class names used across UI primitives. */
+@layer utilities {
+  .bg-background {
+    background-color: var(--background);
+  }
+
+  .text-foreground {
+    color: var(--foreground);
+  }
+
+  .bg-card {
+    background-color: var(--card);
+  }
+
+  .text-card-foreground {
+    color: var(--card-foreground);
+  }
+
+  .bg-popover {
+    background-color: var(--popover);
+  }
+
+  .text-popover-foreground {
+    color: var(--popover-foreground);
+  }
+
+  .bg-primary {
+    background-color: var(--primary);
+  }
+
+  .text-primary-foreground {
+    color: var(--primary-foreground);
+  }
+
+  .bg-secondary {
+    background-color: var(--secondary);
+  }
+
+  .text-secondary-foreground {
+    color: var(--secondary-foreground);
+  }
+
+  .bg-muted {
+    background-color: var(--muted);
+  }
+
+  .text-muted-foreground {
+    color: var(--muted-foreground);
+  }
+
+  .bg-accent {
+    background-color: var(--accent);
+  }
+
+  .text-accent-foreground {
+    color: var(--accent-foreground);
+  }
+
+  .bg-destructive {
+    background-color: var(--destructive);
+  }
+
+  .text-destructive-foreground {
+    color: var(--destructive-foreground);
+  }
+
+  .border-border {
+    border-color: var(--border);
+  }
+
+  .border-input {
+    border-color: var(--border);
+  }
+
+  .bg-input-background {
+    background-color: var(--input-background);
+  }
+
+  .ring-ring {
+    --tw-ring-color: var(--ring);
+  }
+}
+
 /**
  * Base typography. This is not applied to elements which have an ancestor with a Tailwind text class.
  */
@@ -192,6 +429,61 @@ html {
   scroll-behavior: smooth;
 }
 
+/* Final hard overrides to guarantee role button/tab styles load in all routes. */
+.btn-role-primary {
+  background-color: var(--role-button-bg, #1d4ed8) !important;
+  color: var(--role-button-text, #ffffff) !important;
+  border: 1px solid transparent !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12) !important;
+}
+
+.btn-role-primary:hover {
+  background-color: var(--role-button-hover, #1e40af) !important;
+  color: var(--role-button-text, #ffffff) !important;
+}
+
+.btn-role-outline {
+  background-color: var(--role-soft-bg, #eff6ff) !important;
+  color: var(--role-soft-text, #1d4ed8) !important;
+  border: 1px solid var(--role-border, #93c5fd) !important;
+}
+
+.btn-role-outline:hover {
+  background-color: var(--role-soft-hover, #dbeafe) !important;
+  color: var(--role-button-hover, #1e40af) !important;
+  border-color: var(--role-button-hover, #1e40af) !important;
+}
+
+.btn-role-ghost {
+  background-color: transparent !important;
+  color: var(--role-soft-text, #1d4ed8) !important;
+}
+
+.btn-role-ghost:hover {
+  background-color: var(--role-soft-bg, #eff6ff) !important;
+  color: var(--role-button-hover, #1e40af) !important;
+}
+
+.tabs-role-list {
+  background-color: var(--role-tab-list-bg, #eff6ff) !important;
+  border-color: var(--role-tab-list-border, #bfdbfe) !important;
+}
+
+.tabs-role-trigger {
+  color: var(--role-soft-text, #1d4ed8) !important;
+}
+
+.tabs-role-trigger:hover {
+  background-color: var(--role-tab-hover-bg, #dbeafe) !important;
+  color: var(--role-tab-hover-text, #1e3a8a) !important;
+}
+
+.tabs-role-trigger[data-state="active"] {
+  background-color: var(--role-tab-active-bg, #ffffff) !important;
+  color: var(--role-tab-active-text, #1d4ed8) !important;
+  border-color: var(--role-tab-list-border, #bfdbfe) !important;
+}
+
 /* Custom animations */
 @keyframes fade-in {
   from {
@@ -241,6 +533,12 @@ html {
   }
 }
 
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @keyframes slide-fade-in {
   from {
     opacity: 0;
@@ -255,6 +553,10 @@ html {
 
 .animate-fade-in {
   animation: fade-in 0.6s ease-out;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
 }
 
 .animate-in {

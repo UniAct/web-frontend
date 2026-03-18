@@ -11,7 +11,7 @@
  */
 
 import { createContext, useContext, useState, useEffect } from 'react';
-import { apiClient, type User, type LoginResponse } from '../api/client';
+import { AuthService, apiClient, type User } from '../api';
 import { TenantDetectionService } from '../services/TenantDetectionService';
 
 export interface AuthContextType {
@@ -82,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
 
       console.log('[AuthContext] Attempting staff login:', email);
-      const response = await apiClient.loginStaff(email, password);
+      const response = await AuthService.loginStaff(email, password);
 
       setToken(response.token);
       setUser(response.user);
@@ -105,7 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
 
       console.log('[AuthContext] Attempting superadmin login:', email);
-      const response = await apiClient.loginSuperAdmin(email, password);
+      const response = await AuthService.loginSuperAdmin(email, password);
 
       setToken(response.token);
       setUser(response.user);
@@ -124,7 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = () => {
     console.log('[AuthContext] Logging out user');
-    apiClient.logout();
+    AuthService.logout();
     setUser(null);
     setToken(null);
     setError(null);

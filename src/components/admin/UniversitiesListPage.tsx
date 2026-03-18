@@ -9,31 +9,31 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import {
   Plus,
   Search,
-  Edit,
   Trash2,
   Building2,
-  Users,
-  GraduationCap,
-  BookOpen,
-  MoreHorizontal,
   Globe,
-  Calendar,
   TrendingUp,
-  AlertCircle,
   Shield,
   UserCog,
-  Loader2
+  Loader2,
+  Power,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { apiClient } from '../../api/client';
+import { apiClient, SuperAdminService, UniversityService } from '../../api';
+import { TenantDetectionService } from '../../services/TenantDetectionService';
 
 interface University {
   id: number;
+  /** Also used as the x-tenant-id / tenant identifier (must match exactly for login) */
   name: string;
-  subdomain: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  established_date?: string;
+  accreditation?: string;
   db_schema: string;
   is_active: boolean;
-  university_id?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -72,6 +72,8 @@ const mockSuperAdmins: SuperAdmin[] = [
   }
 ];
 
+const UNIVERSITIES_LOAD_ERROR_TOAST_ID = 'universities-load-error';
+
 export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity }: UniversitiesListPageProps) {
   const [activeTab, setActiveTab] = useState('universities');
 
@@ -79,12 +81,10 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
   const [universities, setUniversities] = useState<University[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
-  const [editingUniversity, setEditingUniversity] = useState<University | null>(null);
   const [isLoadingTenants, setIsLoadingTenants] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
-    subdomain: '',
     db_schema: '',
     address: '',
     phone: '',
@@ -99,17 +99,16 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
   const [adminSearchQuery, setAdminSearchQuery] = useState('');
   const [showAddAdminModal, setShowAddAdminModal] = useState(false);
   const [showAddRootAdminModal, setShowAddRootAdminModal] = useState(false);
-  const [editingAdmin, setEditingAdmin] = useState<SuperAdmin | null>(null);
   const [isSubmittingAdmin, setIsSubmittingAdmin] = useState(false);
   const [isLoadingSuperAdmins, setIsLoadingSuperAdmins] = useState(false);
-  
+
   // Register SuperAdmin form
   const [registerFormData, setRegisterFormData] = useState({
     username: '',
     email: '',
     password: ''
   });
-  
+
   // Root Admin form
   const [adminFormData, setAdminFormData] = useState({
     university_id: '',
@@ -135,15 +134,19 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
   const loadTenants = async () => {
     try {
       setIsLoadingTenants(true);
-      const response = await apiClient.getTenants();
-      if (response.data) {
-        setUniversities(response.data);
-      } else {
-        toast.error('Failed to load universities');
-      }
+      const data = await UniversityService.getAll();
+      TenantDetectionService.rememberTenantMappings(
+        data.map((university) => ({
+          name: university.name,
+          tenantKey: university.db_schema,
+        })),
+      );
+      setUniversities(data);
     } catch (error) {
       console.error('Error loading tenants:', error);
-      toast.error('Error loading universities');
+      const message =
+        error instanceof Error ? error.message : 'Error loading universities';
+      toast.error(message, { id: UNIVERSITIES_LOAD_ERROR_TOAST_ID });
     } finally {
       setIsLoadingTenants(false);
     }
@@ -152,15 +155,13 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
   const loadSuperAdmins = async () => {
     try {
       setIsLoadingSuperAdmins(true);
-      const response = await apiClient.getSuperAdmins();
-      if (response.data) {
-        setSuperAdmins(response.data.map((admin: any) => ({
-          id: String(admin.id),
-          username: admin.username,
-          email: admin.email,
-          createdAt: admin.created_at ? new Date(admin.created_at).toLocaleDateString() : 'N/A'
-        })));
-      }
+      const data = await SuperAdminService.getAll();
+      setSuperAdmins(data.map((admin: any) => ({
+        id: String(admin.id),
+        username: admin.username,
+        email: admin.email,
+        createdAt: admin.created_at ? new Date(admin.created_at).toLocaleDateString() : 'N/A'
+      })));
     } catch (error) {
       console.error('Error loading super admins:', error);
       // Don't show error toast, as it might fail if endpoint not ready
@@ -171,59 +172,38 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
 
   const filteredUniversities = universities.filter(uni => {
     const matchesSearch = uni.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      uni.subdomain.toLowerCase().includes(searchQuery.toLowerCase());
+      uni.db_schema.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesSearch;
   });
 
   const handleAddUniversity = async () => {
-    if (!formData.name || !formData.subdomain || !formData.db_schema) {
+    if (!formData.name || !formData.db_schema || !formData.address || !formData.phone ||
+      !formData.email || !formData.website || !formData.established_date || !formData.accreditation) {
       toast.error('Please fill in all required fields');
       return;
     }
 
     try {
       setIsLoadingTenants(true);
-
-      // Step 1: Create University record first
-      let universityId: number | null = null;
-      try {
-        const universityResponse = await apiClient.createUniversity({
-          name: formData.name,
-          address: formData.address,
-          phone: formData.phone,
-          email: formData.email,
-          website: formData.website,
-          established_date: formData.established_date,
-          accreditation: formData.accreditation,
-        });
-
-        if (universityResponse.status === 'success' && universityResponse.data) {
-          universityId = universityResponse.data.id;
-          console.log('[SUCCESS] University created:', universityId);
-        } else {
-          throw new Error(universityResponse.message || 'Failed to create university record');
-        }
-      } catch (universityError: any) {
-        toast.error(universityError.message || 'Failed to create university');
-        return;
-      }
-
-      // Step 2: Create Tenant linked to University
-      const tenantResponse = await apiClient.createTenant({
+      const createdUniversity = await UniversityService.create({
         name: formData.name,
-        subdomain: formData.subdomain,
+        address: formData.address,
+        phone: formData.phone,
+        email: formData.email,
+        website: formData.website,
+        established_date: formData.established_date,
+        accreditation: formData.accreditation,
         db_schema: formData.db_schema,
-        university_id: universityId,
       });
 
-      if (tenantResponse.status === 'success' && tenantResponse.data) {
-        setUniversities([...universities, tenantResponse.data]);
-        setShowAddModal(false);
-        setFormData({ name: '', subdomain: '', db_schema: '', address: '', phone: '', email: '', website: '', established_date: '', accreditation: '' });
-        toast.success('University and Tenant created successfully!');
-      } else {
-        toast.error(tenantResponse.message || 'Failed to create tenant');
-      }
+      TenantDetectionService.rememberTenantMapping(
+        createdUniversity.name,
+        createdUniversity.db_schema,
+      );
+      setUniversities([...universities, createdUniversity as University]);
+      setShowAddModal(false);
+      setFormData({ name: '', db_schema: '', address: '', phone: '', email: '', website: '', established_date: '', accreditation: '' });
+      toast.success('University created successfully!');
     } catch (error: any) {
       console.error('Error adding university:', error);
       toast.error(error.message || 'Failed to add university');
@@ -232,49 +212,46 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
     }
   };
 
-  const handleEditUniversity = () => {
-    if (!editingUniversity || !formData.name || !formData.subdomain || !formData.db_schema) {
-      toast.error('Please fill in all required fields');
-      return;
-    }
-
-    setUniversities(universities.map(uni =>
-      uni.id === editingUniversity.id
-        ? { ...uni, name: formData.name, subdomain: formData.subdomain, db_schema: formData.db_schema }
-        : uni
-    ));
-    setEditingUniversity(null);
-    setFormData({ name: '', subdomain: '', db_schema: '', address: '', phone: '', email: '', website: '', established_date: '', accreditation: '' });
-    toast.success('University updated successfully');
-  };
-
   const handleDeleteUniversity = async (id: number) => {
     try {
-      await apiClient.deleteTenant(id);
+      await UniversityService.delete(id);
       setUniversities(universities.filter(uni => uni.id !== id));
       if (selectedUniversity === String(id)) {
         setSelectedUniversity(null);
+        apiClient.clearTenantOverrideName();
       }
       toast.success('University deleted successfully');
     } catch (error: any) {
       console.error('Error deleting university:', error);
-      toast.error('Failed to delete university');
+      toast.error(error.message || 'Failed to delete university');
     }
   };
 
-  const openEditModal = (university: University) => {
-    setEditingUniversity(university);
-    setFormData({
-      name: university.name,
-      subdomain: university.subdomain,
-      db_schema: university.db_schema,
-      address: '',
-      phone: '',
-      email: '',
-      website: '',
-      established_date: '',
-      accreditation: ''
-    });
+  const handleToggleUniversityStatus = async (university: University) => {
+    const activeUniversitiesCount = universities.filter((item) => item.is_active).length;
+
+    if (university.is_active && activeUniversitiesCount === 1) {
+      toast.error('You cannot deactivate the last active university.');
+      return;
+    }
+
+    try {
+      const updatedUniversity = university.is_active
+        ? await UniversityService.deactivate(university.id)
+        : await UniversityService.activate(university.id);
+
+      setUniversities((current) =>
+        current.map((item) => (item.id === updatedUniversity.id ? updatedUniversity : item)),
+      );
+      toast.success(
+        updatedUniversity.is_active
+          ? 'University activated successfully'
+          : 'University deactivated successfully',
+      );
+    } catch (error: any) {
+      console.error('Error toggling university status:', error);
+      toast.error(error.message || 'Failed to change university status');
+    }
   };
 
   const getStatusColor = (status: boolean) => {
@@ -303,31 +280,26 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
 
     try {
       setIsSubmittingAdmin(true);
-      const response = await apiClient.createSuperAdmin({
+      const createdAdmin = await SuperAdminService.create({
         username: registerFormData.username,
         email: registerFormData.email,
         password: registerFormData.password
       });
 
-      if (response.status === 'success') {
-        // Add to local list
-        const newAdmin: SuperAdmin = {
-          id: Date.now().toString(),
-          username: registerFormData.username,
-          email: registerFormData.email,
-          createdAt: new Date().toLocaleDateString()
-        };
-        setSuperAdmins([...superAdmins, newAdmin]);
-        setShowAddAdminModal(false);
-        setRegisterFormData({
-          username: '',
-          email: '',
-          password: ''
-        });
-        toast.success('SuperAdmin registered successfully! Verification email sent.');
-      } else {
-        toast.error(response.message || 'Failed to register SuperAdmin');
-      }
+      const newAdmin: SuperAdmin = {
+        id: String(createdAdmin.id || Date.now()),
+        username: createdAdmin.username,
+        email: createdAdmin.email,
+        createdAt: createdAdmin.created_at ? new Date(createdAdmin.created_at).toLocaleDateString() : new Date().toLocaleDateString()
+      };
+      setSuperAdmins([...superAdmins, newAdmin]);
+      setShowAddAdminModal(false);
+      setRegisterFormData({
+        username: '',
+        email: '',
+        password: ''
+      });
+      toast.success('SuperAdmin registered successfully! Verification email sent.');
     } catch (error: any) {
       console.error('Error registering SuperAdmin:', error);
       toast.error(error.message || 'Failed to register SuperAdmin');
@@ -338,8 +310,8 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
 
   // Assign root account to a university
   const handleAssignRootAdmin = async () => {
-    if (!adminFormData.university_id || !adminFormData.username || !adminFormData.first_name || 
-        !adminFormData.last_name || !adminFormData.email || !adminFormData.password) {
+    if (!adminFormData.university_id || !adminFormData.username || !adminFormData.first_name ||
+      !adminFormData.last_name || !adminFormData.email || !adminFormData.password) {
       toast.error('Please fill in all required fields');
       return;
     }
@@ -360,41 +332,37 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
 
     try {
       setIsSubmittingAdmin(true);
-      const response = await apiClient.assignRootAccount({
+      await SuperAdminService.assignRootAccount({
         university_name: selectedUni.name,
         username: adminFormData.username,
-        first_name: adminFormData.first_name,
-        last_name: adminFormData.last_name,
+        firstName: adminFormData.first_name,
+        lastName: adminFormData.last_name,
         email: adminFormData.email,
         password: adminFormData.password,
-        phone: adminFormData.phone || undefined,
-        date_of_birth: adminFormData.date_of_birth || undefined,
-        address: adminFormData.address || undefined,
-        city: adminFormData.city || undefined,
-        country: adminFormData.country || undefined,
-        national_id: adminFormData.national_id || undefined
+        phone: adminFormData.phone || '',
+        dateOfBirth: adminFormData.date_of_birth || '',
+        address: adminFormData.address || '',
+        city: adminFormData.city || '',
+        country: adminFormData.country || '',
+        nationalId: adminFormData.national_id || '',
       });
 
-      if (response.status === 'success') {
-        setShowAddRootAdminModal(false);
-        setAdminFormData({
-          university_id: '',
-          username: '',
-          first_name: '',
-          last_name: '',
-          email: '',
-          password: '',
-          phone: '',
-          date_of_birth: '',
-          address: '',
-          city: '',
-          country: '',
-          national_id: ''
-        });
-        toast.success('Root account created successfully! Verification email sent.');
-      } else {
-        toast.error(response.message || 'Failed to create root account');
-      }
+      setShowAddRootAdminModal(false);
+      setAdminFormData({
+        university_id: '',
+        username: '',
+        first_name: '',
+        last_name: '',
+        email: '',
+        password: '',
+        phone: '',
+        date_of_birth: '',
+        address: '',
+        city: '',
+        country: '',
+        national_id: ''
+      });
+      toast.success('Root account created successfully! Verification email sent.');
     } catch (error: any) {
       console.error('Error assigning root account:', error);
       toast.error(error.message || 'Failed to create root account');
@@ -403,67 +371,19 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
     }
   };
 
-  const handleEditSuperAdmin = () => {
-    if (!editingAdmin || !adminFormData.username || !adminFormData.email) {
-      toast.error('Please fill in all required fields');
-      return;
-    }
-
-    // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(adminFormData.email)) {
-      toast.error('Please enter a valid email address');
-      return;
-    }
-
-    setSuperAdmins(superAdmins.map(admin =>
-      admin.id === editingAdmin.id
-        ? { ...admin, username: adminFormData.username, email: adminFormData.email }
-        : admin
-    ));
-    setEditingAdmin(null);
-    setAdminFormData({
-      university_id: '',
-      username: '',
-      first_name: '',
-      last_name: '',
-      email: '',
-      password: '',
-      phone: '',
-      date_of_birth: '',
-      address: '',
-      city: '',
-      country: '',
-      national_id: ''
-    });
-    toast.success('Super Admin updated successfully');
-  };
-
-  const handleDeleteSuperAdmin = (id: string) => {
+  const handleDeleteSuperAdmin = async (admin: SuperAdmin) => {
     if (superAdmins.length <= 1) {
       toast.error('Cannot delete the last super admin');
       return;
     }
-    setSuperAdmins(superAdmins.filter(admin => admin.id !== id));
-    toast.success('Super Admin deleted successfully');
-  };
-
-  const openEditAdminModal = (admin: SuperAdmin) => {
-    setEditingAdmin(admin);
-    setAdminFormData({
-      university_id: '',
-      username: admin.username,
-      first_name: '',
-      last_name: '',
-      email: admin.email,
-      password: '', // Don't pre-fill password for security
-      phone: '',
-      date_of_birth: '',
-      address: '',
-      city: '',
-      country: '',
-      national_id: ''
-    });
+    try {
+      await SuperAdminService.delete(admin.username);
+      setSuperAdmins(superAdmins.filter((item) => item.id !== admin.id));
+      toast.success('Super admin deleted successfully');
+    } catch (error: any) {
+      console.error('Error deleting super admin:', error);
+      toast.error(error.message || 'Failed to delete super admin');
+    }
   };
 
   return (
@@ -531,7 +451,7 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <Input
-                    placeholder="Search universities by name or subdomain..."
+                    placeholder="Search universities by name or schema..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10"
@@ -555,7 +475,7 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
                   <TableHeader>
                     <TableRow>
                       <TableHead>University</TableHead>
-                      <TableHead>Subdomain</TableHead>
+                      <TableHead>Name / Tenant ID</TableHead>
                       <TableHead>Schema</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Created</TableHead>
@@ -583,7 +503,7 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
                           <TableCell>
                             <div className="flex items-center gap-1">
                               <Globe className="w-4 h-4 text-slate-400" />
-                              {university.subdomain}
+                              {university.name}
                             </div>
                           </TableCell>
                           <TableCell className="font-mono text-sm">{university.db_schema}</TableCell>
@@ -598,7 +518,10 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => setSelectedUniversity(String(university.id))}
+                                onClick={() => {
+                                  setSelectedUniversity(String(university.id));
+                                  apiClient.setTenantOverrideName(university.name);
+                                }}
                                 className="text-blue-600 hover:text-blue-700"
                               >
                                 Select
@@ -606,9 +529,9 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => openEditModal(university)}
+                                onClick={() => handleToggleUniversityStatus(university)}
                               >
-                                <Edit className="w-4 h-4" />
+                                <Power className="w-4 h-4" />
                               </Button>
                               <Button
                                 variant="ghost"
@@ -645,11 +568,11 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
               <p className="text-slate-600 mt-1">Manage super administrator accounts</p>
             </div>
             <div className="flex gap-2">
-              <Button onClick={() => setShowAddAdminModal(true)} className="gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700">
+              <Button onClick={() => setShowAddAdminModal(true)} className="gap-2">
                 <Plus className="w-4 h-4" />
                 Register Super Admin
               </Button>
-              <Button onClick={() => setShowAddRootAdminModal(true)} className="gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700">
+              <Button variant="outline" onClick={() => setShowAddRootAdminModal(true)} className="gap-2">
                 <Plus className="w-4 h-4" />
                 Assign Root Admin
               </Button>
@@ -718,15 +641,7 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => openEditAdminModal(admin)}
-                              className="text-blue-600 hover:text-blue-700"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDeleteSuperAdmin(admin.id)}
+                              onClick={() => handleDeleteSuperAdmin(admin)}
                               className="text-red-600 hover:text-red-700"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -749,22 +664,17 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
         </TabsContent>
       </Tabs>
 
-      {/* Add/Edit University Modal */}
-      <Modal open={showAddModal || !!editingUniversity} onOpenChange={(open) => {
+      {/* Add University Modal */}
+      <Modal open={showAddModal} onOpenChange={(open) => {
         if (!open) {
           setShowAddModal(false);
-          setEditingUniversity(null);
-          setFormData({ name: '', subdomain: '', db_schema: '', address: '', phone: '', email: '', website: '', established_date: '', accreditation: '' });
+          setFormData({ name: '', db_schema: '', address: '', phone: '', email: '', website: '', established_date: '', accreditation: '' });
         }
       }}>
         <ModalContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
           <ModalHeader>
-            <ModalTitle>
-              {editingUniversity ? 'Edit University' : 'Add New University'}
-            </ModalTitle>
-            <ModalDescription>
-              {editingUniversity ? 'Update university information' : 'Create a new university in the system'}
-            </ModalDescription>
+            <ModalTitle>Add New University</ModalTitle>
+            <ModalDescription>Create a new university in the system</ModalDescription>
           </ModalHeader>
 
           {/* Scrollable form content */}
@@ -784,28 +694,15 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Subdomain *
-                </label>
-                <Input
-                  value={formData.subdomain}
-                  onChange={(e) => setFormData({ ...formData, subdomain: e.target.value })}
-                  placeholder="e.g., anu (will be anu:5173)"
-                  className="text-sm"
-                />
-                <p className="text-xs text-slate-500 mt-1">Lowercase letters, numbers, and hyphens only</p>
-              </div>
-
-              <div className="col-span-2">
-                <label className="block text-sm font-medium text-slate-700 mb-1">
                   Database Schema *
                 </label>
                 <Input
                   value={formData.db_schema}
                   onChange={(e) => setFormData({ ...formData, db_schema: e.target.value })}
-                  placeholder="e.g., alexandria_national_university"
+                  placeholder="e.g., anu_schema"
                   className="text-sm"
                 />
-                <p className="text-xs text-slate-500 mt-1">Database schema for tenant data isolation</p>
+                <p className="text-xs text-slate-500 mt-1">Unique PostgreSQL schema for tenant data isolation</p>
               </div>
 
               <div>
@@ -889,19 +786,13 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
               variant="outline"
               onClick={() => {
                 setShowAddModal(false);
-                setEditingUniversity(null);
-                setFormData({ name: '', subdomain: '', db_schema: '', address: '', phone: '', email: '', website: '', established_date: '', accreditation: '' });
+                setFormData({ name: '', db_schema: '', address: '', phone: '', email: '', website: '', established_date: '', accreditation: '' });
               }}
               className="px-4"
             >
               Cancel
             </Button>
-            <Button 
-              onClick={editingUniversity ? handleEditUniversity : handleAddUniversity}
-              className="px-6"
-            >
-              {editingUniversity ? 'Update' : 'Add'} University
-            </Button>
+            <Button onClick={handleAddUniversity} className="px-6">Add University</Button>
           </div>
         </ModalContent>
       </Modal>
@@ -970,7 +861,6 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
               </Button>
               <Button
                 onClick={handleRegisterSuperAdmin}
-                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
                 disabled={isSubmittingAdmin}
               >
                 {isSubmittingAdmin ? (
@@ -988,10 +878,9 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
       </Modal>
 
       {/* Assign Root Admin Modal */}
-      <Modal open={showAddRootAdminModal || !!editingAdmin} onOpenChange={(open) => {
+      <Modal open={showAddRootAdminModal} onOpenChange={(open) => {
         if (!open) {
           setShowAddRootAdminModal(false);
-          setEditingAdmin(null);
           setAdminFormData({
             university_id: '',
             username: '',
@@ -1010,12 +899,8 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
       }}>
         <ModalContent className="max-h-[90vh] overflow-y-auto">
           <ModalHeader>
-            <ModalTitle>
-              {editingAdmin ? 'Edit Root Account' : 'Assign Root Admin to University'}
-            </ModalTitle>
-            <ModalDescription>
-              {editingAdmin ? 'Update root administrator account' : 'Create the first administrator account for a university'}
-            </ModalDescription>
+            <ModalTitle>Assign Root Admin to University</ModalTitle>
+            <ModalDescription>Create the first administrator account for a university</ModalDescription>
           </ModalHeader>
 
           <div className="space-y-4">
@@ -1041,7 +926,7 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
             {/* Account Details */}
             <div className="border-t pt-4">
               <h3 className="text-sm font-semibold text-slate-900 mb-3">Account Information</h3>
-              
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -1085,7 +970,7 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
             {/* Personal Information */}
             <div className="border-t pt-4">
               <h3 className="text-sm font-semibold text-slate-900 mb-3">Personal Information</h3>
-              
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -1189,7 +1074,6 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
                 variant="outline"
                 onClick={() => {
                   setShowAddRootAdminModal(false);
-                  setEditingAdmin(null);
                   setAdminFormData({
                     university_id: '',
                     username: '',
@@ -1211,7 +1095,6 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
               </Button>
               <Button
                 onClick={handleAssignRootAdmin}
-                className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700"
                 disabled={isSubmittingAdmin}
               >
                 {isSubmittingAdmin ? (
@@ -1229,7 +1112,7 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
       </Modal>
 
       {/* Loading Dialog - Tenant Creation in Progress */}
-      <Modal open={isLoadingTenants && (showAddModal || !!editingUniversity)} onOpenChange={() => {}}>
+      <Modal open={isLoadingTenants && showAddModal} onOpenChange={() => { }}>
         <ModalContent className="border-0 bg-transparent shadow-none max-w-sm">
           <div className="bg-white rounded-lg shadow-lg p-8 text-center space-y-6">
             <div className="flex justify-center">
@@ -1237,7 +1120,7 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
                 <Loader2 className="w-16 h-16 text-blue-600 animate-spin" />
               </div>
             </div>
-            
+
             <div className="space-y-2">
               <h3 className="text-lg font-semibold text-slate-900">
                 Creating University...

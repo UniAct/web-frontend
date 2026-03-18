@@ -1,0 +1,20 @@
+@layer components {
+  .ui-hover-lift {
+    transition: transform 200ms ease, box-shadow 200ms ease, background-color 200ms ease,
+      border-color 200ms ease, color 200ms ease;
+  }
+
+  .ui-hover-lift:hover {
+    transform: translateY(-1px);
+  }
+
+  .ui-nav-link {
+    color: #475569;
+    transition: color 200ms ease;
+    position: relative;
+  }
+
+  .ui-nav-link:hover {
+    color: #2563eb;
+  }
+}

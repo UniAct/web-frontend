@@ -36,37 +36,40 @@ export function SearchableSelect({
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className={`w-full justify-between ${className}`}
+          className={`h-10 w-full justify-between text-left ${className}`}
           disabled={disabled}
         >
-          {selectedOption ? selectedOption.label : placeholder}
+          <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-full p-0" align="start">
-        <Command>
-          <CommandInput placeholder={searchPlaceholder} />
-          <CommandList>
+      <PopoverContent
+        className="w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] p-0"
+        align="start"
+      >
+        <Command className="overflow-hidden">
+          <CommandInput className="h-10 py-2" placeholder={searchPlaceholder} />
+          <CommandList className="max-h-64">
             <CommandEmpty>{emptyMessage}</CommandEmpty>
-            <CommandGroup>
+            <CommandGroup className="p-1">
               {options.map((option) => (
                 <CommandItem
                   key={option.value}
                   value={`${option.label} ${option.description || ''}`}
+                  className="items-start gap-2 rounded-md px-2 py-2"
                   onSelect={() => {
                     onValueChange(option.value);
                     setOpen(false);
                   }}
                 >
                   <Check
-                    className={`mr-2 h-4 w-4 ${
-                      value === option.value ? 'opacity-100' : 'opacity-0'
-                    }`}
+                    className={`mt-0.5 h-4 w-4 shrink-0 ${value === option.value ? 'opacity-100' : 'opacity-0'
+                      }`}
                   />
-                  <div className="flex-1">
-                    <div>{option.label}</div>
+                  <div className="min-w-0 flex-1 leading-tight">
+                    <div className="truncate text-sm font-medium">{option.label}</div>
                     {option.description && (
-                      <div className="text-xs text-slate-500">{option.description}</div>
+                      <div className="mt-0.5 truncate text-xs text-slate-500">{option.description}</div>
                     )}
                   </div>
                 </CommandItem>

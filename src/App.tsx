@@ -12,6 +12,7 @@ import { CareerBoardPage } from './pages/CareerBoardPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { SuperAdminPanel } from './pages/SuperAdminPanel';
 import VerifyRootAccountPage from './pages/VerifyRootAccountPage';
+import VerifyStaffAccountPage from './pages/VerifyStaffAccountPage';
 import { AcademicRegistrationPage } from './pages/AcademicRegistrationPage';
 import { TimetablePage } from './pages/TimetablePage';
 import { Navigation } from './components/layout/Navigation';
@@ -19,7 +20,7 @@ import { Header } from './components/layout/Header';
 import { SidebarProvider, SidebarInset } from './components/ui/sidebar';
 import { Toaster } from './components/ui/sonner';
 import { TenantDetectionService } from './services/TenantDetectionService';
-import { apiClient } from './api/client';
+import { apiClient } from './api';
 
 export type UserRole = 'student' | 'faculty' | 'admin' | 'alumni' | 'superadmin';
 
@@ -31,6 +32,33 @@ export interface User {
   avatar?: string;
   department?: string;
   year?: number;
+}
+
+function resolveFrontendRoleFromBackendRoles(rawRoles: unknown): UserRole {
+  if (!Array.isArray(rawRoles) || rawRoles.length === 0) return 'student';
+
+  const normalizedRoles = rawRoles
+    .filter((role): role is string => typeof role === 'string')
+    .map((role) => role.toLowerCase());
+
+  // Priority matters for users with multiple roles.
+  if (normalizedRoles.some((role) => role.includes('superadmin'))) return 'superadmin';
+  if (normalizedRoles.some((role) => role.includes('admin') || role.includes('root'))) return 'admin';
+  if (normalizedRoles.some((role) => role.includes('staff') || role.includes('faculty'))) return 'faculty';
+  if (normalizedRoles.some((role) => role.includes('alumni'))) return 'alumni';
+  if (normalizedRoles.some((role) => role.includes('student'))) return 'student';
+
+  return 'student';
+}
+
+function resolveUserRole(parsed: any, fallbackRole: UserRole = 'student'): UserRole {
+  const roles = Array.isArray(parsed?.roles) ? parsed.roles : [];
+  const roleFromRoles = roles.length > 0 ? resolveFrontendRoleFromBackendRoles(roles) : fallbackRole;
+
+  if (roleFromRoles === 'superadmin' || roleFromRoles === 'admin') return roleFromRoles;
+  if (parsed?.isStaffAccount === true) return 'faculty';
+
+  return roleFromRoles;
 }
 
 export default function App() {
@@ -46,14 +74,19 @@ export default function App() {
     { id: '3', title: 'Career Fair Registration', message: 'Register for the upcoming career fair by March 15th', time: '2 days ago', read: true }
   ]);
 
+  useEffect(() => {
+    const roleKey = user?.role ?? 'guest';
+    document.documentElement.setAttribute('data-user-role', roleKey);
+  }, [user]);
+
   // Check tenant validity on mount
   useEffect(() => {
     const checkTenant = async () => {
       try {
         const tenantContext = TenantDetectionService.detectTenant();
-        
+
         console.log('[App] Checking tenant context:', tenantContext);
-        
+
         // SuperAdmin doesn't need tenant validation
         if (tenantContext.isSuperAdmin) {
           console.log('[App] SuperAdmin access detected, skipping tenant validation');
@@ -65,37 +98,21 @@ export default function App() {
         if (tenantContext.subdomain) {
           console.log('[App] Tenant access detected, validating tenant:', tenantContext.subdomain);
           setTenantSubdomain(tenantContext.subdomain);
-          
-          // Make a request to check if tenant exists
-          // The backend will return error if tenant not found
+
           try {
-            const response = await fetch(`/api/tenant`, {
-              method: 'GET',
-              headers: {
-                'Content-Type': 'application/json',
-              }
-            });
+            const isValidTenant = await apiClient.validateCurrentTenant();
 
-            const data = await response.json();
-            console.log('[App] Tenant check response:', data);
-
-            // Check if we got a tenant error response
-            if (data?.status === 'error') {
-              // Check if it's a tenant not found error
-              if (data?.message?.includes('not found') || data?.error?.includes('not found')) {
-                console.error('[App] Tenant not found:', data.message);
-                setTenantNotFound(true);
-                setIsCheckingTenant(false);
-                return;
-              }
+            if (!isValidTenant) {
+              console.error('[App] Tenant not found or inactive:', tenantContext.subdomain);
+              setTenantNotFound(true);
+              setIsCheckingTenant(false);
+              return;
             }
 
-            // If tenant exists or we got success response, continue normally
             console.log('[App] Tenant validation passed');
             setIsCheckingTenant(false);
           } catch (error) {
-            // Network errors - log but continue (tenant might exist but API unreachable)
-            console.warn('[App] Could not verify tenant (network error):', error);
+            console.warn('[App] Could not verify tenant:', error);
             setIsCheckingTenant(false);
           }
         }
@@ -115,21 +132,17 @@ export default function App() {
       const userJson = localStorage.getItem('user');
       if (token && userJson) {
         const parsed = JSON.parse(userJson);
-        
+
         // Determine role from parsed data
         let restoredRole: UserRole = 'student'; // default
         if (parsed.roles && Array.isArray(parsed.roles) && parsed.roles.length > 0) {
-          const backendRole = parsed.roles[0].toLowerCase();
-          // Map backend role to frontend role
-          if (backendRole.includes('superadmin')) restoredRole = 'superadmin';
-          else if (backendRole.includes('admin') || backendRole.includes('root')) restoredRole = 'admin';
-          else if (backendRole.includes('staff') || backendRole.includes('faculty')) restoredRole = 'faculty';
-          else if (backendRole.includes('student')) restoredRole = 'student';
-          else if (backendRole.includes('alumni')) restoredRole = 'alumni';
+          restoredRole = resolveUserRole(parsed, 'student');
+        } else if (parsed?.isStaffAccount === true) {
+          restoredRole = 'faculty';
         } else if (parsed.role) {
           restoredRole = parsed.role as UserRole;
         }
-        
+
         const restoredUser: User = {
           id: parsed.id ? String(parsed.id) : parsed.username || parsed.email || 'unknown',
           name: parsed.firstName ? `${parsed.firstName} ${parsed.lastName}` : parsed.username || parsed.email || 'Unknown User',
@@ -138,7 +151,7 @@ export default function App() {
           department: parsed.department || parsed.university || undefined,
         };
         setUser(restoredUser);
-        
+
         // Route based on role
         if (restoredRole === 'superadmin' || restoredRole === 'admin') {
           setCurrentPage('superadmin');
@@ -163,21 +176,15 @@ export default function App() {
     if (token && userJson) {
       try {
         const parsed = JSON.parse(userJson);
-        
+
         // Extract role from backend response
-        // The backend returns roles array, we take the first role
+        // The backend may return multiple roles; resolve with explicit priority.
         let finalRole = role;
         if (parsed.roles && Array.isArray(parsed.roles) && parsed.roles.length > 0) {
-          const backendRole = parsed.roles[0].toLowerCase();
-          console.log(`[App] Backend returned role: ${backendRole}`);
-          
-          // Map backend role names to frontend role types
-          if (backendRole.includes('superadmin')) finalRole = 'superadmin';
-          else if (backendRole.includes('admin') || backendRole.includes('root')) finalRole = 'admin';
-          else if (backendRole.includes('staff') || backendRole.includes('faculty')) finalRole = 'faculty';
-          else if (backendRole.includes('student')) finalRole = 'student';
-          else if (backendRole.includes('alumni')) finalRole = 'alumni';
-          else finalRole = 'student'; // Default to student if role not recognized
+          finalRole = resolveUserRole(parsed, role);
+          console.log(`[App] Backend returned roles: ${parsed.roles.join(', ')}; resolved role: ${finalRole}`);
+        } else if (parsed?.isStaffAccount === true) {
+          finalRole = 'faculty';
         }
 
         const sessionUser: User = {
@@ -188,7 +195,7 @@ export default function App() {
           department: parsed.department || parsed.university || undefined,
         };
         setUser(sessionUser);
-        
+
         // Route based on role and tenant context
         const tenantContext = TenantDetectionService.detectTenant();
         if (tenantContext.isSuperAdmin) {
@@ -260,6 +267,7 @@ export default function App() {
     // clear storage
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem('tenantId');
     // keep tenantId for dev convenience if you want; remove if you prefer full logout
     // localStorage.removeItem('tenantId');
   };
@@ -294,14 +302,22 @@ export default function App() {
     );
   }
 
+  if (location.pathname.startsWith('/verify-staff-account')) {
+    return (
+      <>
+        <VerifyStaffAccountPage />
+        <Toaster />
+      </>
+    );
+  }
+
   // Show tenant not found page if tenant doesn't exist
   if (tenantNotFound) {
     return (
       <TenantNotFoundPage
         subdomain={tenantSubdomain}
         onGoHome={() => {
-          // Navigate to localhost (superadmin)
-          window.location.href = 'http://localhost:5173';
+          TenantDetectionService.navigateToSuperAdmin();
         }}
       />
     );

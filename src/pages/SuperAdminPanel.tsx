@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -54,6 +54,8 @@ import { StatisticsPage } from '../components/admin/StatisticsPage';
 import { AuditLogsPage } from '../components/admin/AuditLogsPage';
 import { AdminAttendancePage } from '../components/admin/AdminAttendancePage';
 import { AdminGradesPage } from '../components/admin/AdminGradesPage';
+import { apiClient, UniversityService } from '../api';
+import { TenantDetectionService } from '../services/TenantDetectionService';
 
 interface SuperAdminPanelProps {
   user: AppUser;
@@ -95,13 +97,6 @@ const navigationItems = [
   { id: 'settings', label: 'Settings', icon: Settings, description: 'System configuration' }
 ] as const;
 
-// Mock universities data - matches the UniversitiesListPage
-const universities = [
-  { id: '1', name: 'Alexandria National University' },
-  { id: '2', name: 'Cairo Technical University' },
-  { id: '3', name: 'Aswan Research Institute' }
-];
-
 export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
   const isSuperAdmin = user.role === 'superadmin';
   const isAdmin = user.role === 'admin';
@@ -126,11 +121,58 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
   const [selectedUniversity, setSelectedUniversity] = useState<string | null>(
     isAdmin ? '1' : null
   );
+  const [universities, setUniversities] = useState<Array<{ id: string; name: string }>>([]);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
+  useEffect(() => {
+    const syncUniversities = async () => {
+      try {
+        const list = await UniversityService.getAll();
+        setUniversities(list.map((item) => ({ id: String(item.id), name: item.name })));
+      } catch (error) {
+        console.warn('Failed to load universities for admin shell:', error);
+      }
+    };
+
+    void syncUniversities();
+  }, []);
+
+  useEffect(() => {
+    const syncAdminTenantSelection = async () => {
+      if (!isAdmin) return;
+
+      try {
+        const tenantContext = TenantDetectionService.detectTenant();
+        if (tenantContext.isSuperAdmin || !tenantContext.subdomain) return;
+
+        const profile = await UniversityService.getPublicTenantProfile(tenantContext.subdomain);
+        setSelectedUniversity(String(profile.id));
+        apiClient.setTenantOverrideName(profile.name);
+      } catch (error) {
+        console.warn('Failed to resolve current admin tenant:', error);
+      }
+    };
+
+    void syncAdminTenantSelection();
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!selectedUniversity) {
+      if (isSuperAdmin) {
+        apiClient.clearTenantOverrideName();
+      }
+      return;
+    }
+
+    const selected = universities.find((item) => item.id === selectedUniversity);
+    if (selected) {
+      apiClient.setTenantOverrideName(selected.name);
+    }
+  }, [isSuperAdmin, selectedUniversity, universities]);
+
   // Education Year Settings
-  const [educationYear, setEducationYear] = useState('2024–2025');
+  const [educationYear, setEducationYear] = useState('2024-2025');
   const [semester, setSemester] = useState('2');
   const [educationDialogOpen, setEducationDialogOpen] = useState(false);
   const [tempEducationYear, setTempEducationYear] = useState(educationYear);
@@ -144,10 +186,10 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
   };
 
   const educationYears = [
-    '2022–2023',
-    '2023–2024',
-    '2024–2025',
-    '2025–2026'
+    '2022-2023',
+    '2023-2024',
+    '2024-2025',
+    '2025-2026'
   ];
 
   const semesters = [
@@ -213,7 +255,6 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
               </p>
               <Button
                 onClick={() => setCurrentPage('universities')}
-                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
               >
                 <Building2 className="w-4 h-4 mr-2" />
                 Go to Universities
@@ -241,7 +282,6 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
                   </p>
                   <Button
                     onClick={() => setCurrentPage('statistics')}
-                    className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
                   >
                     <BarChart3 className="w-4 h-4 mr-2" />
                     Go to Statistics
@@ -459,7 +499,6 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
                       </Button>
                       <Button
                         onClick={handleSaveEducationSettings}
-                        className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
                       >
                         Apply
                       </Button>
