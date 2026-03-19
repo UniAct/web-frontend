@@ -1,5 +1,5 @@
 export const API_PREFIX = '/api';
-export const TENANT_HEADER = 'x-tenant-id';
+export const TENANT_HEADER = 'university-name';
 export const TOKEN_STORAGE_KEY = 'token';
 export const USER_STORAGE_KEY = 'user';
 export const ROLE_STORAGE_KEY = 'role';

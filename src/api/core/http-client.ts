@@ -1,7 +1,7 @@
 import { TenantDetectionService, type TenantContext } from '../../services/TenantDetectionService';
 import { API_PREFIX, TENANT_HEADER, TENANT_OVERRIDE_STORAGE_KEY } from './constants';
 import { decodeJwtPayload } from './jwt';
-import { getStoredToken, getStoredUser } from './session-storage';
+import { clearStoredSession, getStoredToken, getStoredUser } from './session-storage';
 import {
   buildTenantSlug,
   readTenantDirectory,
@@ -37,6 +37,8 @@ class HttpClient {
   private tenantProfileFailureAt = 0;
   private static readonly TENANT_PROFILE_RETRY_COOLDOWN_MS = 5000;
 
+  private static readonly DEFAULT_AUTH_ERROR_MESSAGE = 'You are not authorized to access this page.';
+
   constructor() {
     this.tenantContext = TenantDetectionService.detectTenant();
   }
@@ -69,13 +71,49 @@ class HttpClient {
     const payload = await response.json();
 
     if (!response.ok) {
+      const message = this.extractErrorMessage(payload, `Request failed (HTTP ${response.status})`);
+      if (this.shouldRedirectForAuthFailure(response.status, message)) {
+        this.redirectToHomeForAuthFailure(message);
+      }
+
       throw new HttpRequestError(
-        this.extractErrorMessage(payload, `Request failed (HTTP ${response.status})`),
+        message,
         response.status,
       );
     }
 
     return payload;
+  }
+
+  private shouldRedirectForAuthFailure(status: number, message: string): boolean {
+    if (status !== 401 && status !== 403) {
+      return false;
+    }
+
+    if (!getStoredToken()) {
+      return false;
+    }
+
+    const normalized = message.toLowerCase();
+    return (
+      normalized.includes('token') ||
+      normalized.includes('unauthorized') ||
+      normalized.includes('not authenticated') ||
+      normalized.includes('not authorized')
+    );
+  }
+
+  private redirectToHomeForAuthFailure(message: string): void {
+    clearStoredSession();
+    this.clearResolvedTenant();
+
+    const redirectUrl = new URL(window.location.href);
+    redirectUrl.pathname = '/';
+    redirectUrl.searchParams.set(
+      'authError',
+      message || HttpClient.DEFAULT_AUTH_ERROR_MESSAGE,
+    );
+    window.location.assign(redirectUrl.toString());
   }
 
   private async delay(ms: number): Promise<void> {

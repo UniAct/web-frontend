@@ -24,7 +24,7 @@ import { TenantDetectionService } from '../../services/TenantDetectionService';
 
 interface University {
   id: number;
-  /** Also used as the x-tenant-id / tenant identifier (must match exactly for login) */
+  /** Also used as the university-name tenant identifier (must match exactly for login) */
   name: string;
   address?: string;
   phone?: string;

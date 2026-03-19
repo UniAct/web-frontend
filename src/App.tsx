@@ -19,6 +19,7 @@ import { Navigation } from './components/layout/Navigation';
 import { Header } from './components/layout/Header';
 import { SidebarProvider, SidebarInset } from './components/ui/sidebar';
 import { Toaster } from './components/ui/sonner';
+import { toast } from 'sonner';
 import { TenantDetectionService } from './services/TenantDetectionService';
 import { apiClient } from './api';
 
@@ -73,6 +74,20 @@ export default function App() {
     { id: '2', title: 'Team Meeting Reminder', message: 'Project team meeting scheduled for tomorrow at 2 PM', time: '1 day ago', read: false },
     { id: '3', title: 'Career Fair Registration', message: 'Register for the upcoming career fair by March 15th', time: '2 days ago', read: true }
   ]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const authError = params.get('authError');
+
+    if (!authError) return;
+
+    toast.error(authError || 'You are not authorized to access this page.');
+    params.delete('authError');
+
+    const nextSearch = params.toString();
+    const nextUrl = `${location.pathname}${nextSearch ? `?${nextSearch}` : ''}${location.hash}`;
+    window.history.replaceState({}, '', nextUrl);
+  }, [location.pathname, location.search, location.hash]);
 
   useEffect(() => {
     const roleKey = user?.role ?? 'guest';
@@ -325,7 +340,12 @@ export default function App() {
 
   // Show homepage when not logged in
   if (!user) {
-    return <HomePage onLogin={handleLogin} />;
+    return (
+      <>
+        <HomePage onLogin={handleLogin} />
+        <Toaster />
+      </>
+    );
   }
 
   const renderPage = () => {

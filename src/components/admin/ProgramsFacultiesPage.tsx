@@ -4,6 +4,13 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Checkbox } from '../ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import {
+  Modal,
+  ModalContent as SharedModalContent,
+  ModalDescription as SharedModalDescription,
+  ModalHeader as SharedModalHeader,
+  ModalTitle as SharedModalTitle,
+} from '../ui/modal';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { SearchableSelect } from '../ui/searchable-select';
@@ -257,12 +264,12 @@ function programToForm(program: Program): ProgramFormState {
     ),
     academicLoadGPA: program.academicLoadGPA.length
       ? program.academicLoadGPA.map((item) => ({
-          key: `gpa-${item.id}`,
-          minGPA: item.minGPA,
-          maxGPA: item.maxGPA,
-          minCredits: item.minCredits,
-          maxCredits: item.maxCredits,
-        }))
+        key: `gpa-${item.id}`,
+        minGPA: item.minGPA,
+        maxGPA: item.maxGPA,
+        minCredits: item.minCredits,
+        maxCredits: item.maxCredits,
+      }))
       : [newGpaLoad()],
   };
 }
@@ -856,15 +863,15 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
         </DialogContent>
       </Dialog>
 
-      <Dialog open={programDialogOpen} onOpenChange={(open) => { setProgramDialogOpen(open); if (!open) resetProgramDialog(); }}>
-        <DialogContent className="max-h-[90vh] max-w-6xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingProgram ? 'Edit Program' : 'Add Program'}</DialogTitle>
-            <DialogDescription>Full backend-supported program setup: levels, fees, transcript, and academic load.</DialogDescription>
-          </DialogHeader>
+      <Modal open={programDialogOpen} onOpenChange={(open) => { setProgramDialogOpen(open); if (!open) resetProgramDialog(); }}>
+        <SharedModalContent className="max-h-[90vh] overflow-y-auto">
+          <SharedModalHeader>
+            <SharedModalTitle>{editingProgram ? 'Edit Program' : 'Add Program'}</SharedModalTitle>
+            <SharedModalDescription>Full backend-supported program setup: levels, fees, transcript, and academic load.</SharedModalDescription>
+          </SharedModalHeader>
           <div className="space-y-8">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <div className="xl:col-span-3"><Label>Program Name</Label><Input value={programForm.name} onChange={(event) => setProgramForm((current) => ({ ...current, name: event.target.value }))} /></div>
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-2">
+              <div className="xl:col-span-2"><Label>Program Name</Label><Input value={programForm.name} onChange={(event) => setProgramForm((current) => ({ ...current, name: event.target.value }))} /></div>
               <div><Label>Faculty</Label><SearchableSelect value={programForm.facultyId} onValueChange={(value) => setProgramForm((current) => ({ ...current, facultyId: value }))} options={facultyOptions} placeholder="Select faculty" searchPlaceholder="Search faculties..." emptyMessage="No faculties found" /></div>
               <div><Label>Program Head</Label><SearchableSelect value={programForm.headId} onValueChange={(value) => setProgramForm((current) => ({ ...current, headId: value }))} options={staffOptions} placeholder="Select head" searchPlaceholder="Search staff..." emptyMessage="No staff found" /></div>
               <div><Label>Phone</Label><Input value={programForm.phone} onChange={(event) => setProgramForm((current) => ({ ...current, phone: event.target.value }))} /></div>
@@ -875,7 +882,7 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
               <div><Label>University Credit Hours</Label><Input type="number" min="0" value={programForm.universityCreditHours} onChange={(event) => setProgramForm((current) => ({ ...current, universityCreditHours: Number(event.target.value) || 0 }))} /></div>
               <div><Label>Faculty Credit Hours</Label><Input type="number" min="0" value={programForm.facultyCreditHours} onChange={(event) => setProgramForm((current) => ({ ...current, facultyCreditHours: Number(event.target.value) || 0 }))} /></div>
               <div><Label>Program Credit Hours</Label><Input type="number" min="0" value={programForm.programCreditHours} onChange={(event) => setProgramForm((current) => ({ ...current, programCreditHours: Number(event.target.value) || 0 }))} /></div>
-              <div className="md:col-span-2 xl:col-span-3"><Label>Description</Label><Textarea rows={4} value={programForm.description} onChange={(event) => setProgramForm((current) => ({ ...current, description: event.target.value }))} /></div>
+              <div className="md:col-span-2 xl:col-span-2"><Label>Description</Label><Textarea rows={4} value={programForm.description} onChange={(event) => setProgramForm((current) => ({ ...current, description: event.target.value }))} /></div>
             </div>
 
             <section className="space-y-4">
@@ -928,7 +935,7 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
                 <h3 className="text-lg font-semibold">Academic Load by Semester</h3>
                 <p className="text-sm text-slate-500">Semester 3 is summer.</p>
               </div>
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{programForm.academicLoadSemester.map((item) => <Card key={item.key}><CardContent className="space-y-3 p-4"><div className="flex items-center justify-between"><span className="font-medium">Level {item.level} / Semester {item.semester}</span>{item.semester === 3 && <Badge variant="secondary">Summer</Badge>}</div><div className="grid grid-cols-2 gap-3"><Input type="number" min="0" value={item.minCredits} onChange={(event) => setProgramForm((current) => ({ ...current, academicLoadSemester: current.academicLoadSemester.map((entry) => entry.key === item.key ? { ...entry, minCredits: Number(event.target.value) || 0 } : entry) }))} /><Input type="number" min="0" value={item.maxCredits} onChange={(event) => setProgramForm((current) => ({ ...current, academicLoadSemester: current.academicLoadSemester.map((entry) => entry.key === item.key ? { ...entry, maxCredits: Number(event.target.value) || 0 } : entry) }))} /></div></CardContent></Card>)}</div>
+              <div className="grid gap-3 md:grid-cols-3">{programForm.academicLoadSemester.map((item) => <Card key={item.key}><CardContent className="space-y-3 p-4"><div className="flex items-center justify-between"><span className="font-medium">Level {item.level} / Semester {item.semester}</span>{item.semester === 3 && <Badge variant="secondary">Summer</Badge>}</div><div className="grid grid-cols-2 gap-3"><Input type="number" min="0" value={item.minCredits} onChange={(event) => setProgramForm((current) => ({ ...current, academicLoadSemester: current.academicLoadSemester.map((entry) => entry.key === item.key ? { ...entry, minCredits: Number(event.target.value) || 0 } : entry) }))} /><Input type="number" min="0" value={item.maxCredits} onChange={(event) => setProgramForm((current) => ({ ...current, academicLoadSemester: current.academicLoadSemester.map((entry) => entry.key === item.key ? { ...entry, maxCredits: Number(event.target.value) || 0 } : entry) }))} /></div></CardContent></Card>)}</div>
             </section>
 
             <section className="space-y-4">
@@ -936,10 +943,13 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
               {programForm.academicLoadGPA.map((item) => <Card key={item.key}><CardContent className="grid gap-3 p-4 md:grid-cols-5"><Input type="number" step="0.01" value={item.minGPA} onChange={(event) => setProgramForm((current) => ({ ...current, academicLoadGPA: current.academicLoadGPA.map((entry) => entry.key === item.key ? { ...entry, minGPA: Number(event.target.value) || 0 } : entry) }))} /><Input type="number" step="0.01" value={item.maxGPA} onChange={(event) => setProgramForm((current) => ({ ...current, academicLoadGPA: current.academicLoadGPA.map((entry) => entry.key === item.key ? { ...entry, maxGPA: Number(event.target.value) || 0 } : entry) }))} /><Input type="number" min="0" value={item.minCredits} onChange={(event) => setProgramForm((current) => ({ ...current, academicLoadGPA: current.academicLoadGPA.map((entry) => entry.key === item.key ? { ...entry, minCredits: Number(event.target.value) || 0 } : entry) }))} /><Input type="number" min="0" value={item.maxCredits} onChange={(event) => setProgramForm((current) => ({ ...current, academicLoadGPA: current.academicLoadGPA.map((entry) => entry.key === item.key ? { ...entry, maxCredits: Number(event.target.value) || 0 } : entry) }))} /><Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700" onClick={() => setProgramForm((current) => ({ ...current, academicLoadGPA: current.academicLoadGPA.filter((entry) => entry.key !== item.key) }))}><Trash2 className="h-4 w-4" /></Button></CardContent></Card>)}
             </section>
 
-            <div className="flex justify-end gap-3 border-t pt-4"><Button variant="outline" onClick={() => { setProgramDialogOpen(false); resetProgramDialog(); }}>Cancel</Button><Button disabled={submitting} onClick={() => void saveProgram()}>{submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{editingProgram ? 'Update Program' : 'Create Program'}</Button></div>
+            <div className="flex justify-end gap-3 border-t pt-4">
+              <Button variant="outline" onClick={() => { setProgramDialogOpen(false); resetProgramDialog(); }}>Cancel</Button>
+              <Button disabled={submitting} onClick={() => void saveProgram()}>{submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{editingProgram ? 'Update Program' : 'Create Program'}</Button>
+            </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </SharedModalContent>
+      </Modal>
 
       <Dialog open={courseDialogOpen} onOpenChange={(open) => { setCourseDialogOpen(open); if (!open) resetCourseDialog(); }}>
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">

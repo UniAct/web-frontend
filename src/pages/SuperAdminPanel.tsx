@@ -181,8 +181,23 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
   // Helper function to get university name from ID
   const getUniversityName = (universityId: string | null): string => {
     if (!universityId) return '';
-    const university = universities.find(uni => uni.id === universityId);
-    return university ? university.name : universityId;
+    const university = universities.find((uni) => uni.id === universityId);
+    if (university) return university.name;
+
+    // Keep the badge human-readable even before the universities list is fully loaded.
+    const cachedTenantName = localStorage.getItem('tenantId')?.trim();
+    if (cachedTenantName) return cachedTenantName;
+
+    const detectedSubdomain = apiClient.getTenantContext().subdomain?.trim();
+    if (detectedSubdomain) {
+      return detectedSubdomain
+        .split('-')
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+    }
+
+    return 'Selected University';
   };
 
   const educationYears = [
