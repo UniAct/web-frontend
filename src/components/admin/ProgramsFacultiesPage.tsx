@@ -359,6 +359,7 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
   const [courses, setCourses] = useState<Course[]>([]);
   const [staff, setStaff] = useState<StaffDirectoryEntry[]>([]);
   const [expandedPrograms, setExpandedPrograms] = useState<Set<number>>(new Set());
+  const [tabAccess, setTabAccess] = useState({ faculties: true, programs: true, courses: true });
 
   const [facultyDialogOpen, setFacultyDialogOpen] = useState(false);
   const [editingFaculty, setEditingFaculty] = useState<Faculty | null>(null);
@@ -395,6 +396,62 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
     setResolvedUniversityId(String(university.id));
   };
 
+  const isAccessDeniedError = (error: unknown) => {
+    const message = getErrorMessage(error, '').toLowerCase();
+    return (
+      message.includes('access denied') ||
+      message.includes('forbidden') ||
+      message.includes('not authorized')
+    );
+  };
+
+  const loadAcademicDataByPermission = async () => {
+    await syncTenantOverride();
+
+    const [nextFaculties, nextPrograms, nextCourses, nextStaff] = await Promise.allSettled([
+      FacultyService.getAll(),
+      ProgramService.getAll(),
+      CourseService.getAll(),
+      UserService.getStaffDirectory(),
+    ]);
+
+    if (nextFaculties.status === 'fulfilled') {
+      setFaculties(nextFaculties.value);
+      setTabAccess((current) => ({ ...current, faculties: true }));
+    } else if (isAccessDeniedError(nextFaculties.reason)) {
+      setFaculties([]);
+      setTabAccess((current) => ({ ...current, faculties: false }));
+    } else {
+      toast.error(getErrorMessage(nextFaculties.reason, 'Failed to load faculties'));
+    }
+
+    if (nextPrograms.status === 'fulfilled') {
+      setPrograms(nextPrograms.value);
+      setTabAccess((current) => ({ ...current, programs: true }));
+    } else if (isAccessDeniedError(nextPrograms.reason)) {
+      setPrograms([]);
+      setTabAccess((current) => ({ ...current, programs: false }));
+    } else {
+      toast.error(getErrorMessage(nextPrograms.reason, 'Failed to load programs'));
+    }
+
+    if (nextCourses.status === 'fulfilled') {
+      setCourses(nextCourses.value);
+      setTabAccess((current) => ({ ...current, courses: true }));
+    } else if (isAccessDeniedError(nextCourses.reason)) {
+      setCourses([]);
+      setTabAccess((current) => ({ ...current, courses: false }));
+    } else {
+      toast.error(getErrorMessage(nextCourses.reason, 'Failed to load courses'));
+    }
+
+    if (nextStaff.status === 'fulfilled') {
+      setStaff(nextStaff.value);
+    } else if (!isAccessDeniedError(nextStaff.reason)) {
+      toast.error(getErrorMessage(nextStaff.reason, 'Failed to load staff directory'));
+    }
+  };
+
   useEffect(() => {
     if (!selectedUniversity) {
       apiClient.clearTenantOverrideName();
@@ -404,20 +461,9 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
     const run = async () => {
       try {
         setLoading(true);
-        await syncTenantOverride();
-        const [nextFaculties, nextPrograms, nextCourses, nextStaff] = await Promise.all([
-          FacultyService.getAll(),
-          ProgramService.getAll(),
-          CourseService.getAll(),
-          UserService.getStaffDirectory(),
-        ]);
-
-        setFaculties(nextFaculties);
-        setPrograms(nextPrograms);
-        setCourses(nextCourses);
-        setStaff(nextStaff);
-      } catch (error) {
-        toast.error(getErrorMessage(error, 'Failed to load academic data'));
+        await loadAcademicDataByPermission();
+      } catch {
+        toast.error('Failed to load academic data');
       } finally {
         setLoading(false);
       }
@@ -429,20 +475,9 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
   const refreshData = async () => {
     try {
       setRefreshing(true);
-      await syncTenantOverride();
-      const [nextFaculties, nextPrograms, nextCourses, nextStaff] = await Promise.all([
-        FacultyService.getAll(),
-        ProgramService.getAll(),
-        CourseService.getAll(),
-        UserService.getStaffDirectory(),
-      ]);
-
-      setFaculties(nextFaculties);
-      setPrograms(nextPrograms);
-      setCourses(nextCourses);
-      setStaff(nextStaff);
-    } catch (error) {
-      toast.error(getErrorMessage(error, 'Failed to refresh academic data'));
+      await loadAcademicDataByPermission();
+    } catch {
+      toast.error('Failed to refresh academic data');
     } finally {
       setRefreshing(false);
     }
@@ -763,18 +798,18 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
         </div>
 
         <TabsContent value="faculties" className="space-y-4">
-          {loading ? <Card><CardContent className="py-10 text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin" /></CardContent></Card> : (
+          {!tabAccess.faculties ? <Card><CardContent className="py-10 text-center text-slate-500">Access denied for faculties.</CardContent></Card> : loading ? <Card><CardContent className="py-10 text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin" /></CardContent></Card> : (
             filteredFaculties.length === 0 ? <Card><CardContent className="py-10 text-center text-slate-500">No faculties found.</CardContent></Card> : (
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {filteredFaculties.map((faculty) => (
                   <Card key={faculty.id}>
-                    <CardHeader>
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <CardTitle>{faculty.name}</CardTitle>
-                          <CardDescription>{faculty.description || 'No description provided'}</CardDescription>
+                    <CardHeader className="pb-3">
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+                        <div className="min-w-0">
+                          <CardTitle className="truncate">{faculty.name}</CardTitle>
+                          <CardDescription className="max-w-full">{faculty.description || 'No description provided'}</CardDescription>
                         </div>
-                        <div className="flex gap-1">
+                        <div className="flex shrink-0 gap-1">
                           <Button size="sm" variant="ghost" onClick={() => { setEditingFaculty(faculty); setFacultyForm({ name: faculty.name, description: faculty.description ?? '', deanId: faculty.deanId ? String(faculty.deanId) : '' }); setFacultyDialogOpen(true); }}><Edit className="h-4 w-4" /></Button>
                           <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700" onClick={() => void deleteFaculty(faculty)}><Trash2 className="h-4 w-4" /></Button>
                         </div>
@@ -792,7 +827,7 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
         </TabsContent>
 
         <TabsContent value="programs" className="space-y-4">
-          {loading ? <Card><CardContent className="py-10 text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin" /></CardContent></Card> : (
+          {!tabAccess.programs ? <Card><CardContent className="py-10 text-center text-slate-500">Access denied for programs.</CardContent></Card> : loading ? <Card><CardContent className="py-10 text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin" /></CardContent></Card> : (
             filteredPrograms.length === 0 ? <Card><CardContent className="py-10 text-center text-slate-500">No programs found.</CardContent></Card> : (
               filteredPrograms.map((program) => (
                 <Card key={program.id}>
@@ -825,7 +860,7 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
         </TabsContent>
 
         <TabsContent value="courses" className="space-y-4">
-          {loading ? <Card><CardContent className="py-10 text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin" /></CardContent></Card> : (
+          {!tabAccess.courses ? <Card><CardContent className="py-10 text-center text-slate-500">Access denied for courses.</CardContent></Card> : loading ? <Card><CardContent className="py-10 text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin" /></CardContent></Card> : (
             filteredPrograms.length === 0 ? <Card><CardContent className="py-10 text-center text-slate-500">No programs found.</CardContent></Card> : filteredPrograms.map((program) => {
               const open = expandedPrograms.has(program.id);
               const programCourses = filteredCourses.filter((item) => item.programId === program.id);
