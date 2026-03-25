@@ -20,6 +20,7 @@ import { Header } from './components/layout/Header';
 import { SidebarProvider, SidebarInset } from './components/ui/sidebar';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
+import { BootstrapAnimation } from './components/bootstrap/BootstrapAnimation';
 import { TenantDetectionService } from './services/TenantDetectionService';
 import { apiClient } from './api';
 
@@ -69,6 +70,8 @@ export default function App() {
   const [tenantNotFound, setTenantNotFound] = useState(false);
   const [tenantSubdomain, setTenantSubdomain] = useState<string>('');
   const [isCheckingTenant, setIsCheckingTenant] = useState(true);
+  const [shouldShowBootstrap, setShouldShowBootstrap] = useState(true);
+  const ANIMATION_MIN_DURATION = 3000; // Minimum 3 seconds for animation visibility
   const [notifications, setNotifications] = useState([
     { id: '1', title: 'New Assignment Posted', message: 'Data Structures Assignment 3 is now available', time: '2 hours ago', read: false },
     { id: '2', title: 'Team Meeting Reminder', message: 'Project team meeting scheduled for tomorrow at 2 PM', time: '1 day ago', read: false },
@@ -137,7 +140,14 @@ export default function App() {
       }
     };
 
+    // Ensure animation plays for minimum duration
+    const animationTimer = setTimeout(() => {
+      setShouldShowBootstrap(false);
+    }, ANIMATION_MIN_DURATION);
+
     checkTenant();
+
+    return () => clearTimeout(animationTimer);
   }, []);
 
   // Try to restore session from localStorage on mount
@@ -295,15 +305,17 @@ export default function App() {
     );
   };
 
-  // Show loading state while checking tenant
-  if (isCheckingTenant) {
+  // Show bootstrapping animation while checking tenant (forced minimum duration)
+  if (shouldShowBootstrap || isCheckingTenant) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20 flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
-          <p className="text-slate-600">Loading tenant...</p>
-        </div>
-      </div>
+      <BootstrapAnimation
+        message="Initializing tenant infrastructure..."
+        phaseDuration={1200}
+        onComplete={() => {
+          // Animation sequence complete, but still showing until minimum duration reached
+          console.log('[App] Bootstrap animation sequence complete');
+        }}
+      />
     );
   }
 
