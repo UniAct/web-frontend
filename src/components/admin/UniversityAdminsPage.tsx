@@ -319,17 +319,18 @@ export function UniversityAdminsPage({ selectedUniversity }: UniversityAdminsPag
             resetForm();
           }
         }}
+        maxWidth="max-w-[min(82vw,34rem)]"
       >
-        <ModalContent className="max-w-3xl">
-          <ModalHeader>
+        <ModalContent className="w-full max-h-[80vh] overflow-hidden p-0 flex flex-col mx-auto">
+          <ModalHeader className="px-6 pt-6">
             <ModalTitle>{editingRole ? 'Edit Role' : 'Create Role'}</ModalTitle>
             <ModalDescription>
               Create or update a role, then choose the permissions it should include.
             </ModalDescription>
           </ModalHeader>
 
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="space-y-6 overflow-y-auto overflow-x-hidden px-6 pb-6 min-h-0">
+            <div className="grid grid-cols-1 gap-4">
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">Role Name *</label>
                 <Input
@@ -352,13 +353,13 @@ export function UniversityAdminsPage({ selectedUniversity }: UniversityAdminsPag
 
             <div>
               <p className="mb-3 text-sm font-medium text-slate-700">Permissions</p>
-              <div className="grid max-h-72 grid-cols-1 gap-3 overflow-y-auto rounded-lg border p-4 md:grid-cols-2">
+              <div className="grid max-h-72 grid-cols-1 gap-3 overflow-y-auto overflow-x-hidden rounded-lg border p-4 lg:grid-cols-2">
                 {permissions.map((permission) => {
                   const checked = form.permissions.includes(permission.name);
                   return (
                     <label
                       key={permission.name}
-                      className="flex items-start gap-3 rounded-md border p-3 text-sm"
+                      className="flex min-w-0 items-start gap-3 rounded-md border p-3 text-sm"
                     >
                       <Checkbox
                         checked={checked}
@@ -366,9 +367,9 @@ export function UniversityAdminsPage({ selectedUniversity }: UniversityAdminsPag
                           togglePermission(permission.name, Boolean(value))
                         }
                       />
-                      <div>
-                        <p className="font-medium text-slate-900">{permission.name}</p>
-                        <p className="text-slate-500">{permission.description || 'No description'}</p>
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-900 break-all">{permission.name}</p>
+                        <p className="text-slate-500 break-words">{permission.description || 'No description'}</p>
                       </div>
                     </label>
                   );

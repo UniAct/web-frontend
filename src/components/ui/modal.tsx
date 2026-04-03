@@ -6,9 +6,10 @@ interface ModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   children: React.ReactNode;
+  maxWidth?: string; // Optional: allows per-modal customization
 }
 
-export function Modal({ open, onOpenChange, children }: ModalProps) {
+export function Modal({ open, onOpenChange, children, maxWidth = 'max-w-md' }: ModalProps) {
   const [isOpen, setIsOpen] = React.useState(open);
 
   React.useEffect(() => {
@@ -53,8 +54,8 @@ export function Modal({ open, onOpenChange, children }: ModalProps) {
         onClick={() => onOpenChange(false)}
       />
 
-      {/* Modal Content */}
-      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-4xl mx-4">
+      {/* Modal Wrapper - Viewport-safe width with per-modal maxWidth override */}
+      <div className={cn("fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-1.5rem)]", maxWidth)}>
         {children}
       </div>
     </div>

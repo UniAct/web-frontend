@@ -1,4 +1,5 @@
 import { httpClient } from '../../core/http-client';
+import { decodeJwtPayload } from '../../core/jwt';
 import { clearStoredSession, setStoredSession } from '../../core/session-storage';
 import type { LoginResponse } from '../../types';
 
@@ -19,9 +20,10 @@ export const authApi = {
       throw new Error(response.message || 'Login failed: no session data received');
     }
 
-    setStoredSession(response.data);
+    const sessionUser = decodeJwtPayload(response.data.token) ?? {};
+    setStoredSession({ token: response.data.token, user: sessionUser as any });
     httpClient.syncResolvedTenantFromSession();
-    return response.data;
+    return { token: response.data.token, user: sessionUser as any };
   },
 
   async loginSuperAdmin(email: string, password: string): Promise<LoginResponse> {
@@ -34,9 +36,10 @@ export const authApi = {
       throw new Error(response.message || 'Login failed: no session data received');
     }
 
-    setStoredSession(response.data, 'superadmin');
+    const sessionUser = decodeJwtPayload(response.data.token) ?? {};
+    setStoredSession({ token: response.data.token, user: sessionUser as any }, 'superadmin');
     httpClient.syncResolvedTenantFromSession();
-    return response.data;
+    return { token: response.data.token, user: sessionUser as any };
   },
 
   logout(): void {

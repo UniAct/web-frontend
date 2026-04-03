@@ -28,4 +28,5 @@ export type {
   AcademicLoadGPAInput,
 } from './program';
 export type { Course, CourseCreateInput, CourseUpdateInput, CourseType, CoursePrerequisite } from './course';
+export type { Semester, SemesterCreateInput, SemesterUpdateInput } from './semester';
 export type { Role, RoleCreateInput, Permission } from './rbac';

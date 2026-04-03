@@ -58,9 +58,28 @@ function resolveUserRole(parsed: any, fallbackRole: UserRole = 'student'): UserR
   const roleFromRoles = roles.length > 0 ? resolveFrontendRoleFromBackendRoles(roles) : fallbackRole;
 
   if (roleFromRoles === 'superadmin' || roleFromRoles === 'admin') return roleFromRoles;
-  if (parsed?.isStaffAccount === true) return 'faculty';
+  if (parsed?.isStaff === true || parsed?.isStaffAccount === true) return 'faculty';
+  if (parsed?.isStudent === true) return 'student';
 
   return roleFromRoles;
+}
+
+function resolveDashboardPage(role: UserRole): string {
+  if (role === 'admin' || role === 'superadmin') {
+    return 'superadmin';
+  }
+
+  return 'dashboard';
+}
+
+function buildUserFromSession(parsed: any, role: UserRole): User {
+  return {
+    id: parsed.id ? String(parsed.id) : parsed.username || parsed.email || 'unknown',
+    name: parsed.firstName ? `${parsed.firstName} ${parsed.lastName}` : parsed.username || parsed.email || 'Unknown User',
+    email: parsed.email || parsed.username || 'unknown@example.com',
+    role,
+    department: parsed.department || parsed.university || parsed.university_name || undefined,
+  };
 }
 
 export default function App() {
@@ -158,31 +177,11 @@ export default function App() {
       if (token && userJson) {
         const parsed = JSON.parse(userJson);
 
-        // Determine role from parsed data
-        let restoredRole: UserRole = 'student'; // default
-        if (parsed.roles && Array.isArray(parsed.roles) && parsed.roles.length > 0) {
-          restoredRole = resolveUserRole(parsed, 'student');
-        } else if (parsed?.isStaffAccount === true) {
-          restoredRole = 'faculty';
-        } else if (parsed.role) {
-          restoredRole = parsed.role as UserRole;
-        }
-
-        const restoredUser: User = {
-          id: parsed.id ? String(parsed.id) : parsed.username || parsed.email || 'unknown',
-          name: parsed.firstName ? `${parsed.firstName} ${parsed.lastName}` : parsed.username || parsed.email || 'Unknown User',
-          email: parsed.email || parsed.username || 'unknown@example.com',
-          role: restoredRole,
-          department: parsed.department || parsed.university || undefined,
-        };
+        const restoredRole = resolveUserRole(parsed, 'student');
+        const restoredUser = buildUserFromSession(parsed, restoredRole);
         setUser(restoredUser);
 
-        // Route based on role
-        if (restoredRole === 'superadmin' || restoredRole === 'admin') {
-          setCurrentPage('superadmin');
-        } else {
-          setCurrentPage('dashboard');
-        }
+        setCurrentPage(resolveDashboardPage(restoredRole));
       }
     } catch (err) {
       // corrupted localStorage entries - clear them
@@ -208,17 +207,13 @@ export default function App() {
         if (parsed.roles && Array.isArray(parsed.roles) && parsed.roles.length > 0) {
           finalRole = resolveUserRole(parsed, role);
           console.log(`[App] Backend returned roles: ${parsed.roles.join(', ')}; resolved role: ${finalRole}`);
-        } else if (parsed?.isStaffAccount === true) {
+        } else if (parsed?.isStaff === true || parsed?.isStaffAccount === true) {
           finalRole = 'faculty';
+        } else if (parsed?.isStudent === true) {
+          finalRole = 'student';
         }
 
-        const sessionUser: User = {
-          id: parsed.id ? String(parsed.id) : parsed.username || parsed.email || 'unknown',
-          name: parsed.firstName ? `${parsed.firstName} ${parsed.lastName}` : parsed.username || parsed.email || 'Unknown User',
-          email: parsed.email || parsed.username || 'unknown@example.com',
-          role: finalRole,
-          department: parsed.department || parsed.university || undefined,
-        };
+        const sessionUser = buildUserFromSession(parsed, finalRole);
         setUser(sessionUser);
 
         // Route based on role and tenant context
@@ -233,8 +228,9 @@ export default function App() {
             console.log('[App] Routing to SuperAdminPanel (Admin role at tenant)');
             setCurrentPage('superadmin'); // Admin gets admin panel (RBAC Management)
           } else {
-            console.log(`[App] Routing to Dashboard (${finalRole} role at tenant)`);
-            setCurrentPage('dashboard'); // Students, staff, alumni see dashboard
+            const nextPage = resolveDashboardPage(finalRole);
+            console.log(`[App] Routing to ${nextPage} (${finalRole} role at tenant)`);
+            setCurrentPage(nextPage);
           }
         }
         return;
@@ -283,7 +279,7 @@ export default function App() {
       year: role === 'student' ? 2024 : undefined
     };
     setUser(mockUser);
-    setCurrentPage('dashboard');
+    setCurrentPage(resolveDashboardPage(role));
   };
 
   const handleLogout = () => {

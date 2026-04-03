@@ -898,8 +898,8 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
         </DialogContent>
       </Dialog>
 
-      <Modal open={programDialogOpen} onOpenChange={(open) => { setProgramDialogOpen(open); if (!open) resetProgramDialog(); }}>
-        <SharedModalContent className="max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+      <Modal open={programDialogOpen} onOpenChange={(open) => { setProgramDialogOpen(open); if (!open) resetProgramDialog(); }} maxWidth="max-w-7xl">
+        <SharedModalContent className="w-[95vw] max-h-[90vh] overflow-y-auto">
           <SharedModalHeader>
             <SharedModalTitle>{editingProgram ? 'Edit Program' : 'Add Program'}</SharedModalTitle>
             <SharedModalDescription>Full backend-supported program setup: levels, fees, transcript, and academic load.</SharedModalDescription>

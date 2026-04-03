@@ -164,8 +164,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                         key={role.value}
                         onClick={() => setSelectedRole(role.value as UserRole)}
                         className={`p-3 rounded-lg border-2 transition-all ${selectedRole === role.value
-                            ? 'border-blue-500 bg-blue-50'
-                            : 'border-gray-200 hover:border-gray-300'
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:border-gray-300'
                           }`}
                       >
                         <div className={`w-6 h-6 ${role.color} rounded-md flex items-center justify-center mx-auto mb-1`}>

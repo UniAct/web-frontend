@@ -4,6 +4,7 @@ export { SuperAdminService } from './modules/superadmin/superadmin.service';
 export { UserService } from './modules/user/user.service';
 export { CourseService } from './modules/course/course.service';
 export { FacultyService } from './modules/faculty/faculty.service';
+export { SemesterService } from './modules/semester/semester.service';
 export { ProgramService } from './modules/program/program.service';
 export { RBACService } from './modules/rbac/rbac.service';
 
@@ -46,6 +47,9 @@ export type {
   CourseUpdateInput,
   CourseType,
   CoursePrerequisite,
+  Semester,
+  SemesterCreateInput,
+  SemesterUpdateInput,
   Role,
   RoleCreateInput,
   Permission,
