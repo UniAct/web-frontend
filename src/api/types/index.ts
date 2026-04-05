@@ -30,3 +30,21 @@ export type {
 export type { Course, CourseCreateInput, CourseUpdateInput, CourseType, CoursePrerequisite } from './course';
 export type { Semester, SemesterCreateInput, SemesterUpdateInput } from './semester';
 export type { Role, RoleCreateInput, Permission } from './rbac';
+export type {
+  StudentStatus,
+  StudentGender,
+  StudentReligion,
+  StudentSortOrder,
+  StudentRecord,
+  StudentListQuery,
+  StudentListPagination,
+  StudentListResponse,
+  CreateStudentInput,
+  UpdateStudentInput,
+  StudentImportRequest,
+  StudentImportStartResponse,
+  StudentImportErrorRow,
+  StudentImportStatus,
+  StudentImportStatusResponse,
+  StudentWriteResponse,
+} from './student';

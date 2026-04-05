@@ -285,6 +285,7 @@ class HttpClient {
     try {
       response = await fetch(`${API_PREFIX}${endpoint}`, {
         method,
+        cache: 'no-store',
         headers,
         body:
           body === undefined

@@ -7,6 +7,7 @@ export { FacultyService } from './modules/faculty/faculty.service';
 export { SemesterService } from './modules/semester/semester.service';
 export { ProgramService } from './modules/program/program.service';
 export { RBACService } from './modules/rbac/rbac.service';
+export { StudentService } from './modules/student/student.service';
 
 export { apiClient } from './client';
 
@@ -56,4 +57,20 @@ export type {
   StaffAccountCreateInput,
   StaffAccountUpdateInput,
   StaffDirectoryEntry,
+  StudentStatus,
+  StudentGender,
+  StudentReligion,
+  StudentSortOrder,
+  StudentRecord,
+  StudentListQuery,
+  StudentListPagination,
+  StudentListResponse,
+  CreateStudentInput,
+  UpdateStudentInput,
+  StudentImportRequest,
+  StudentImportStartResponse,
+  StudentImportErrorRow,
+  StudentImportStatus,
+  StudentImportStatusResponse,
+  StudentWriteResponse,
 } from './types/index';

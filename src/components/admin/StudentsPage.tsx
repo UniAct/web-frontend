@@ -1,1990 +1,1778 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import * as XLSX from 'xlsx';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  CalendarDays,
+  FileSpreadsheet,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCcw,
+  RotateCcw,
+  Search,
+  ShieldAlert,
+  Trash2,
+  Upload,
+  Users,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import {
+  ProgramService,
+  SemesterService,
+  StudentService,
+  type CreateStudentInput,
+  type Program,
+  type Semester,
+  type StudentImportErrorRow,
+  type StudentImportStatus,
+  type StudentRecord,
+  type StudentStatus,
+  type UpdateStudentInput,
+} from '../../api';
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Badge } from '../ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog';
+import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { SearchableSelect } from '../ui/searchable-select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { toast } from 'sonner';
-import {
-  Search,
-  Plus,
-  Users,
-  Upload,
-  Mail,
-  Phone,
-  Edit,
-  Trash2,
-  GraduationCap,
-  Calendar,
-  FileSpreadsheet,
-  CheckCircle,
-  AlertTriangle,
-  FileText,
-  ChevronLeft,
-  ChevronRight,
-  ChevronDown
-} from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
 
 interface StudentsPageProps {
   selectedUniversity: string | null;
   setSelectedUniversity: (university: string | null) => void;
 }
 
-// Grade calculation utility
-function calculateGrade(total: number): string {
-  if (total >= 90) return 'A';
-  if (total >= 85) return 'B+';
-  if (total >= 80) return 'B';
-  if (total >= 75) return 'C+';
-  if (total >= 70) return 'C';
-  if (total >= 65) return 'D+';
-  if (total >= 60) return 'D';
-  return 'F';
+interface StudentDraft {
+  username: string;
+  firstName: string;
+  lastName: string;
+  fullname: string;
+  universityStudentId: string;
+  nationalId: string;
+  email: string;
+  phone: string;
+  homePhone: string;
+  dateOfBirth: string;
+  enrollmentDate: string;
+  address: string;
+  city: string;
+  country: string;
+  status: StudentStatus;
+  religion: 'M' | 'C';
+  gender: 'M' | 'F';
+  previousQualification: string;
+  secondarySchoolName: string;
+  totalHighSchoolGrades: string;
+  highSchoolSeatNumber: string;
+  programId: string;
+  programLevelId: string;
+  semesterId: string;
 }
 
-// Calculate GPA from grade letter
-function gradeToGPA(grade: string): number {
-  const gradeMap: { [key: string]: number } = {
-    'A': 4.0,
-    'B+': 3.5,
-    'B': 3.0,
-    'C+': 2.5,
-    'C': 2.0,
-    'D+': 1.5,
-    'D': 1.0,
-    'F': 0.0
-  };
-  return gradeMap[grade] || 0.0;
+interface ImportPreviewRow {
+  rowNumber: number;
+  data: Record<string, string>;
 }
 
-// Calculate semester GPA and summary
-function calculateSemesterSummary(courses: any[]) {
-  const totalCredits = courses.reduce((sum, course) => sum + course.creditHours, 0);
-  const obtainedHours = courses.filter(course => course.total >= 60).reduce((sum, course) => sum + course.creditHours, 0);
-
-  let totalGradePoints = 0;
-  courses.forEach(course => {
-    const grade = calculateGrade(course.total);
-    const gradePoint = gradeToGPA(grade);
-    totalGradePoints += gradePoint * course.creditHours;
-  });
-
-  const gpa = totalCredits > 0 ? (totalGradePoints / totalCredits).toFixed(2) : '0.00';
-
-  return {
-    totalCredits,
-    obtainedHours,
-    gpa
-  };
+interface EditableImportFailure {
+  row: number;
+  reason: string;
+  username?: string;
+  data: Record<string, string>;
 }
 
-// Calculate CGPA across all semesters in a level
-function calculateCGPA(levelData: any): string {
-  let totalCredits = 0;
-  let totalGradePoints = 0;
+interface PersistedImportSession {
+  universityId: string;
+  jobId: string;
+  status: StudentImportStatus;
+  statusMessage: string;
+  programId: string;
+  programLevelId: string;
+  semesterId: string;
+  fileName: string;
+}
 
-  levelData.semesters.forEach((semester: any) => {
-    semester.courses.forEach((course: any) => {
-      const grade = calculateGrade(course.total);
-      const gradePoint = gradeToGPA(grade);
-      totalGradePoints += gradePoint * course.creditHours;
-      totalCredits += course.creditHours;
+const emptyStudentDraft: StudentDraft = {
+  username: '',
+  firstName: '',
+  lastName: '',
+  fullname: '',
+  universityStudentId: '',
+  nationalId: '',
+  email: '',
+  phone: '',
+  homePhone: '',
+  dateOfBirth: '',
+  enrollmentDate: '',
+  address: '',
+  city: '',
+  country: 'Egypt',
+  status: 'Active',
+  religion: 'M',
+  gender: 'M',
+  previousQualification: '',
+  secondarySchoolName: '',
+  totalHighSchoolGrades: '',
+  highSchoolSeatNumber: '',
+  programId: '',
+  programLevelId: '',
+  semesterId: '',
+};
+
+const importEditableColumns = [
+  'username',
+  'firstName',
+  'lastName',
+  'fullname',
+  'universityStudentId',
+  'nationalId',
+  'email',
+  'phone',
+  'dateOfBirth',
+  'enrollmentDate',
+  'status',
+  'religion',
+  'gender',
+];
+
+const importTemplateHeaders = [
+  'Username',
+  'First Name',
+  'Last Name',
+  'Full Name',
+  'University Student ID',
+  'National ID',
+  'Email',
+  'Phone',
+  'Date of Birth',
+  'Address',
+  'City',
+  'Country',
+  'Status',
+  'Enrollment Date',
+  'Religion',
+  'Gender',
+  'Home Phone',
+  'Previous Qualification',
+  'Secondary School Name',
+  'Total High School Grades',
+  'High School Seat Number',
+];
+
+const importTemplateSampleRow = [
+  'ahmed.hassan',
+  'Ahmed',
+  'Hassan',
+  'Ahmed Hassan',
+  '20260001',
+  '30101011234567',
+  'ahmed.hassan@student.anu.edu.eg',
+  '01012345678',
+  '2007-02-01',
+  'Smouha, Alexandria',
+  'Alexandria',
+  'Egypt',
+  'Active',
+  '2026-09-15',
+  'M',
+  'M',
+  '034567890',
+  'Thanaweya Amma',
+  'Alex Secondary School',
+  '91',
+  'S123456',
+];
+
+const getImportStorageKey = (universityId: string) => `studentsImportSession:${universityId}`;
+
+const defaultStatusOptions: StudentStatus[] = ['Active', 'Inactive', 'Graduated', 'Suspended', 'Dismissed'];
+
+function toCamelKey(value: string): string {
+  return value
+    .replace(/[^a-zA-Z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part, index) => {
+      if (index === 0) {
+        return part.charAt(0).toLowerCase() + part.slice(1).toLowerCase();
+      }
+
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+    })
+    .join('');
+}
+const IMPORT_MAX_CHECKS = 48;
+const IMPORT_POLL_DELAY_MS = 2500;
+
+function resolveProgramLevels(programs: Program[], selectedProgramId: string): Program['levels'] {
+  const id = Number(selectedProgramId);
+  if (!id) return [];
+  const program = programs.find((item) => item.id === id);
+  return program?.levels ?? [];
+}
+
+function parseImportPreview(file: File): Promise<ImportPreviewRow[]> {
+  return file.arrayBuffer().then((buffer) => {
+    const workbook = XLSX.read(buffer, { type: 'array' });
+    const firstSheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[firstSheetName];
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '' });
+
+    return rows.map((row, index) => {
+      const normalizedData: Record<string, string> = {};
+      Object.entries(row).forEach(([key, value]) => {
+        normalizedData[toCamelKey(key)] = String(value ?? '').trim();
+      });
+
+      return {
+        rowNumber: index + 2,
+        data: normalizedData,
+      };
     });
   });
-
-  return totalCredits > 0 ? (totalGradePoints / totalCredits).toFixed(2) : '0.00';
 }
 
-// Grade Level Section Component with Collapsible Semesters
-function GradeLevelSection({ levelData, onUpdateGrade }: { levelData: any; onUpdateGrade: (semesterIndex: number, courseIndex: number, newTotal: number) => void }) {
-  const [openSemesters, setOpenSemesters] = useState<{ [key: string]: boolean }>({});
+function parseDateValue(value: string | undefined): Date | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
 
-  const toggleSemester = (semesterName: string) => {
-    setOpenSemesters(prev => ({
-      ...prev,
-      [semesterName]: !prev[semesterName]
-    }));
-  };
+function downloadImportTemplate(): void {
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.aoa_to_sheet([importTemplateHeaders, importTemplateSampleRow]);
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Students Template');
+  XLSX.writeFile(workbook, 'students_import_template.xlsx');
+}
 
-  const cgpa = calculateCGPA(levelData);
+function readPersistedImportSession(universityId: string): PersistedImportSession | null {
+  try {
+    const raw = localStorage.getItem(getImportStorageKey(universityId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedImportSession;
+    if (!parsed?.jobId) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 
+function writePersistedImportSession(session: PersistedImportSession): void {
+  localStorage.setItem(getImportStorageKey(session.universityId), JSON.stringify(session));
+}
+
+function clearPersistedImportSession(universityId: string): void {
+  localStorage.removeItem(getImportStorageKey(universityId));
+}
+
+function isTerminalImportLookupError(message: string): boolean {
+  const normalized = message.toLowerCase();
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg">{levelData.level}</CardTitle>
-          <Badge variant="default" className="gap-1">
-            CGPA: {cgpa}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {levelData.semesters.map((semester: any, semesterIndex: number) => {
-          const summary = calculateSemesterSummary(semester.courses);
-
-          return (
-            <div key={semesterIndex} className="border border-slate-200 rounded-lg overflow-hidden">
-              <button
-                onClick={() => toggleSemester(semester.name)}
-                className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  {openSemesters[semester.name] ? (
-                    <ChevronDown className="w-4 h-4 text-slate-600" />
-                  ) : (
-                    <ChevronRight className="w-4 h-4 text-slate-600" />
-                  )}
-                  <span className="text-slate-900">{semester.name}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline">{semester.courses.length} Courses</Badge>
-                  <Badge variant="secondary">GPA: {summary.gpa}</Badge>
-                </div>
-              </button>
-
-              {openSemesters[semester.name] && (
-                <div className="p-4 bg-white">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Course Name</TableHead>
-                        <TableHead>Course Code</TableHead>
-                        <TableHead className="text-center">Credit Hours</TableHead>
-                        <TableHead className="text-center">Total</TableHead>
-                        <TableHead className="text-center">Grade</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {semester.courses.map((course: any, courseIndex: number) => {
-                        const grade = calculateGrade(course.total);
-                        return (
-                          <TableRow key={courseIndex}>
-                            <TableCell>{course.name}</TableCell>
-                            <TableCell className="text-slate-600">{course.code}</TableCell>
-                            <TableCell className="text-center">{course.creditHours}</TableCell>
-                            <TableCell className="text-center">
-                              <Input
-                                type="number"
-                                min="0"
-                                max="100"
-                                value={course.total}
-                                onChange={(e) => {
-                                  const newTotal = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
-                                  onUpdateGrade(semesterIndex, courseIndex, newTotal);
-                                }}
-                                className="w-20 text-center mx-auto"
-                              />
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <Badge
-                                variant={
-                                  grade.startsWith('A') ? 'default' :
-                                    grade.startsWith('B') ? 'secondary' :
-                                      grade === 'F' ? 'destructive' :
-                                        'outline'
-                                }
-                              >
-                                {grade}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                      {/* Summary Row */}
-                      <TableRow className="bg-slate-50 border-t-2 border-slate-300">
-                        <TableCell colSpan={2} className="text-right">
-                          <span className="text-slate-900">Summary:</span>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <span className="text-slate-900">Total Credits: {summary.totalCredits}</span>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <span className="text-slate-900">Obtained: {summary.obtainedHours}</span>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant="default">GPA: {summary.gpa}</Badge>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant="default">CGPA: {summary.gpa}</Badge>
-                        </TableCell>
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </CardContent>
-    </Card>
+    normalized.includes('job not found') ||
+    normalized.includes('http 404') ||
+    normalized.includes('request failed (http 404)')
   );
 }
 
-export function StudentsPage({ selectedUniversity }: StudentsPageProps) {
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editDialogTab, setEditDialogTab] = useState('personal-info');
-  const [showGradesTab, setShowGradesTab] = useState(false); // Control whether to show grades tab
-  const [gradesModified, setGradesModified] = useState(false); // Track if grades have been modified
-  const [importFile, setImportFile] = useState<File | null>(null);
-  const [importProgress, setImportProgress] = useState(0);
-  const [isImporting, setIsImporting] = useState(false);
-  const [activeTab, setActiveTab] = useState('all-students');
+function normalizeImportFailures(
+  errors: StudentImportErrorRow[] | undefined,
+  previewRows: ImportPreviewRow[],
+): EditableImportFailure[] {
+  if (!errors || errors.length === 0) return [];
 
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
-  const [studentsPerPage, setStudentsPerPage] = useState(10);
-
-  // Assignment filters with search
-  const [assignmentSearch, setAssignmentSearch] = useState('');
-  const [assignmentFilters, setAssignmentFilters] = useState({
-    program: 'all',
-    level: 'all'
+  return errors.map((error) => {
+    const preview = previewRows.find((row) => row.rowNumber === Number(error.row));
+    return {
+      row: Number(error.row),
+      username: error.username,
+      reason: error.reason,
+      data: {
+        ...(preview?.data ?? {}),
+      },
+    };
   });
+}
 
-  // All Students tab filters
-  const [allStudentsSearch, setAllStudentsSearch] = useState('');
-  const [allStudentsFilters, setAllStudentsFilters] = useState({
-    program: 'all',
-    level: 'all',
-    status: 'all'
-  });
+function getStudentFullName(student: StudentRecord): string {
+  const joined = `${student.firstName ?? ''} ${student.lastName ?? ''}`.trim();
+  return joined || student.fullName || student.username;
+}
 
-  // Edit student state
-  const [selectedStudent, setSelectedStudent] = useState<any>(null);
-  const [editStudent, setEditStudent] = useState({
-    studentId: '',
-    name: '',
-    religion: '',
-    type: '',
-    nationalId: '',
-    passport: '',
-    enrollmentDate: '',
-    address: '',
+function parseNumeric(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
+function mapDraftToCreatePayload(draft: StudentDraft): CreateStudentInput {
+  return {
+    username: draft.username.trim(),
+    firstName: draft.firstName.trim(),
+    lastName: draft.lastName.trim(),
+    fullname: draft.fullname.trim() || `${draft.firstName.trim()} ${draft.lastName.trim()}`.trim(),
+    universityStudentId: Number(draft.universityStudentId),
+    nationalId: draft.nationalId.trim(),
+    programId: Number(draft.programId),
+    programLevelId: Number(draft.programLevelId),
+    semesterId: Number(draft.semesterId),
+    email: draft.email.trim().toLowerCase(),
+    phone: draft.phone.trim(),
+    dateOfBirth: draft.dateOfBirth,
+    address: draft.address.trim(),
+    city: draft.city.trim(),
+    country: draft.country.trim(),
+    status: draft.status,
+    enrollmentDate: draft.enrollmentDate,
+    religion: draft.religion,
+    gender: draft.gender,
+    homePhone: draft.homePhone.trim() || undefined,
+    previousQualification: draft.previousQualification.trim() || undefined,
+    secondarySchoolName: draft.secondarySchoolName.trim() || undefined,
+    totalHighSchoolGrades: parseNumeric(draft.totalHighSchoolGrades),
+    highSchoolSeatNumber: draft.highSchoolSeatNumber.trim() || undefined,
+  };
+}
+
+function mapStudentToEditDraft(student: StudentRecord): StudentDraft {
+  return {
+    username: student.username,
+    firstName: student.firstName,
+    lastName: student.lastName,
+    fullname: student.fullName,
+    universityStudentId: String(student.universityStudentId),
+    nationalId: student.nationalId,
+    email: student.email,
+    phone: student.phone,
     homePhone: '',
-    mobilePhone: '',
-    email: '',
+    dateOfBirth: '',
+    enrollmentDate: student.enrollmentDate?.slice(0, 10) || '',
+    address: '',
+    city: student.city,
+    country: student.country,
+    status: student.status,
+    religion: student.religion,
+    gender: student.gender,
     previousQualification: '',
-    program: '',
-    level: '',
-    status: 'Active'
-  });
-
-  // Form state for adding new student - updated with all new fields
-  const [newStudent, setNewStudent] = useState({
-    studentId: '',
-    name: '',
-    religion: '',
-    type: '',
-    nationalId: '',
-    passport: '',
-    enrollmentDate: '',
-    address: '',
-    homePhone: '',
-    mobilePhone: '',
-    email: '',
-    previousQualification: ''
-  });
-
-  // Mock student data with new fields
-  const [students, setStudents] = useState([
-    {
-      id: '1',
-      name: 'John Doe',
-      email: 'john.doe@student.anu.edu.eg',
-      mobilePhone: '+20 10 123 4567',
-      homePhone: '+20 2 123 4567',
-      studentId: '20210001',
-      nationalId: '29501012345678',
-      passport: 'A12345678',
-      program: 'Computer Science',
-      level: 'Level 3',
-      religion: 'Muslim',
-      type: 'Male',
-      gpa: 3.8,
-      status: 'Active',
-      enrollmentDate: '2021-09-01',
-      address: '123 Main St, Alexandria',
-      previousQualification: 'High School - 95%'
-    },
-    {
-      id: '2',
-      name: 'Sarah Ahmed',
-      email: 'sarah.ahmed@student.anu.edu.eg',
-      mobilePhone: '+20 10 123 4568',
-      homePhone: '+20 2 123 4568',
-      studentId: '20220015',
-      nationalId: '30001234567890',
-      passport: 'B23456789',
-      program: 'Mathematics',
-      level: 'Level 2',
-      religion: 'Muslim',
-      type: 'Female',
-      gpa: 3.9,
-      status: 'Active',
-      enrollmentDate: '2022-09-01',
-      address: '456 Park Ave, Cairo',
-      previousQualification: 'High School - 98%'
-    },
-    {
-      id: '3',
-      name: 'Mohamed Ali',
-      email: 'mohamed.ali@student.anu.edu.eg',
-      mobilePhone: '+20 10 123 4569',
-      homePhone: '+20 2 123 4569',
-      studentId: '20200078',
-      nationalId: '29801234567891',
-      passport: '',
-      program: 'Physics',
-      level: 'Level 4',
-      religion: 'Muslim',
-      type: 'Male',
-      gpa: 3.6,
-      status: 'Active',
-      enrollmentDate: '2020-09-01',
-      address: '789 University Rd, Giza',
-      previousQualification: 'High School - 92%'
-    }
-  ]);
-
-  const programs = ['Computer Science', 'Mathematics', 'Physics', 'Chemistry', 'Biology', 'Engineering', 'Business Administration'];
-  const levelOptions = ['Level 1', 'Level 2', 'Level 3', 'Level 4'];
-  const religionOptions = [
-    { value: '1', label: 'Muslim' },
-    { value: '2', label: 'Christian' }
-  ];
-  const typeOptions = [
-    { value: '1', label: 'Male' },
-    { value: '2', label: 'Female' }
-  ];
-
-  // Mock grades data - organized by student ID (now with state for editing)
-  const [studentGradesData, setStudentGradesData] = useState<{ [key: string]: any }>({
-    '1': [ // John Doe
-      {
-        level: 'Level 1',
-        semesters: [
-          {
-            name: 'Fall 2021',
-            courses: [
-              { name: 'Introduction to Programming', code: 'CS101', creditHours: 3, total: 92, grade: 'A' },
-              { name: 'Calculus I', code: 'MATH101', creditHours: 3, total: 88, grade: 'A-' },
-              { name: 'Physics I', code: 'PHYS101', creditHours: 3, total: 85, grade: 'B+' },
-              { name: 'English Composition', code: 'ENG101', creditHours: 2, total: 90, grade: 'A' }
-            ]
-          },
-          {
-            name: 'Spring 2022',
-            courses: [
-              { name: 'Data Structures', code: 'CS102', creditHours: 3, total: 94, grade: 'A' },
-              { name: 'Calculus II', code: 'MATH102', creditHours: 3, total: 87, grade: 'A-' },
-              { name: 'Physics II', code: 'PHYS102', creditHours: 3, total: 83, grade: 'B+' },
-              { name: 'Digital Logic', code: 'CS103', creditHours: 3, total: 91, grade: 'A' }
-            ]
-          }
-        ]
-      },
-      {
-        level: 'Level 2',
-        semesters: [
-          {
-            name: 'Fall 2022',
-            courses: [
-              { name: 'Algorithms', code: 'CS201', creditHours: 3, total: 89, grade: 'A-' },
-              { name: 'Database Systems', code: 'CS202', creditHours: 3, total: 92, grade: 'A' },
-              { name: 'Computer Architecture', code: 'CS203', creditHours: 3, total: 86, grade: 'B+' },
-              { name: 'Discrete Mathematics', code: 'MATH201', creditHours: 3, total: 88, grade: 'A-' }
-            ]
-          },
-          {
-            name: 'Spring 2023',
-            courses: [
-              { name: 'Operating Systems', code: 'CS204', creditHours: 3, total: 90, grade: 'A' },
-              { name: 'Web Development', code: 'CS205', creditHours: 3, total: 95, grade: 'A+' },
-              { name: 'Software Engineering', code: 'CS206', creditHours: 3, total: 87, grade: 'A-' },
-              { name: 'Linear Algebra', code: 'MATH202', creditHours: 3, total: 84, grade: 'B+' }
-            ]
-          }
-        ]
-      },
-      {
-        level: 'Level 3',
-        semesters: [
-          {
-            name: 'Fall 2023',
-            courses: [
-              { name: 'Artificial Intelligence', code: 'CS301', creditHours: 3, total: 93, grade: 'A' },
-              { name: 'Computer Networks', code: 'CS302', creditHours: 3, total: 88, grade: 'A-' },
-              { name: 'Machine Learning', code: 'CS303', creditHours: 3, total: 91, grade: 'A' },
-              { name: 'Probability & Statistics', code: 'MATH301', creditHours: 3, total: 85, grade: 'B+' }
-            ]
-          }
-        ]
-      }
-    ],
-    '2': [ // Sarah Ahmed
-      {
-        level: 'Level 1',
-        semesters: [
-          {
-            name: 'Fall 2022',
-            courses: [
-              { name: 'Calculus I', code: 'MATH101', creditHours: 3, total: 96, grade: 'A+' },
-              { name: 'Linear Algebra', code: 'MATH102', creditHours: 3, total: 94, grade: 'A' },
-              { name: 'Physics I', code: 'PHYS101', creditHours: 3, total: 92, grade: 'A' },
-              { name: 'English Composition', code: 'ENG101', creditHours: 2, total: 95, grade: 'A+' }
-            ]
-          },
-          {
-            name: 'Spring 2023',
-            courses: [
-              { name: 'Calculus II', code: 'MATH103', creditHours: 3, total: 97, grade: 'A+' },
-              { name: 'Abstract Algebra', code: 'MATH104', creditHours: 3, total: 93, grade: 'A' },
-              { name: 'Differential Equations', code: 'MATH105', creditHours: 3, total: 95, grade: 'A+' },
-              { name: 'Programming for Math', code: 'CS101', creditHours: 2, total: 90, grade: 'A' }
-            ]
-          }
-        ]
-      },
-      {
-        level: 'Level 2',
-        semesters: [
-          {
-            name: 'Fall 2023',
-            courses: [
-              { name: 'Real Analysis', code: 'MATH201', creditHours: 3, total: 94, grade: 'A' },
-              { name: 'Number Theory', code: 'MATH202', creditHours: 3, total: 96, grade: 'A+' },
-              { name: 'Topology', code: 'MATH203', creditHours: 3, total: 92, grade: 'A' },
-              { name: 'Mathematical Logic', code: 'MATH204', creditHours: 3, total: 91, grade: 'A' }
-            ]
-          }
-        ]
-      }
-    ],
-    '3': [ // Mohamed Ali
-      {
-        level: 'Level 1',
-        semesters: [
-          {
-            name: 'Fall 2020',
-            courses: [
-              { name: 'General Physics I', code: 'PHYS101', creditHours: 3, total: 85, grade: 'B+' },
-              { name: 'Calculus I', code: 'MATH101', creditHours: 3, total: 83, grade: 'B+' },
-              { name: 'Chemistry I', code: 'CHEM101', creditHours: 3, total: 88, grade: 'A-' },
-              { name: 'English', code: 'ENG101', creditHours: 2, total: 80, grade: 'B' }
-            ]
-          }
-        ]
-      },
-      {
-        level: 'Level 2',
-        semesters: [
-          {
-            name: 'Fall 2021',
-            courses: [
-              { name: 'Electromagnetism', code: 'PHYS201', creditHours: 3, total: 87, grade: 'A-' },
-              { name: 'Quantum Mechanics I', code: 'PHYS202', creditHours: 3, total: 84, grade: 'B+' },
-              { name: 'Thermodynamics', code: 'PHYS203', creditHours: 3, total: 89, grade: 'A-' },
-              { name: 'Mathematical Methods', code: 'MATH201', creditHours: 3, total: 82, grade: 'B+' }
-            ]
-          }
-        ]
-      },
-      {
-        level: 'Level 3',
-        semesters: [
-          {
-            name: 'Fall 2022',
-            courses: [
-              { name: 'Quantum Mechanics II', code: 'PHYS301', creditHours: 3, total: 86, grade: 'B+' },
-              { name: 'Statistical Mechanics', code: 'PHYS302', creditHours: 3, total: 88, grade: 'A-' },
-              { name: 'Solid State Physics', code: 'PHYS303', creditHours: 3, total: 85, grade: 'B+' },
-              { name: 'Advanced Lab', code: 'PHYS304', creditHours: 2, total: 90, grade: 'A' }
-            ]
-          }
-        ]
-      },
-      {
-        level: 'Level 4',
-        semesters: [
-          {
-            name: 'Fall 2023',
-            courses: [
-              { name: 'Particle Physics', code: 'PHYS401', creditHours: 3, total: 84, grade: 'B+' },
-              { name: 'Nuclear Physics', code: 'PHYS402', creditHours: 3, total: 87, grade: 'A-' },
-              { name: 'Astrophysics', code: 'PHYS403', creditHours: 3, total: 89, grade: 'A-' },
-              { name: 'Senior Project', code: 'PHYS404', creditHours: 3, total: 91, grade: 'A' }
-            ]
-          }
-        ]
-      }
-    ]
-  });
-
-  // Handle file upload for import
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-        file.type === 'text/csv' ||
-        file.name.endsWith('.xlsx') ||
-        file.name.endsWith('.csv')) {
-        setImportFile(file);
-        toast.success(`File "${file.name}" selected for import`);
-      } else {
-        toast.error('Please select a valid Excel (.xlsx) or CSV file');
-      }
-    }
+    secondarySchoolName: '',
+    totalHighSchoolGrades: '',
+    highSchoolSeatNumber: '',
+    programId: String(student.programId),
+    programLevelId: String(student.programLevelId),
+    semesterId: '',
   };
+}
 
-  // Simulate import process
-  const handleImport = async () => {
-    if (!importFile) {
-      toast.error('Please select a file to import');
-      return;
-    }
-
-    // Check if program and level are selected for auto-assignment
-    if (assignmentFilters.program === 'all' || assignmentFilters.level === 'all') {
-      toast.error('Please select a Program and Level to assign imported students');
-      return;
-    }
-
-    setIsImporting(true);
-    setImportProgress(0);
-
-    // Simulate import progress
-    for (let i = 0; i <= 100; i += 10) {
-      await new Promise(resolve => setTimeout(resolve, 200));
-      setImportProgress(i);
-    }
-
-    // Simulate adding imported students with auto-assignment to selected program and level
-    const importedStudents = [
-      {
-        id: String(students.length + 1),
-        name: 'Ahmed Hassan',
-        email: 'ahmed.hassan@student.anu.edu.eg',
-        mobilePhone: '+20 10 987 6543',
-        homePhone: '',
-        studentId: '20240001',
-        nationalId: '30101234567892',
-        passport: '',
-        program: assignmentFilters.program, // Auto-assigned
-        level: assignmentFilters.level, // Auto-assigned
-        religion: 'Muslim',
-        type: 'Male',
-        gpa: 0.0,
-        status: 'Active',
-        enrollmentDate: new Date().toISOString().split('T')[0],
-        address: '',
-        previousQualification: ''
-      },
-      {
-        id: String(students.length + 2),
-        name: 'Fatima Mohamed',
-        email: 'fatima.mohamed@student.anu.edu.eg',
-        mobilePhone: '+20 10 876 5432',
-        homePhone: '',
-        studentId: '20240002',
-        nationalId: '30201234567893',
-        passport: '',
-        program: assignmentFilters.program, // Auto-assigned
-        level: assignmentFilters.level, // Auto-assigned
-        religion: 'Muslim',
-        type: 'Female',
-        gpa: 0.0,
-        status: 'Active',
-        enrollmentDate: new Date().toISOString().split('T')[0],
-        address: '',
-        previousQualification: ''
-      }
-    ];
-
-    setStudents(prev => [...prev, ...importedStudents]);
-    setIsImporting(false);
-    setShowImportModal(false);
-    setImportFile(null);
-    setImportProgress(0);
-    toast.success(`Successfully imported ${importedStudents.length} students to ${assignmentFilters.program} - ${assignmentFilters.level}`);
+function mapEditDraftToPayload(draft: StudentDraft): UpdateStudentInput {
+  return {
+    username: draft.username.trim(),
+    firstName: draft.firstName.trim(),
+    lastName: draft.lastName.trim(),
+    fullname: draft.fullname.trim() || `${draft.firstName.trim()} ${draft.lastName.trim()}`.trim(),
+    universityStudentId: Number(draft.universityStudentId),
+    nationalId: draft.nationalId.trim(),
+    email: draft.email.trim().toLowerCase(),
+    phone: draft.phone.trim(),
+    address: draft.address.trim() || undefined,
+    city: draft.city.trim(),
+    country: draft.country.trim(),
+    status: draft.status,
+    enrollmentDate: draft.enrollmentDate || undefined,
+    religion: draft.religion,
+    gender: draft.gender,
+    programId: Number(draft.programId),
+    programLevelId: Number(draft.programLevelId),
+    homePhone: draft.homePhone.trim() || undefined,
+    previousQualification: draft.previousQualification.trim() || undefined,
+    secondarySchoolName: draft.secondarySchoolName.trim() || undefined,
+    totalHighSchoolGrades: parseNumeric(draft.totalHighSchoolGrades),
+    highSchoolSeatNumber: draft.highSchoolSeatNumber.trim() || undefined,
+    dateOfBirth: draft.dateOfBirth || undefined,
   };
+}
 
-  // Handle adding new student manually
-  const handleAddStudent = () => {
-    // Validation - only Student ID, Name, and Enrollment Date are required
-    if (!newStudent.studentId || !newStudent.name || !newStudent.enrollmentDate) {
-      toast.error('Please fill in all required fields (Student ID, Name, Enrollment Date)');
-      return;
-    }
+export function StudentsPage({ selectedUniversity }: StudentsPageProps) {
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [students, setStudents] = useState<StudentRecord[]>([]);
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [semesters, setSemesters] = useState<Semester[]>([]);
 
-    // Check if program and level are selected for auto-assignment
-    if (assignmentFilters.program === 'all' || assignmentFilters.level === 'all') {
-      toast.error('Please select a Program and Level in the filter to assign the student');
-      return;
-    }
+  const [search, setSearch] = useState('');
+  const [programFilter, setProgramFilter] = useState('all');
+  const [levelFilter, setLevelFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [deleteFilter, setDeleteFilter] = useState<'active' | 'deleted' | 'all'>('active');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [activeSemesterId, setActiveSemesterId] = useState<number | null>(null);
 
-    // Check for duplicate Student ID
-    const duplicateStudentId = students.find(s => s.studentId === newStudent.studentId);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
-    if (duplicateStudentId) {
-      toast.error('Student ID already exists');
-      return;
-    }
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [createDraft, setCreateDraft] = useState<StudentDraft>(emptyStudentDraft);
+  const [editDraft, setEditDraft] = useState<StudentDraft>(emptyStudentDraft);
+  const [editingStudentId, setEditingStudentId] = useState<number | null>(null);
 
-    // Convert religion and type from enum to readable format
-    const getReligionLabel = (value: string) => {
-      if (value === '1') return 'Muslim';
-      if (value === '2') return 'Christian';
-      return '';
-    };
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importPreviewRows, setImportPreviewRows] = useState<ImportPreviewRow[]>([]);
+  const [importProgramId, setImportProgramId] = useState('');
+  const [importProgramLevelId, setImportProgramLevelId] = useState('');
+  const [importSemesterId, setImportSemesterId] = useState('');
+  const [importJobId, setImportJobId] = useState<string | null>(null);
+  const [importStatus, setImportStatus] = useState<StudentImportStatus | null>(null);
+  const [importStatusMessage, setImportStatusMessage] = useState('');
+  const [importFailures, setImportFailures] = useState<EditableImportFailure[]>([]);
+  const [importing, setImporting] = useState(false);
+  const [retryingFailedRows, setRetryingFailedRows] = useState(false);
+  const [importTab, setImportTab] = useState<'setup' | 'status' | 'recover'>('setup');
+  const pollingJobRef = useRef<string | null>(null);
 
-    const getTypeLabel = (value: string) => {
-      if (value === '1') return 'Male';
-      if (value === '2') return 'Female';
-      return '';
-    };
+  const allProgramLevels = useMemo(() => {
+    return programs.flatMap((program) =>
+      (program.levels ?? []).map((level) => ({
+        value: String(level.id),
+        label: `Level ${level.level}`,
+        description: `${program.name}`,
+      })),
+    );
+  }, [programs]);
 
-    const student = {
-      id: String(students.length + 1),
-      studentId: newStudent.studentId,
-      name: newStudent.name,
-      religion: getReligionLabel(newStudent.religion),
-      type: getTypeLabel(newStudent.type),
-      nationalId: newStudent.nationalId || '',
-      passport: newStudent.passport || '',
-      enrollmentDate: newStudent.enrollmentDate,
-      address: newStudent.address || '',
-      homePhone: newStudent.homePhone || '',
-      mobilePhone: newStudent.mobilePhone || '',
-      email: newStudent.email || '',
-      previousQualification: newStudent.previousQualification || '',
-      program: assignmentFilters.program, // Auto-assigned from filter
-      level: assignmentFilters.level, // Auto-assigned from filter
-      gpa: 0.0,
-      status: 'Active'
-    };
+  const levelOptionsForProgramFilter = useMemo(() => {
+    if (programFilter === 'all') return allProgramLevels;
 
-    setStudents(prev => [...prev, student]);
-    setNewStudent({
-      studentId: '',
-      name: '',
-      religion: '',
-      type: '',
-      nationalId: '',
-      passport: '',
-      enrollmentDate: '',
-      address: '',
-      homePhone: '',
-      mobilePhone: '',
-      email: '',
-      previousQualification: ''
-    });
-    setShowAddModal(false);
-    toast.success(`Student added successfully to ${assignmentFilters.program} - ${assignmentFilters.level}`);
-  };
-
-  // Download template
-  const downloadTemplate = () => {
-    const templateData = [
-      ['Student ID', 'Name', 'Religion (1=Muslim, 2=Christian)', 'Type (1=Male, 2=Female)', 'National ID', 'Passport', 'Enrollment Date', 'Address', 'Home Phone', 'Mobile Phone', 'Email', 'Previous Qualification'],
-      ['20240001', 'John Doe', '1', '1', '29501012345678', 'A12345678', '2024-09-01', '123 Main St', '+20 2 123 4567', '+20 10 123 4567', 'john.doe@student.anu.edu.eg', 'High School - 95%'],
-      ['20240002', 'Sarah Ahmed', '1', '2', '30001234567890', 'B23456789', '2024-09-01', '456 Park Ave', '+20 2 123 4568', '+20 10 123 4568', 'sarah.ahmed@student.anu.edu.eg', 'High School - 98%']
-    ];
-
-    const csvContent = templateData.map(row => row.join(',')).join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'student_import_template.csv';
-    a.click();
-    window.URL.revokeObjectURL(url);
-    toast.success('Template downloaded successfully');
-  };
-
-  // Filter students for assignment
-  const filteredStudents = students.filter(student => {
-    const matchesSearch = student.name.toLowerCase().includes(assignmentSearch.toLowerCase()) ||
-      student.studentId.toLowerCase().includes(assignmentSearch.toLowerCase());
-
-    const matchesProgram = assignmentFilters.program === 'all' || student.program === assignmentFilters.program;
-    const matchesLevel = assignmentFilters.level === 'all' || student.level === assignmentFilters.level;
-
-    return matchesSearch && matchesProgram && matchesLevel;
-  });
-
-  // Pagination logic
-  const totalPages = Math.ceil(filteredStudents.length / studentsPerPage);
-  const startIndex = (currentPage - 1) * studentsPerPage;
-  const paginatedStudents = filteredStudents.slice(startIndex, startIndex + studentsPerPage);
-
-  // Handle assignment
-  const handleAssignStudents = () => {
-    if (assignmentFilters.program === 'all' || assignmentFilters.level === 'all') {
-      toast.error('Please select specific program and level for assignment');
-      return;
-    }
-
-    const assignedCount = filteredStudents.length;
-
-    // Update students with assignment
-    setStudents(prev => prev.map(student => {
-      if (filteredStudents.find(filtered => filtered.id === student.id)) {
-        return {
-          ...student,
-          program: assignmentFilters.program,
-          level: assignmentFilters.level,
-          status: 'Assigned'
-        };
-      }
-      return student;
+    return resolveProgramLevels(programs, programFilter).map((level) => ({
+      value: String(level.id),
+      label: `Level ${level.level}`,
     }));
+  }, [allProgramLevels, programFilter, programs]);
 
-    toast.success(`Successfully assigned ${assignedCount} students to ${assignmentFilters.program} - ${assignmentFilters.level}`);
-  };
+  const selectedProgramLevelsForCreate = useMemo(
+    () => resolveProgramLevels(programs, createDraft.programId),
+    [createDraft.programId, programs],
+  );
 
-  // Clear all students
-  const handleClearAllStudents = () => {
-    setStudents([]);
-    setCurrentPage(1);
-    setAssignmentFilters({ program: 'all', level: 'all' });
-    toast.success('All students cleared successfully');
-  };
+  const selectedProgramLevelsForEdit = useMemo(
+    () => resolveProgramLevels(programs, editDraft.programId),
+    [editDraft.programId, programs],
+  );
 
-  // Open edit modal with student data (from "All Students" tab - show grades)
-  const handleEditClick = (student: any, showGrades: boolean = true) => {
-    setSelectedStudent(student);
-    setShowGradesTab(showGrades); // Control whether to show grades tab
-    setEditDialogTab('personal-info'); // Reset to personal info tab
-    setGradesModified(false); // Reset grades modified flag
+  const selectedProgramLevelsForImport = useMemo(
+    () => resolveProgramLevels(programs, importProgramId),
+    [importProgramId, programs],
+  );
 
-    // Convert display values back to enum values for selects
-    const getReligionValue = (label: string) => {
-      if (label === 'Muslim') return '1';
-      if (label === 'Christian') return '2';
-      return '';
-    };
+  const statusOptions = useMemo(() => {
+    const dynamic = new Set<StudentStatus>(defaultStatusOptions);
+    students.forEach((student) => dynamic.add(student.status));
+    return Array.from(dynamic);
+  }, [students]);
 
-    const getTypeValue = (label: string) => {
-      if (label === 'Male') return '1';
-      if (label === 'Female') return '2';
-      return '';
-    };
+  const activeSemester = useMemo(
+    () => semesters.find((item) => item.id === activeSemesterId) ?? null,
+    [semesters, activeSemesterId],
+  );
 
-    setEditStudent({
-      studentId: student.studentId,
-      name: student.name,
-      religion: getReligionValue(student.religion),
-      type: getTypeValue(student.type),
-      nationalId: student.nationalId || '',
-      passport: student.passport || '',
-      enrollmentDate: student.enrollmentDate,
-      address: student.address || '',
-      homePhone: student.homePhone || '',
-      mobilePhone: student.mobilePhone || '',
-      email: student.email || '',
-      previousQualification: student.previousQualification || '',
-      program: student.program,
-      level: student.level,
-      status: student.status
-    });
-    setShowEditModal(true);
-  };
-
-  // Handle updating student
-  const handleUpdateStudent = () => {
-    if (!editStudent.studentId || !editStudent.name || !editStudent.enrollmentDate) {
-      toast.error('Please fill in all required fields (Student ID, Name, Enrollment Date)');
+  const loadStudents = async () => {
+    if (!selectedUniversity || !activeSemester) {
+      setStudents([]);
+      setLoading(false);
       return;
     }
 
-    // Convert religion and type from enum to readable format
-    const getReligionLabel = (value: string) => {
-      if (value === '1') return 'Muslim';
-      if (value === '2') return 'Christian';
-      return '';
-    };
+    try {
+      setLoading(true);
 
-    const getTypeLabel = (value: string) => {
-      if (value === '1') return 'Male';
-      if (value === '2') return 'Female';
-      return '';
-    };
+      const queryBase: {
+        programId?: number;
+        status?: StudentStatus;
+        isBlocked?: boolean;
+        sortOrder: 'asc' | 'desc';
+      } = {
+        sortOrder,
+      };
 
-    setStudents(prev => prev.map(s =>
-      s.id === selectedStudent.id
-        ? {
-          ...s,
-          studentId: editStudent.studentId,
-          name: editStudent.name,
-          religion: getReligionLabel(editStudent.religion),
-          type: getTypeLabel(editStudent.type),
-          nationalId: editStudent.nationalId,
-          passport: editStudent.passport,
-          enrollmentDate: editStudent.enrollmentDate,
-          address: editStudent.address,
-          homePhone: editStudent.homePhone,
-          mobilePhone: editStudent.mobilePhone,
-          email: editStudent.email,
-          previousQualification: editStudent.previousQualification,
-          program: editStudent.program,
-          level: editStudent.level,
-          status: editStudent.status
+      if (programFilter !== 'all') queryBase.programId = Number(programFilter);
+      if (statusFilter !== 'all') queryBase.status = statusFilter as StudentStatus;
+      if (deleteFilter === 'active') queryBase.isBlocked = false;
+      if (deleteFilter === 'deleted') queryBase.isBlocked = true;
+
+      const firstPage = await StudentService.getStudents({
+        ...queryBase,
+        page: 1,
+        limit: 100,
+      });
+
+      const allRows = [...firstPage.students];
+      const totalPages = firstPage.pagination.totalPages;
+
+      if (totalPages > 1) {
+        const pagePromises: Array<Promise<Awaited<ReturnType<typeof StudentService.getStudents>>>> = [];
+        for (let page = 2; page <= totalPages; page += 1) {
+          pagePromises.push(
+            StudentService.getStudents({
+              ...queryBase,
+              page,
+              limit: 100,
+            }),
+          );
         }
-        : s
-    ));
 
-    setShowEditModal(false);
-    setSelectedStudent(null);
-    toast.success('Student updated successfully');
-  };
-
-  // Toggle student status
-  const handleToggleStatus = (studentId: string) => {
-    setStudents(prev => prev.map(s =>
-      s.id === studentId
-        ? { ...s, status: s.status === 'Active' ? 'Deactivated' : 'Active' }
-        : s
-    ));
-    toast.success('Student status updated');
-  };
-
-  // Remove student
-  const handleRemoveStudent = (studentId: string) => {
-    setStudents(prev => prev.filter(s => s.id !== studentId));
-    toast.success('Student removed successfully');
-  };
-
-  // Update grade for a specific course
-  const handleUpdateGrade = (levelIndex: number, semesterIndex: number, courseIndex: number, newTotal: number) => {
-    if (!selectedStudent) return;
-
-    setStudentGradesData(prev => {
-      const updated = { ...prev };
-      if (updated[selectedStudent.id]) {
-        const levelData = [...updated[selectedStudent.id]];
-        const semester = { ...levelData[levelIndex].semesters[semesterIndex] };
-        const courses = [...semester.courses];
-        courses[courseIndex] = { ...courses[courseIndex], total: newTotal };
-        semester.courses = courses;
-        levelData[levelIndex] = { ...levelData[levelIndex], semesters: [...levelData[levelIndex].semesters] };
-        levelData[levelIndex].semesters[semesterIndex] = semester;
-        updated[selectedStudent.id] = levelData;
+        const pages = await Promise.all(pagePromises);
+        pages.forEach((pageData) => {
+          allRows.push(...pageData.students);
+        });
       }
-      return updated;
+
+      setStudents(allRows);
+    } catch (error: any) {
+      console.error('Failed to load students:', error);
+      toast.error(error.message || 'Failed to load students');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadLookups = async () => {
+    if (!selectedUniversity) return;
+
+    try {
+      const [programData, semesterData] = await Promise.all([
+        ProgramService.getAll(),
+        SemesterService.getAll(),
+      ]);
+
+      setPrograms(programData);
+      setSemesters(semesterData);
+    } catch (error: any) {
+      console.error('Failed to load lookup data:', error);
+      toast.error(error.message || 'Failed to load programs and semesters');
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedUniversity) return;
+    void loadLookups();
+  }, [selectedUniversity]);
+
+  useEffect(() => {
+    if (!selectedUniversity) {
+      setActiveSemesterId(null);
+      return;
+    }
+
+    const read = () => {
+      const raw = localStorage.getItem(`activeSemester:${selectedUniversity}`);
+      const parsed = raw ? Number(raw) : NaN;
+      setActiveSemesterId(Number.isFinite(parsed) ? parsed : null);
+    };
+
+    read();
+    const interval = window.setInterval(read, 1000);
+    return () => window.clearInterval(interval);
+  }, [selectedUniversity]);
+
+  useEffect(() => {
+    if (!selectedUniversity) return;
+    const persisted = readPersistedImportSession(selectedUniversity);
+    if (!persisted) return;
+
+    setImportJobId(persisted.jobId);
+    setImportStatus(persisted.status);
+    setImportStatusMessage(persisted.statusMessage);
+    setImportProgramId(persisted.programId);
+    setImportProgramLevelId(persisted.programLevelId);
+    setImportSemesterId(persisted.semesterId);
+
+    if (persisted.status === 'Pending' || persisted.status === 'Processing') {
+      setImportTab('status');
+      void startImportPolling(persisted.jobId);
+    }
+  }, [selectedUniversity]);
+
+  useEffect(() => {
+    if (!selectedUniversity) return;
+
+    if (!activeSemester) {
+      setStudents([]);
+      return;
+    }
+
+    void loadStudents();
+  }, [selectedUniversity, activeSemesterId, programFilter, statusFilter, deleteFilter, sortOrder]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, programFilter, levelFilter, statusFilter, deleteFilter]);
+
+  const filteredStudents = useMemo(() => {
+    const term = search.trim().toLowerCase();
+
+    return students.filter((student) => {
+      const matchesSearch =
+        !term ||
+        getStudentFullName(student).toLowerCase().includes(term) ||
+        student.username.toLowerCase().includes(term) ||
+        student.email.toLowerCase().includes(term) ||
+        student.nationalId.toLowerCase().includes(term) ||
+        String(student.universityStudentId).includes(term);
+
+      const matchesLevel = levelFilter === 'all' || String(student.programLevelId) === levelFilter;
+      const enrollmentDate = parseDateValue(student.enrollmentDate);
+
+      let matchesActiveSemester = true;
+      if (activeSemester) {
+        const start = parseDateValue(activeSemester.startDate);
+        const end = parseDateValue(activeSemester.endDate);
+        if (start && end && enrollmentDate) {
+          matchesActiveSemester = enrollmentDate >= start && enrollmentDate <= end;
+        }
+      }
+
+      return matchesSearch && matchesLevel && matchesActiveSemester;
     });
+  }, [students, search, levelFilter, activeSemester]);
 
-    // Mark grades as modified
-    setGradesModified(true);
+  const totalPages = Math.max(1, Math.ceil(filteredStudents.length / pageSize));
+  const pageStart = (currentPage - 1) * pageSize;
+  const currentRows = filteredStudents.slice(pageStart, pageStart + pageSize);
+
+  const stats = useMemo(() => {
+    const total = students.length;
+    const active = students.filter((s) => !s.isBlocked).length;
+    const deleted = students.filter((s) => s.isBlocked).length;
+
+    return { total, active, deleted };
+  }, [students]);
+
+  const resetCreateDialog = () => {
+    setCreateDraft(emptyStudentDraft);
+    setIsCreateOpen(false);
   };
 
-  // Submit grade changes
-  const handleSubmitGrades = () => {
-    if (!selectedStudent || !gradesModified) return;
+  const handleCreateStudent = async () => {
+    const required = [
+      createDraft.username,
+      createDraft.firstName,
+      createDraft.lastName,
+      createDraft.universityStudentId,
+      createDraft.nationalId,
+      createDraft.email,
+      createDraft.phone,
+      createDraft.dateOfBirth,
+      createDraft.enrollmentDate,
+      createDraft.address,
+      createDraft.city,
+      createDraft.country,
+      createDraft.programId,
+      createDraft.programLevelId,
+      createDraft.semesterId,
+    ];
 
-    // Here you would normally send the updated grades to the backend
-    // For now, we'll just show a success message
+    if (required.some((value) => !String(value).trim())) {
+      toast.error('Please fill all required fields before creating the student.');
+      return;
+    }
 
-    toast.success('Grades updated successfully');
-    setGradesModified(false);
+    if (Number.isNaN(Number(createDraft.universityStudentId))) {
+      toast.error('University Student ID must be a valid number.');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await StudentService.createStudent(mapDraftToCreatePayload(createDraft));
+      toast.success('Student created successfully.');
+      resetCreateDialog();
+      await loadStudents();
+    } catch (error: any) {
+      console.error('Create student failed:', error);
+      toast.error(error.message || 'Failed to create student');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  // Filter students for "All Students" tab
-  const allStudentsFiltered = students.filter(student => {
-    const matchesSearch = student.name.toLowerCase().includes(allStudentsSearch.toLowerCase()) ||
-      student.studentId.toLowerCase().includes(allStudentsSearch.toLowerCase());
+  const openEditDialog = (student: StudentRecord) => {
+    setEditingStudentId(student.id);
+    setEditDraft(mapStudentToEditDraft(student));
+    setIsEditOpen(true);
+  };
 
-    const matchesProgram = allStudentsFilters.program === 'all' || student.program === allStudentsFilters.program;
-    const matchesLevel = allStudentsFilters.level === 'all' || student.level === allStudentsFilters.level;
-    const matchesStatus = allStudentsFilters.status === 'all' || student.status === allStudentsFilters.status;
+  const handleUpdateStudent = async () => {
+    if (!editingStudentId) return;
 
-    return matchesSearch && matchesProgram && matchesLevel && matchesStatus;
-  });
+    if (!editDraft.username.trim() || !editDraft.firstName.trim() || !editDraft.lastName.trim()) {
+      toast.error('Username, first name, and last name are required.');
+      return;
+    }
 
-  // Pagination for All Students
-  const allStudentsTotalPages = Math.ceil(allStudentsFiltered.length / studentsPerPage);
-  const allStudentsStartIndex = (currentPage - 1) * studentsPerPage;
-  const allStudentsPaginated = allStudentsFiltered.slice(allStudentsStartIndex, allStudentsStartIndex + studentsPerPage);
+    try {
+      setSaving(true);
+      await StudentService.updateStudent(editingStudentId, mapEditDraftToPayload(editDraft));
+      toast.success('Student updated successfully.');
+      setIsEditOpen(false);
+      setEditingStudentId(null);
+      await loadStudents();
+    } catch (error: any) {
+      console.error('Update student failed:', error);
+      toast.error(error.message || 'Failed to update student');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteOrRestore = async (student: StudentRecord) => {
+    try {
+      if (student.isBlocked) {
+        await StudentService.activateStudent(student.id);
+        toast.success(`Student ${student.username} has been re-activated.`);
+      } else {
+        await StudentService.softDeleteStudent(student.id);
+        toast.success(`Student ${student.username} has been deactivated.`);
+      }
+      await loadStudents();
+    } catch (error: any) {
+      console.error('Delete/restore failed:', error);
+      toast.error(error.message || 'Failed to update student state');
+    }
+  };
+
+  const handleImportFileChange = async (file: File | null) => {
+    setImportFile(file);
+    setImportPreviewRows([]);
+    setImportFailures([]);
+    setImportStatus(null);
+    setImportStatusMessage('');
+    setImportJobId(null);
+
+    if (!file) return;
+
+    const lower = file.name.toLowerCase();
+    if (!lower.endsWith('.xlsx')) {
+      toast.error('Only .xlsx files are accepted by backend import API.');
+      return;
+    }
+
+    try {
+      const preview = await parseImportPreview(file);
+      setImportPreviewRows(preview);
+      toast.success(`Loaded ${preview.length} rows from ${file.name}`);
+    } catch (error: any) {
+      console.error('Preview parse failed:', error);
+      toast.error(error.message || 'Failed to parse Excel file for preview');
+    }
+  };
+
+  const startImportPolling = async (jobId: string) => {
+    if (pollingJobRef.current === jobId) return;
+    pollingJobRef.current = jobId;
+    setImporting(true);
+
+    let reachedTerminalState = false;
+
+    for (let index = 0; index < IMPORT_MAX_CHECKS; index += 1) {
+      try {
+        const statusData = await StudentService.getImportStatus(jobId);
+        setImportStatus(statusData.status);
+        setImportStatusMessage(statusData.message);
+
+        if (selectedUniversity) {
+          writePersistedImportSession({
+            universityId: selectedUniversity,
+            jobId,
+            status: statusData.status,
+            statusMessage: statusData.message,
+            programId: importProgramId,
+            programLevelId: importProgramLevelId,
+            semesterId: importSemesterId,
+            fileName: importFile?.name || 'students.xlsx',
+          });
+        }
+
+        if (statusData.status === 'Completed' || statusData.status === 'Failed' || statusData.status === 'CompletedWithErrors') {
+          reachedTerminalState = true;
+          const normalized = normalizeImportFailures(statusData.error, importPreviewRows);
+          setImportFailures(normalized);
+          setImportTab(statusData.status === 'Completed' ? 'status' : 'recover');
+          if (statusData.status === 'Completed') {
+            toast.success('Import completed successfully.');
+          } else if (statusData.status === 'CompletedWithErrors') {
+            toast.warning('Import completed with errors. You can fix and retry failed rows below.');
+          } else {
+            toast.error('Import failed. Review backend reasons and corrected rows table.');
+          }
+          break;
+        }
+      } catch (error: any) {
+        console.error('Polling import status failed:', error);
+        const message = error?.message || 'Failed to poll import status';
+        setImportStatusMessage(message);
+
+        if (isTerminalImportLookupError(message)) {
+          setImportStatus('Failed');
+          setImportTab('status');
+          setImporting(false);
+          pollingJobRef.current = null;
+
+          if (selectedUniversity) {
+            writePersistedImportSession({
+              universityId: selectedUniversity,
+              jobId,
+              status: 'Failed',
+              statusMessage: message,
+              programId: importProgramId,
+              programLevelId: importProgramLevelId,
+              semesterId: importSemesterId,
+              fileName: importFile?.name || 'students.xlsx',
+            });
+          }
+
+          toast.error('Import tracking ended: job was not found by backend.');
+          return;
+        }
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, IMPORT_POLL_DELAY_MS));
+    }
+
+    if (!reachedTerminalState) {
+      setImportStatusMessage('Import is taking longer than expected. You can keep this tab open or click Refresh Status manually.');
+      setImportTab('status');
+      toast.warning('Import is still processing. You can refresh status manually.');
+    }
+
+    setImporting(false);
+    pollingJobRef.current = null;
+    await loadStudents();
+  };
+
+  const handleRefreshImportStatus = async () => {
+    if (!importJobId) {
+      toast.error('No import job found to refresh.');
+      return;
+    }
+
+    try {
+      const statusData = await StudentService.getImportStatus(importJobId);
+      setImportStatus(statusData.status);
+      setImportStatusMessage(statusData.message);
+
+      if (selectedUniversity) {
+        writePersistedImportSession({
+          universityId: selectedUniversity,
+          jobId: importJobId,
+          status: statusData.status,
+          statusMessage: statusData.message,
+          programId: importProgramId,
+          programLevelId: importProgramLevelId,
+          semesterId: importSemesterId,
+          fileName: importFile?.name || 'students.xlsx',
+        });
+      }
+
+      if (statusData.status === 'Completed' || statusData.status === 'Failed' || statusData.status === 'CompletedWithErrors') {
+        const normalized = normalizeImportFailures(statusData.error, importPreviewRows);
+        setImportFailures(normalized);
+        setImporting(false);
+        pollingJobRef.current = null;
+        setImportTab(statusData.status === 'Completed' ? 'status' : 'recover');
+      }
+    } catch (error: any) {
+      const message = error?.message || 'Failed to refresh import status';
+      setImportStatus('Failed');
+      setImportStatusMessage(message);
+      setImporting(false);
+      pollingJobRef.current = null;
+      toast.error(message);
+    }
+  };
+
+  const handleStartImport = async () => {
+    if (importing || importStatus === 'Pending' || importStatus === 'Processing') {
+      setImportTab('status');
+      toast.warning('There is already an import in progress. Please wait for completion.');
+      return;
+    }
+
+    if (!importFile) {
+      toast.error('Please choose an Excel file first.');
+      return;
+    }
+
+    if (!importProgramId || !importProgramLevelId || !importSemesterId) {
+      toast.error('Program, level, and semester are required before import.');
+      return;
+    }
+
+    try {
+      const response = await StudentService.startImport({
+        file: importFile,
+        programId: Number(importProgramId),
+        programLevelId: Number(importProgramLevelId),
+        semesterId: Number(importSemesterId),
+      });
+
+      setImportJobId(response.jobId);
+      setImportStatus('Pending');
+      setImportStatusMessage(response.message);
+      setImportTab('status');
+      toast.success('Import accepted by server. Processing will start shortly.');
+
+      if (selectedUniversity) {
+        writePersistedImportSession({
+          universityId: selectedUniversity,
+          jobId: response.jobId,
+          status: 'Pending',
+          statusMessage: response.message,
+          programId: importProgramId,
+          programLevelId: importProgramLevelId,
+          semesterId: importSemesterId,
+          fileName: importFile.name,
+        });
+      }
+
+      await startImportPolling(response.jobId);
+    } catch (error: any) {
+      console.error('Start import failed:', error);
+      toast.error(error.message || 'Failed to start import');
+    }
+  };
+
+  const handleFailureCellEdit = (rowIndex: number, key: string, value: string) => {
+    setImportFailures((current) =>
+      current.map((row, index) => {
+        if (index !== rowIndex) return row;
+        return {
+          ...row,
+          data: {
+            ...row.data,
+            [key]: value,
+          },
+        };
+      }),
+    );
+  };
+
+  const buildCreatePayloadFromFailedRow = (
+    row: EditableImportFailure,
+    context: { programId: string; programLevelId: string; semesterId: string },
+  ): CreateStudentInput => {
+    const fullName = row.data.fullname?.trim() || `${row.data.firstName || ''} ${row.data.lastName || ''}`.trim();
+    const grades = parseNumeric(row.data.totalHighSchoolGrades || '');
+
+    return {
+      username: (row.data.username || '').trim(),
+      firstName: (row.data.firstName || '').trim(),
+      lastName: (row.data.lastName || '').trim(),
+      fullname: fullName,
+      universityStudentId: Number(row.data.universityStudentId),
+      nationalId: (row.data.nationalId || '').trim(),
+      programId: Number(context.programId),
+      programLevelId: Number(context.programLevelId),
+      semesterId: Number(context.semesterId),
+      email: (row.data.email || '').trim().toLowerCase(),
+      phone: (row.data.phone || '').trim(),
+      dateOfBirth: (row.data.dateOfBirth || '').trim(),
+      address: (row.data.address || '').trim(),
+      city: (row.data.city || '').trim(),
+      country: (row.data.country || '').trim() || 'Egypt',
+      status: ((row.data.status || 'Active').trim() as StudentStatus) || 'Active',
+      enrollmentDate: (row.data.enrollmentDate || '').trim(),
+      religion: ((row.data.religion || 'M').trim() as 'M' | 'C') || 'M',
+      gender: ((row.data.gender || 'M').trim() as 'M' | 'F') || 'M',
+      homePhone: (row.data.homePhone || '').trim() || undefined,
+      previousQualification: (row.data.previousQualification || '').trim() || undefined,
+      secondarySchoolName: (row.data.secondarySchoolName || '').trim() || undefined,
+      totalHighSchoolGrades: grades,
+      highSchoolSeatNumber: (row.data.highSchoolSeatNumber || '').trim() || undefined,
+    };
+  };
+
+  const retryFailedRows = async () => {
+    if (!importProgramId || !importProgramLevelId || !importSemesterId) {
+      toast.error('Import context is missing. Please select program, level, and semester again.');
+      return;
+    }
+
+    if (importFailures.length === 0) {
+      toast.error('No failed rows to retry.');
+      return;
+    }
+
+    try {
+      setRetryingFailedRows(true);
+
+      const remaining: EditableImportFailure[] = [];
+      let successCount = 0;
+
+      for (const failure of importFailures) {
+        try {
+          const payload = buildCreatePayloadFromFailedRow(failure, {
+            programId: importProgramId,
+            programLevelId: importProgramLevelId,
+            semesterId: importSemesterId,
+          });
+
+          await StudentService.createStudent(payload);
+          successCount += 1;
+        } catch (error: any) {
+          remaining.push({
+            ...failure,
+            reason: error.message || failure.reason,
+          });
+        }
+      }
+
+      setImportFailures(remaining);
+
+      if (successCount > 0) {
+        toast.success(`Inserted ${successCount} corrected rows successfully.`);
+      }
+
+      if (remaining.length > 0) {
+        toast.warning(`${remaining.length} rows still have validation errors.`);
+      } else {
+        toast.success('All failed rows were recovered successfully.');
+      }
+
+      await loadStudents();
+    } finally {
+      setRetryingFailedRows(false);
+    }
+  };
+
+  const resetImportDialog = () => {
+    if (importing || importStatus === 'Pending' || importStatus === 'Processing') {
+      setIsImportOpen(false);
+      return;
+    }
+
+    if (selectedUniversity) {
+      clearPersistedImportSession(selectedUniversity);
+    }
+
+    setImportFile(null);
+    setImportPreviewRows([]);
+    setImportProgramId('');
+    setImportProgramLevelId('');
+    setImportSemesterId('');
+    setImportJobId(null);
+    setImportStatus(null);
+    setImportStatusMessage('');
+    setImportFailures([]);
+    setImporting(false);
+    setRetryingFailedRows(false);
+    setImportTab('setup');
+    setIsImportOpen(false);
+  };
+
+  if (!selectedUniversity) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-12">
+          <Users className="mb-4 h-12 w-12 text-slate-400" />
+          <h3 className="mb-2 text-lg font-medium text-slate-900">No University Selected</h3>
+          <p className="text-center text-slate-600">
+            Please select a university before managing student accounts.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!activeSemester) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+          <CalendarDays className="mb-4 h-12 w-12 text-slate-400" />
+          <h3 className="mb-2 text-lg font-medium text-slate-900">Select a Semester First</h3>
+          <p className="max-w-md text-slate-600">
+            Open Semester Management in the header and choose the active semester before loading students.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h2 className="text-2xl text-slate-900">Student Management</h2>
-        <p className="text-slate-600 mt-1">
-          Manage student records and enrollment
-          {selectedUniversity && (
-            <span className="text-blue-600"> • Filtered by selected university</span>
-          )}
-        </p>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold text-slate-900">Student Management</h2>
+          <p className="mt-1 text-slate-600">
+            Fully connected to backend APIs with import recovery workflow and soft-delete controls.
+          </p>
+          {activeSemester ? (
+            <p className="mt-1 text-xs text-blue-700">
+              Active semester filter: {activeSemester.year} - {activeSemester.type} (Enrollment Date based)
+            </p>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => void loadStudents()} disabled={loading}>
+            <RefreshCcw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          <Button variant="outline" onClick={() => setIsImportOpen(true)}>
+            <Upload className="mr-2 h-4 w-4" />
+            {importing || importStatus === 'Pending' || importStatus === 'Processing' ? 'View Import Status' : 'Import Students'}
+          </Button>
+          <Button onClick={() => setIsCreateOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Student
+          </Button>
+        </div>
       </div>
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-2 max-w-md">
-          <TabsTrigger value="all-students">All Students</TabsTrigger>
-          <TabsTrigger value="assign-students">Assign Students</TabsTrigger>
-        </TabsList>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-sm text-slate-600">Total Records</p>
+            <p className="text-2xl font-semibold text-slate-900">{stats.total}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-sm text-slate-600">Active Accounts</p>
+            <p className="text-2xl font-semibold text-emerald-600">{stats.active}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-sm text-slate-600">Soft Deleted</p>
+            <p className="text-2xl font-semibold text-rose-600">{stats.deleted}</p>
+          </CardContent>
+        </Card>
+      </div>
 
-        {/* Tab 1: All Students */}
-        <TabsContent value="all-students" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>All Students</CardTitle>
-              <CardDescription>
-                View and manage all assigned students
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {/* Filters */}
-              <div className="space-y-4 mb-6">
-                {/* Search Bar */}
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <Input
-                    type="search"
-                    placeholder="Search by student name or student university ID..."
-                    value={allStudentsSearch}
-                    onChange={(e) => setAllStudentsSearch(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Directory</CardTitle>
+          <CardDescription>
+            Search, filter, edit, deactivate, and recover students without losing records.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-6">
+            <div className="relative lg:col-span-2">
+              <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
+              <Input
+                className="pl-9"
+                placeholder="Search by name, username, email, national ID"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </div>
 
-                {/* Filters */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div className="space-y-2">
-                    <Label>Filter by Program</Label>
-                    <Select
-                      value={allStudentsFilters.program}
-                      onValueChange={(value) => setAllStudentsFilters(prev => ({ ...prev, program: value }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="All Programs" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Programs</SelectItem>
-                        {programs.map((program) => (
-                          <SelectItem key={program} value={program}>
-                            {program}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+            <SearchableSelect
+              value={programFilter}
+              onValueChange={(value) => {
+                setProgramFilter(value);
+                setLevelFilter('all');
+              }}
+              options={[
+                { value: 'all', label: 'All Programs' },
+                ...programs.map((program) => ({ value: String(program.id), label: program.name })),
+              ]}
+              placeholder="Program"
+            />
 
-                  <div className="space-y-2">
-                    <Label>Filter by Level</Label>
-                    <Select
-                      value={allStudentsFilters.level}
-                      onValueChange={(value) => setAllStudentsFilters(prev => ({ ...prev, level: value }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="All Levels" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Levels</SelectItem>
-                        {levelOptions.map((level) => (
-                          <SelectItem key={level} value={level}>
-                            {level}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+            <SearchableSelect
+              value={levelFilter}
+              onValueChange={setLevelFilter}
+              options={[{ value: 'all', label: 'All Levels' }, ...levelOptionsForProgramFilter]}
+              placeholder="Level"
+            />
 
-                  <div className="space-y-2">
-                    <Label>Filter by Status</Label>
-                    <Select
-                      value={allStudentsFilters.status}
-                      onValueChange={(value) => setAllStudentsFilters(prev => ({ ...prev, status: value }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="All Status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Status</SelectItem>
-                        <SelectItem value="Active">Active</SelectItem>
-                        <SelectItem value="Deactivated">Deactivated</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                {statusOptions.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {status}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-                  <div className="space-y-2">
-                    <Label>Students per page</Label>
-                    <Select
-                      value={studentsPerPage.toString()}
-                      onValueChange={(value) => {
-                        setStudentsPerPage(Number(value));
-                        setCurrentPage(1);
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="10">10</SelectItem>
-                        <SelectItem value="25">25</SelectItem>
-                        <SelectItem value="50">50</SelectItem>
-                        <SelectItem value="100">100</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+            <Select value={deleteFilter} onValueChange={(value: 'active' | 'deleted' | 'all') => setDeleteFilter(value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Deletion State" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">Active only</SelectItem>
+                <SelectItem value="deleted">Deleted only</SelectItem>
+                <SelectItem value="all">All records</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-                <div className="flex items-center justify-between">
-                  <div className="text-sm text-slate-600">
-                    Showing {allStudentsFiltered.length} of {students.length} students
-                  </div>
-                </div>
-              </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Label className="text-slate-600">Sort</Label>
+              <Select value={sortOrder} onValueChange={(value: 'asc' | 'desc') => setSortOrder(value)}>
+                <SelectTrigger className="w-[170px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="desc">Newest first</SelectItem>
+                  <SelectItem value="asc">Oldest first</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label className="text-slate-600">Rows</Label>
+              <Select value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value))}>
+                <SelectTrigger className="w-[95px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="20">20</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
-              {/* Students List */}
-              {allStudentsFiltered.length > 0 ? (
-                <div className="space-y-4">
-                  {allStudentsPaginated.map((student) => (
-                    <div key={student.id} className="p-4 border border-slate-200 rounded-lg hover:shadow-sm transition-shadow">
-                      <div className="flex items-start gap-4">
-                        <Avatar className="w-12 h-12">
-                          <AvatarImage src="" />
-                          <AvatarFallback className="bg-blue-100 text-blue-700">
-                            {student.name.split(' ').map(n => n[0]).join('')}
-                          </AvatarFallback>
-                        </Avatar>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between mb-2">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <h4 className="text-slate-900">{student.name}</h4>
-                                <Badge variant={student.status === 'Active' ? 'default' : 'secondary'}>
-                                  {student.status}
-                                </Badge>
-                              </div>
-                              <p className="text-sm text-slate-600">ID: {student.studentId} • {student.program}</p>
-                            </div>
-                            <Badge variant="outline">{student.level}</Badge>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-3">
-                            {student.email && (
-                              <div className="flex items-center gap-2 text-sm text-slate-600">
-                                <Mail className="w-4 h-4" />
-                                {student.email}
-                              </div>
-                            )}
-                            {student.mobilePhone && (
-                              <div className="flex items-center gap-2 text-sm text-slate-600">
-                                <Phone className="w-4 h-4" />
-                                {student.mobilePhone}
-                              </div>
-                            )}
-                            {student.nationalId && (
-                              <div className="flex items-center gap-2 text-sm text-slate-600">
-                                <FileText className="w-4 h-4" />
-                                National ID: {student.nationalId}
-                              </div>
-                            )}
-                            {student.type && (
-                              <div className="flex items-center gap-2 text-sm text-slate-600">
-                                <GraduationCap className="w-4 h-4" />
-                                {student.type}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs text-slate-500">
-                              Enrolled: {new Date(student.enrollmentDate).toLocaleDateString()}
-                            </p>
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="gap-1"
-                                onClick={() => handleEditClick(student, true)}
-                              >
-                                <Edit className="w-3 h-3" />
-                                Edit
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="gap-1 text-red-600 hover:text-red-700"
-                                onClick={() => handleRemoveStudent(student.id)}
-                              >
-                                <Trash2 className="w-3 h-3" />
-                                Remove
-                              </Button>
-                            </div>
-                          </div>
+          {loading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+            </div>
+          ) : currentRows.length === 0 ? (
+            <div className="rounded-lg border border-dashed p-8 text-center text-slate-600">
+              No students found for current filters.
+            </div>
+          ) : (
+            <div className="rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Student</TableHead>
+                    <TableHead>University ID</TableHead>
+                    <TableHead>Program / Level</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Account</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {currentRows.map((student) => (
+                    <TableRow key={student.id}>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <p className="font-medium text-slate-900">{getStudentFullName(student)}</p>
+                          <p className="text-xs text-slate-600">{student.email}</p>
+                          <p className="text-xs text-slate-500">@{student.username}</p>
                         </div>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Pagination */}
-                  {allStudentsTotalPages > 1 && (
-                    <div className="flex items-center justify-between pt-4">
-                      <p className="text-sm text-slate-600">
-                        Page {currentPage} of {allStudentsTotalPages}
-                      </p>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                          disabled={currentPage === 1}
-                          className="gap-1"
-                        >
-                          <ChevronLeft className="w-4 h-4" />
-                          Previous
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setCurrentPage(prev => Math.min(allStudentsTotalPages, prev + 1))}
-                          disabled={currentPage === allStudentsTotalPages}
-                          className="gap-1"
-                        >
-                          Next
-                          <ChevronRight className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <Users className="w-12 h-12 mx-auto mb-4 text-slate-400" />
-                  <h3 className="text-lg text-slate-900 mb-2">No Students Found</h3>
-                  <p className="text-slate-600 mb-4">
-                    {students.length === 0
-                      ? "Add or import students in the 'Assign Students' tab to get started."
-                      : "No students match your current filters."
-                    }
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Tab 2: Assign Students */}
-        <TabsContent value="assign-students" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Assign Students</CardTitle>
-                  <CardDescription>
-                    Filter and assign students to programs and academic levels
-                  </CardDescription>
-                </div>
-                <div className="flex gap-2">
-                  <Dialog open={showImportModal} onOpenChange={setShowImportModal}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" className="gap-2">
-                        <Upload className="w-4 h-4" />
-                        Import Students
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>Import Students</DialogTitle>
-                        <DialogDescription>
-                          Upload an Excel or CSV file containing student data
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        {!isImporting ? (
-                          <>
-                            <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center">
-                              <Upload className="w-12 h-12 mx-auto mb-4 text-slate-400" />
-                              <div className="space-y-2">
-                                <h4>Select file to import</h4>
-                                <p className="text-sm text-slate-600">Excel (.xlsx) or CSV files only</p>
-                              </div>
-                              <input
-                                type="file"
-                                accept=".xlsx,.csv"
-                                onChange={handleFileUpload}
-                                className="hidden"
-                                id="file-upload"
-                              />
-                              <label htmlFor="file-upload" className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 mt-4 cursor-pointer">
-                                Choose File
-                              </label>
-                            </div>
-
-                            {importFile && (
-                              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                                <div className="flex items-center gap-2">
-                                  <CheckCircle className="w-4 h-4 text-green-600" />
-                                  <span className="text-sm text-green-900">
-                                    {importFile.name}
-                                  </span>
-                                </div>
-                              </div>
-                            )}
-
-                            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                              <div className="flex items-start gap-2">
-                                <AlertTriangle className="w-4 h-4 text-blue-600 mt-0.5" />
-                                <div className="text-sm text-blue-900">
-                                  <p className="mb-1">Required columns:</p>
-                                  <p>Student ID (required), Name (required), Enrollment Date (required)</p>
-                                  <p className="mt-2">Note: Religion (1=Muslim, 2=Christian), Type (1=Male, 2=Female)</p>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex gap-2">
-                              <Button
-                                onClick={downloadTemplate}
-                                variant="outline"
-                                className="flex-1 gap-2"
-                              >
-                                <FileText className="w-4 h-4" />
-                                Download Template
-                              </Button>
-                              <Button
-                                onClick={handleImport}
-                                disabled={!importFile}
-                                className="flex-1"
-                              >
-                                Import Students
-                              </Button>
-                            </div>
-                          </>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm text-slate-700">{student.universityStudentId}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1 text-sm text-slate-700">
+                          <div>{student.programName}</div>
+                          <Badge variant="outline">{student.programLevelName}</Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={student.status === 'Active' ? 'default' : 'secondary'}>{student.status}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        {student.isBlocked ? (
+                          <Badge variant="destructive" className="gap-1">
+                            <ShieldAlert className="h-3.5 w-3.5" />
+                            Deleted
+                          </Badge>
                         ) : (
-                          <div className="space-y-4">
-                            <div className="text-center">
-                              <div className="w-12 h-12 mx-auto mb-4 bg-blue-100 rounded-full flex items-center justify-center">
-                                <Upload className="w-6 h-6 text-blue-600" />
-                              </div>
-                              <h4 className="mb-2">Importing Students...</h4>
-                              <p className="text-sm text-slate-600">
-                                Processing {importFile?.name}
-                              </p>
-                            </div>
-
-                            <div className="space-y-2">
-                              <div className="flex justify-between text-sm">
-                                <span>Progress</span>
-                                <span>{importProgress}%</span>
-                              </div>
-                              <div className="w-full bg-slate-200 rounded-full h-2">
-                                <div
-                                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                                  style={{ width: `${importProgress}%` }}
-                                />
-                              </div>
-                            </div>
-                          </div>
+                          <Badge variant="outline" className="gap-1 text-emerald-600 border-emerald-200">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Active
+                          </Badge>
                         )}
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-
-                  <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
-                    <DialogTrigger asChild>
-                      <Button className="gap-2">
-                        <Plus className="w-4 h-4" />
-                        Add Student
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-                      <DialogHeader>
-                        <DialogTitle>Add New Student</DialogTitle>
-                        <DialogDescription>
-                          Enter student information. Student ID, Name, and Enrollment Date are required.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="studentId">Student ID *</Label>
-                          <Input
-                            id="studentId"
-                            placeholder="e.g., 20240001"
-                            value={newStudent.studentId}
-                            onChange={(e) => setNewStudent(prev => ({ ...prev, studentId: e.target.value }))}
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="name">Student Name *</Label>
-                          <Input
-                            id="name"
-                            placeholder="Enter full name"
-                            value={newStudent.name}
-                            onChange={(e) => setNewStudent(prev => ({ ...prev, name: e.target.value }))}
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="religion">Religion</Label>
-                          <Select onValueChange={(value) => setNewStudent(prev => ({ ...prev, religion: value }))}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select religion" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {religionOptions.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="type">Type</Label>
-                          <Select onValueChange={(value) => setNewStudent(prev => ({ ...prev, type: value }))}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select type" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {typeOptions.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="nationalId">National ID</Label>
-                          <Input
-                            id="nationalId"
-                            placeholder="14-digit National ID"
-                            maxLength={14}
-                            value={newStudent.nationalId}
-                            onChange={(e) => setNewStudent(prev => ({ ...prev, nationalId: e.target.value }))}
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="passport">Passport</Label>
-                          <Input
-                            id="passport"
-                            placeholder="Passport number"
-                            value={newStudent.passport}
-                            onChange={(e) => setNewStudent(prev => ({ ...prev, passport: e.target.value }))}
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="enrollmentDate">Enrollment Date *</Label>
-                          <Input
-                            id="enrollmentDate"
-                            type="date"
-                            value={newStudent.enrollmentDate}
-                            onChange={(e) => setNewStudent(prev => ({ ...prev, enrollmentDate: e.target.value }))}
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="address">Address</Label>
-                          <Input
-                            id="address"
-                            placeholder="Full address"
-                            value={newStudent.address}
-                            onChange={(e) => setNewStudent(prev => ({ ...prev, address: e.target.value }))}
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="homePhone">Home Phone</Label>
-                          <Input
-                            id="homePhone"
-                            placeholder="+20 2 123 4567"
-                            value={newStudent.homePhone}
-                            onChange={(e) => setNewStudent(prev => ({ ...prev, homePhone: e.target.value }))}
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="mobilePhone">Mobile Phone</Label>
-                          <Input
-                            id="mobilePhone"
-                            placeholder="+20 10 123 4567"
-                            value={newStudent.mobilePhone}
-                            onChange={(e) => setNewStudent(prev => ({ ...prev, mobilePhone: e.target.value }))}
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="email">Email</Label>
-                          <Input
-                            id="email"
-                            type="email"
-                            placeholder="student@university.edu"
-                            value={newStudent.email}
-                            onChange={(e) => setNewStudent(prev => ({ ...prev, email: e.target.value }))}
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="previousQualification">Previous Qualification</Label>
-                          <Input
-                            id="previousQualification"
-                            placeholder="e.g., High School - 95%"
-                            value={newStudent.previousQualification}
-                            onChange={(e) => setNewStudent(prev => ({ ...prev, previousQualification: e.target.value }))}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="flex gap-2 pt-4">
-                        <Button
-                          variant="outline"
-                          onClick={() => setShowAddModal(false)}
-                          className="flex-1"
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          onClick={handleAddStudent}
-                          className="flex-1"
-                        >
-                          Add Student
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {/* Search and Assignment Filters */}
-              <div className="space-y-4 mb-6">
-                {/* Search Bar */}
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <Input
-                    type="search"
-                    placeholder="Search by student name or student university ID..."
-                    value={assignmentSearch}
-                    onChange={(e) => setAssignmentSearch(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-
-                {/* Filters and Actions */}
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                  <div className="space-y-2">
-                    <Label>Filter by Program</Label>
-                    <Select
-                      value={assignmentFilters.program}
-                      onValueChange={(value) => setAssignmentFilters(prev => ({ ...prev, program: value }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="All Programs" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Programs</SelectItem>
-                        {programs.map((program) => (
-                          <SelectItem key={program} value={program}>
-                            {program}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Filter by Level</Label>
-                    <Select
-                      value={assignmentFilters.level}
-                      onValueChange={(value) => setAssignmentFilters(prev => ({ ...prev, level: value }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="All Levels" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Levels</SelectItem>
-                        {levelOptions.map((level) => (
-                          <SelectItem key={level} value={level}>
-                            {level}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Students per page</Label>
-                    <Select
-                      value={studentsPerPage.toString()}
-                      onValueChange={(value) => {
-                        setStudentsPerPage(Number(value));
-                        setCurrentPage(1);
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="10">10</SelectItem>
-                        <SelectItem value="25">25</SelectItem>
-                        <SelectItem value="50">50</SelectItem>
-                        <SelectItem value="100">100</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>&nbsp;</Label>
-                    <Button
-                      onClick={handleAssignStudents}
-                      disabled={filteredStudents.length === 0 || assignmentFilters.program === 'all' || assignmentFilters.level === 'all'}
-                      className="w-full"
-                    >
-                      Assign Them ({filteredStudents.length})
-                    </Button>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>&nbsp;</Label>
-                    <Button
-                      variant="destructive"
-                      onClick={handleClearAllStudents}
-                      disabled={students.length === 0}
-                      className="w-full gap-2"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Clear All
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="text-sm text-slate-600">
-                    Showing {filteredStudents.length} of {students.length} students
-                  </div>
-                </div>
-              </div>
-
-              {/* Students List */}
-              {filteredStudents.length > 0 ? (
-                <div className="space-y-4">
-                  {paginatedStudents.map((student) => (
-                    <div key={student.id} className="p-4 border border-slate-200 rounded-lg hover:shadow-sm transition-shadow">
-                      <div className="flex items-start gap-4">
-                        <Avatar className="w-12 h-12">
-                          <AvatarImage src="" />
-                          <AvatarFallback className="bg-blue-100 text-blue-700">
-                            {student.name.split(' ').map(n => n[0]).join('')}
-                          </AvatarFallback>
-                        </Avatar>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between mb-2">
-                            <div>
-                              <h4 className="text-slate-900">{student.name}</h4>
-                              <p className="text-sm text-slate-600">ID: {student.studentId} • {student.program}</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge variant="outline">{student.level}</Badge>
-                              <Badge variant={student.status === 'Active' ? 'default' : student.status === 'Assigned' ? 'secondary' : 'outline'}>
-                                {student.status}
-                              </Badge>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-3">
-                            {student.email && (
-                              <div className="flex items-center gap-2 text-sm text-slate-600">
-                                <Mail className="w-4 h-4" />
-                                {student.email}
-                              </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="outline" size="sm" onClick={() => openEditDialog(student)}>
+                            <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                            Edit
+                          </Button>
+                          <Button
+                            variant={student.isBlocked ? 'outline' : 'destructive'}
+                            size="sm"
+                            onClick={() => void handleDeleteOrRestore(student)}
+                          >
+                            {student.isBlocked ? (
+                              <>
+                                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                                Activate
+                              </>
+                            ) : (
+                              <>
+                                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                                Deactivate
+                              </>
                             )}
-                            {student.mobilePhone && (
-                              <div className="flex items-center gap-2 text-sm text-slate-600">
-                                <Phone className="w-4 h-4" />
-                                {student.mobilePhone}
-                              </div>
-                            )}
-                            {student.nationalId && (
-                              <div className="flex items-center gap-2 text-sm text-slate-600">
-                                <FileText className="w-4 h-4" />
-                                National ID: {student.nationalId}
-                              </div>
-                            )}
-                            {student.type && (
-                              <div className="flex items-center gap-2 text-sm text-slate-600">
-                                <GraduationCap className="w-4 h-4" />
-                                {student.type}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs text-slate-500">
-                              Added: {new Date(student.enrollmentDate).toLocaleDateString()}
-                            </p>
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="gap-1"
-                                onClick={() => handleEditClick(student, false)}
-                              >
-                                <Edit className="w-3 h-3" />
-                                Edit
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="gap-1 text-red-600 hover:text-red-700"
-                                onClick={() => handleRemoveStudent(student.id)}
-                              >
-                                <Trash2 className="w-3 h-3" />
-                                Remove
-                              </Button>
-                            </div>
-                          </div>
+                          </Button>
                         </div>
-                      </div>
-                    </div>
+                      </TableCell>
+                    </TableRow>
                   ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
 
-                  {/* Pagination */}
-                  {totalPages > 1 && (
-                    <div className="flex items-center justify-between pt-4">
-                      <p className="text-sm text-slate-600">
-                        Page {currentPage} of {totalPages}
-                      </p>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                          disabled={currentPage === 1}
-                          className="gap-1"
-                        >
-                          <ChevronLeft className="w-4 h-4" />
-                          Previous
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                          disabled={currentPage === totalPages}
-                          className="gap-1"
-                        >
-                          Next
-                          <ChevronRight className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <Users className="w-12 h-12 mx-auto mb-4 text-slate-400" />
-                  <h3 className="text-lg text-slate-900 mb-2">No Students Found</h3>
-                  <p className="text-slate-600 mb-4">
-                    {students.length === 0
-                      ? "Import students or add them manually to get started."
-                      : "No students match your current filters."
-                    }
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-slate-600">
+              Showing {filteredStudents.length === 0 ? 0 : pageStart + 1} to{' '}
+              {Math.min(pageStart + pageSize, filteredStudents.length)} of {filteredStudents.length}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+              >
+                Previous
+              </Button>
+              <Badge variant="secondary">
+                Page {currentPage} / {totalPages}
+              </Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-      {/* Edit Student Dialog */}
-      <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <Dialog open={isCreateOpen} onOpenChange={(open) => (open ? setIsCreateOpen(true) : resetCreateDialog())}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Edit Student</DialogTitle>
+            <DialogTitle>Create Student</DialogTitle>
             <DialogDescription>
-              Update student information and view academic performance
+              Fill student identity, contact, and enrollment details. Required fields are validated before submit.
             </DialogDescription>
           </DialogHeader>
 
-          <Tabs value={editDialogTab} onValueChange={setEditDialogTab}>
-            <TabsList className={`grid w-full ${showGradesTab ? 'grid-cols-2' : 'grid-cols-1'}`}>
-              <TabsTrigger value="personal-info">Personal Info</TabsTrigger>
-              {showGradesTab && <TabsTrigger value="grades">Grades</TabsTrigger>}
-            </TabsList>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <LabelledInput label="Username *" value={createDraft.username} onChange={(value) => setCreateDraft((d) => ({ ...d, username: value }))} />
+            <LabelledInput label="University Student ID *" value={createDraft.universityStudentId} onChange={(value) => setCreateDraft((d) => ({ ...d, universityStudentId: value }))} />
+            <LabelledInput label="First Name *" value={createDraft.firstName} onChange={(value) => setCreateDraft((d) => ({ ...d, firstName: value }))} />
+            <LabelledInput label="Last Name *" value={createDraft.lastName} onChange={(value) => setCreateDraft((d) => ({ ...d, lastName: value }))} />
+            <LabelledInput label="Full Name" value={createDraft.fullname} onChange={(value) => setCreateDraft((d) => ({ ...d, fullname: value }))} />
+            <LabelledInput label="National ID *" value={createDraft.nationalId} onChange={(value) => setCreateDraft((d) => ({ ...d, nationalId: value }))} />
+            <LabelledInput label="Email *" type="email" value={createDraft.email} onChange={(value) => setCreateDraft((d) => ({ ...d, email: value }))} />
+            <LabelledInput label="Phone *" value={createDraft.phone} onChange={(value) => setCreateDraft((d) => ({ ...d, phone: value }))} />
+            <LabelledInput label="Home Phone" value={createDraft.homePhone} onChange={(value) => setCreateDraft((d) => ({ ...d, homePhone: value }))} />
+            <LabelledInput label="Date of Birth *" type="date" value={createDraft.dateOfBirth} onChange={(value) => setCreateDraft((d) => ({ ...d, dateOfBirth: value }))} />
+            <LabelledInput label="Enrollment Date *" type="date" value={createDraft.enrollmentDate} onChange={(value) => setCreateDraft((d) => ({ ...d, enrollmentDate: value }))} />
+            <LabelledInput label="Address *" value={createDraft.address} onChange={(value) => setCreateDraft((d) => ({ ...d, address: value }))} />
+            <LabelledInput label="City *" value={createDraft.city} onChange={(value) => setCreateDraft((d) => ({ ...d, city: value }))} />
+            <LabelledInput label="Country *" value={createDraft.country} onChange={(value) => setCreateDraft((d) => ({ ...d, country: value }))} />
+            <LabelledInput label="Previous Qualification" value={createDraft.previousQualification} onChange={(value) => setCreateDraft((d) => ({ ...d, previousQualification: value }))} />
+            <LabelledInput label="Secondary School" value={createDraft.secondarySchoolName} onChange={(value) => setCreateDraft((d) => ({ ...d, secondarySchoolName: value }))} />
+            <LabelledInput label="Total High School Grades" value={createDraft.totalHighSchoolGrades} onChange={(value) => setCreateDraft((d) => ({ ...d, totalHighSchoolGrades: value }))} />
+            <LabelledInput label="High School Seat Number" value={createDraft.highSchoolSeatNumber} onChange={(value) => setCreateDraft((d) => ({ ...d, highSchoolSeatNumber: value }))} />
 
-            {/* Personal Info Tab */}
-            <TabsContent value="personal-info" className="mt-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-studentId">Student ID *</Label>
-                  <Input
-                    id="edit-studentId"
-                    placeholder="e.g., 20240001"
-                    value={editStudent.studentId}
-                    onChange={(e) => setEditStudent(prev => ({ ...prev, studentId: e.target.value }))}
-                  />
-                </div>
+            <SelectField
+              label="Program *"
+              value={createDraft.programId}
+              onValueChange={(value) => setCreateDraft((d) => ({ ...d, programId: value, programLevelId: '' }))}
+              options={programs.map((program) => ({ value: String(program.id), label: program.name }))}
+            />
+            <SelectField
+              label="Program Level *"
+              value={createDraft.programLevelId}
+              onValueChange={(value) => setCreateDraft((d) => ({ ...d, programLevelId: value }))}
+              options={selectedProgramLevelsForCreate.map((level) => ({ value: String(level.id), label: `Level ${level.level}` }))}
+            />
+            <SelectField
+              label="Semester *"
+              value={createDraft.semesterId}
+              onValueChange={(value) => setCreateDraft((d) => ({ ...d, semesterId: value }))}
+              options={semesters.map((semester) => ({
+                value: String(semester.id),
+                label: `${semester.type} ${semester.year}`,
+              }))}
+            />
+            <SelectField
+              label="Status *"
+              value={createDraft.status}
+              onValueChange={(value) => setCreateDraft((d) => ({ ...d, status: value as StudentStatus }))}
+              options={statusOptions.map((status) => ({ value: status, label: status }))}
+            />
+            <SelectField
+              label="Religion *"
+              value={createDraft.religion}
+              onValueChange={(value) => setCreateDraft((d) => ({ ...d, religion: value as 'M' | 'C' }))}
+              options={[
+                { value: 'M', label: 'Muslim (M)' },
+                { value: 'C', label: 'Christian (C)' },
+              ]}
+            />
+            <SelectField
+              label="Gender *"
+              value={createDraft.gender}
+              onValueChange={(value) => setCreateDraft((d) => ({ ...d, gender: value as 'M' | 'F' }))}
+              options={[
+                { value: 'M', label: 'Male (M)' },
+                { value: 'F', label: 'Female (F)' },
+              ]}
+            />
+          </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="edit-name">Student Name *</Label>
-                  <Input
-                    id="edit-name"
-                    placeholder="Enter full name"
-                    value={editStudent.name}
-                    onChange={(e) => setEditStudent(prev => ({ ...prev, name: e.target.value }))}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-religion">Religion</Label>
-                  <Select
-                    value={editStudent.religion}
-                    onValueChange={(value) => setEditStudent(prev => ({ ...prev, religion: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select religion" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {religionOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-type">Type</Label>
-                  <Select
-                    value={editStudent.type}
-                    onValueChange={(value) => setEditStudent(prev => ({ ...prev, type: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {typeOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-nationalId">National ID</Label>
-                  <Input
-                    id="edit-nationalId"
-                    placeholder="14-digit National ID"
-                    maxLength={14}
-                    value={editStudent.nationalId}
-                    onChange={(e) => setEditStudent(prev => ({ ...prev, nationalId: e.target.value }))}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-passport">Passport</Label>
-                  <Input
-                    id="edit-passport"
-                    placeholder="Passport number"
-                    value={editStudent.passport}
-                    onChange={(e) => setEditStudent(prev => ({ ...prev, passport: e.target.value }))}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-enrollmentDate">Enrollment Date *</Label>
-                  <Input
-                    id="edit-enrollmentDate"
-                    type="date"
-                    value={editStudent.enrollmentDate}
-                    onChange={(e) => setEditStudent(prev => ({ ...prev, enrollmentDate: e.target.value }))}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-address">Address</Label>
-                  <Input
-                    id="edit-address"
-                    placeholder="Full address"
-                    value={editStudent.address}
-                    onChange={(e) => setEditStudent(prev => ({ ...prev, address: e.target.value }))}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-homePhone">Home Phone</Label>
-                  <Input
-                    id="edit-homePhone"
-                    placeholder="+20 2 123 4567"
-                    value={editStudent.homePhone}
-                    onChange={(e) => setEditStudent(prev => ({ ...prev, homePhone: e.target.value }))}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-mobilePhone">Mobile Phone</Label>
-                  <Input
-                    id="edit-mobilePhone"
-                    placeholder="+20 10 123 4567"
-                    value={editStudent.mobilePhone}
-                    onChange={(e) => setEditStudent(prev => ({ ...prev, mobilePhone: e.target.value }))}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-email">Email</Label>
-                  <Input
-                    id="edit-email"
-                    type="email"
-                    placeholder="student@university.edu"
-                    value={editStudent.email}
-                    onChange={(e) => setEditStudent(prev => ({ ...prev, email: e.target.value }))}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-previousQualification">Previous Qualification</Label>
-                  <Input
-                    id="edit-previousQualification"
-                    placeholder="e.g., High School - 95%"
-                    value={editStudent.previousQualification}
-                    onChange={(e) => setEditStudent(prev => ({ ...prev, previousQualification: e.target.value }))}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-program">Program</Label>
-                  <Select
-                    value={editStudent.program}
-                    onValueChange={(value) => setEditStudent(prev => ({ ...prev, program: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select program" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {programs.map((program) => (
-                        <SelectItem key={program} value={program}>
-                          {program}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-level">Level</Label>
-                  <Select
-                    value={editStudent.level}
-                    onValueChange={(value) => setEditStudent(prev => ({ ...prev, level: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select level" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {levelOptions.map((level) => (
-                        <SelectItem key={level} value={level}>
-                          {level}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-status">Status</Label>
-                  <Select
-                    value={editStudent.status}
-                    onValueChange={(value) => setEditStudent(prev => ({ ...prev, status: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Active">Active</SelectItem>
-                      <SelectItem value="Deactivated">Deactivated</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="flex gap-2 pt-4">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowEditModal(false)}
-                  className="flex-1"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleUpdateStudent}
-                  className="flex-1"
-                >
-                  Update Student
-                </Button>
-              </div>
-            </TabsContent>
-
-            {/* Grades Tab - Only show if showGradesTab is true */}
-            {showGradesTab && (
-              <TabsContent value="grades" className="mt-4">
-                <div className="space-y-4">
-                  {selectedStudent && studentGradesData[selectedStudent.id] ? (
-                    <>
-                      <div className="space-y-4">
-                        {studentGradesData[selectedStudent.id].map((levelData: any, levelIndex: number) => (
-                          <GradeLevelSection
-                            key={levelIndex}
-                            levelData={levelData}
-                            onUpdateGrade={(semesterIndex, courseIndex, newTotal) =>
-                              handleUpdateGrade(levelIndex, semesterIndex, courseIndex, newTotal)
-                            }
-                          />
-                        ))}
-                      </div>
-
-                      {/* Submit Changes Button */}
-                      <div className="flex justify-end pt-4 border-t border-slate-200">
-                        <Button
-                          onClick={handleSubmitGrades}
-                          disabled={!gradesModified}
-                          className={`gap-2 ${gradesModified
-                              ? 'bg-gradient-to-r from-blue-600 to-green-600 hover:from-blue-700 hover:to-green-700'
-                              : ''
-                            }`}
-                        >
-                          <CheckCircle className="w-4 h-4" />
-                          Submit Changes
-                        </Button>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="text-center py-12">
-                      <FileSpreadsheet className="w-12 h-12 mx-auto mb-4 text-slate-400" />
-                      <h3 className="text-lg text-slate-900 mb-2">No Grades Available</h3>
-                      <p className="text-slate-600">
-                        No academic records found for this student.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-            )}
-          </Tabs>
+          <DialogFooter>
+            <Button variant="outline" onClick={resetCreateDialog}>Cancel</Button>
+            <Button onClick={() => void handleCreateStudent()} disabled={saving}>
+              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Create Student
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={isEditOpen} onOpenChange={(open) => (!open ? setIsEditOpen(false) : setIsEditOpen(true))}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Edit Student</DialogTitle>
+            <DialogDescription>
+              Update student profile details and sync directly with backend PATCH API.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <LabelledInput label="Username *" value={editDraft.username} onChange={(value) => setEditDraft((d) => ({ ...d, username: value }))} />
+            <LabelledInput label="University Student ID *" value={editDraft.universityStudentId} onChange={(value) => setEditDraft((d) => ({ ...d, universityStudentId: value }))} />
+            <LabelledInput label="First Name *" value={editDraft.firstName} onChange={(value) => setEditDraft((d) => ({ ...d, firstName: value }))} />
+            <LabelledInput label="Last Name *" value={editDraft.lastName} onChange={(value) => setEditDraft((d) => ({ ...d, lastName: value }))} />
+            <LabelledInput label="Full Name" value={editDraft.fullname} onChange={(value) => setEditDraft((d) => ({ ...d, fullname: value }))} />
+            <LabelledInput label="National ID" value={editDraft.nationalId} onChange={(value) => setEditDraft((d) => ({ ...d, nationalId: value }))} />
+            <LabelledInput label="Email" type="email" value={editDraft.email} onChange={(value) => setEditDraft((d) => ({ ...d, email: value }))} />
+            <LabelledInput label="Phone" value={editDraft.phone} onChange={(value) => setEditDraft((d) => ({ ...d, phone: value }))} />
+            <LabelledInput label="Date of Birth" type="date" value={editDraft.dateOfBirth} onChange={(value) => setEditDraft((d) => ({ ...d, dateOfBirth: value }))} />
+            <LabelledInput label="Enrollment Date" type="date" value={editDraft.enrollmentDate} onChange={(value) => setEditDraft((d) => ({ ...d, enrollmentDate: value }))} />
+            <LabelledInput label="Address" value={editDraft.address} onChange={(value) => setEditDraft((d) => ({ ...d, address: value }))} />
+            <LabelledInput label="City" value={editDraft.city} onChange={(value) => setEditDraft((d) => ({ ...d, city: value }))} />
+            <LabelledInput label="Country" value={editDraft.country} onChange={(value) => setEditDraft((d) => ({ ...d, country: value }))} />
+            <LabelledInput label="Home Phone" value={editDraft.homePhone} onChange={(value) => setEditDraft((d) => ({ ...d, homePhone: value }))} />
+            <LabelledInput label="Previous Qualification" value={editDraft.previousQualification} onChange={(value) => setEditDraft((d) => ({ ...d, previousQualification: value }))} />
+            <LabelledInput label="Secondary School" value={editDraft.secondarySchoolName} onChange={(value) => setEditDraft((d) => ({ ...d, secondarySchoolName: value }))} />
+            <LabelledInput label="Total High School Grades" value={editDraft.totalHighSchoolGrades} onChange={(value) => setEditDraft((d) => ({ ...d, totalHighSchoolGrades: value }))} />
+            <LabelledInput label="High School Seat Number" value={editDraft.highSchoolSeatNumber} onChange={(value) => setEditDraft((d) => ({ ...d, highSchoolSeatNumber: value }))} />
+
+            <SelectField
+              label="Program"
+              value={editDraft.programId}
+              onValueChange={(value) => setEditDraft((d) => ({ ...d, programId: value, programLevelId: '' }))}
+              options={programs.map((program) => ({ value: String(program.id), label: program.name }))}
+            />
+            <SelectField
+              label="Program Level"
+              value={editDraft.programLevelId}
+              onValueChange={(value) => setEditDraft((d) => ({ ...d, programLevelId: value }))}
+              options={selectedProgramLevelsForEdit.map((level) => ({ value: String(level.id), label: `Level ${level.level}` }))}
+            />
+            <SelectField
+              label="Status"
+              value={editDraft.status}
+              onValueChange={(value) => setEditDraft((d) => ({ ...d, status: value as StudentStatus }))}
+              options={statusOptions.map((status) => ({ value: status, label: status }))}
+            />
+            <SelectField
+              label="Religion"
+              value={editDraft.religion}
+              onValueChange={(value) => setEditDraft((d) => ({ ...d, religion: value as 'M' | 'C' }))}
+              options={[
+                { value: 'M', label: 'Muslim (M)' },
+                { value: 'C', label: 'Christian (C)' },
+              ]}
+            />
+            <SelectField
+              label="Gender"
+              value={editDraft.gender}
+              onValueChange={(value) => setEditDraft((d) => ({ ...d, gender: value as 'M' | 'F' }))}
+              options={[
+                { value: 'M', label: 'Male (M)' },
+                { value: 'F', label: 'Female (F)' },
+              ]}
+            />
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancel</Button>
+            <Button onClick={() => void handleUpdateStudent()} disabled={saving}>
+              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isImportOpen} onOpenChange={(open) => (!open ? resetImportDialog() : setIsImportOpen(true))}>
+        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-6xl">
+          <DialogHeader>
+            <DialogTitle>Import Students</DialogTitle>
+            <DialogDescription>
+              Upload an Excel file, monitor background processing, then fix failed rows directly and re-insert them.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Tabs value={importTab} onValueChange={(value) => setImportTab(value as 'setup' | 'status' | 'recover')} className="space-y-4">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="setup">Setup</TabsTrigger>
+              <TabsTrigger value="status">Processing</TabsTrigger>
+              <TabsTrigger value="recover">Recover Errors</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="setup" className="space-y-4">
+              <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="text-sm text-slate-600">
+                  Download the official template with all backend-required columns before filling data.
+                </div>
+                <Button variant="outline" onClick={downloadImportTemplate}>
+                  <FileSpreadsheet className="mr-2 h-4 w-4" />
+                  Download Template
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <SelectField
+                  label="Program *"
+                  value={importProgramId}
+                  onValueChange={(value) => {
+                    setImportProgramId(value);
+                    setImportProgramLevelId('');
+                  }}
+                  options={programs.map((program) => ({ value: String(program.id), label: program.name }))}
+                />
+                <SelectField
+                  label="Program Level *"
+                  value={importProgramLevelId}
+                  onValueChange={setImportProgramLevelId}
+                  options={selectedProgramLevelsForImport.map((level) => ({
+                    value: String(level.id),
+                    label: `Level ${level.level}`,
+                  }))}
+                />
+                <SelectField
+                  label="Semester *"
+                  value={importSemesterId}
+                  onValueChange={setImportSemesterId}
+                  options={semesters.map((semester) => ({
+                    value: String(semester.id),
+                    label: `${semester.type} ${semester.year}`,
+                  }))}
+                />
+              </div>
+
+              <div className="rounded-lg border border-dashed p-4">
+                <Label htmlFor="import-file" className="mb-2 block text-sm text-slate-700">
+                  Excel File (.xlsx)
+                </Label>
+                <Input
+                  id="import-file"
+                  type="file"
+                  accept=".xlsx"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    void handleImportFileChange(file);
+                  }}
+                />
+                {importFile ? (
+                  <div className="mt-3 flex items-center gap-2 rounded bg-slate-50 p-2 text-sm text-slate-700">
+                    <FileSpreadsheet className="h-4 w-4 text-blue-600" />
+                    {importFile.name}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-slate-600">Preview rows loaded: {importPreviewRows.length}</p>
+                <Button onClick={() => void handleStartImport()} disabled={importing || !importFile || importStatus === 'Pending' || importStatus === 'Processing'}>
+                  {importing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                  Start Import
+                </Button>
+              </div>
+
+              {importPreviewRows.length > 0 ? (
+                <div className="rounded-lg border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Row</TableHead>
+                        <TableHead>Username</TableHead>
+                        <TableHead>Name</TableHead>
+                        <TableHead>University ID</TableHead>
+                        <TableHead>Email</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {importPreviewRows.slice(0, 8).map((row) => (
+                        <TableRow key={row.rowNumber}>
+                          <TableCell>{row.rowNumber}</TableCell>
+                          <TableCell>{row.data.username || '-'}</TableCell>
+                          <TableCell>{row.data.fullname || `${row.data.firstName || ''} ${row.data.lastName || ''}`.trim() || '-'}</TableCell>
+                          <TableCell>{row.data.universityStudentId || '-'}</TableCell>
+                          <TableCell>{row.data.email || '-'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : null}
+            </TabsContent>
+
+            <TabsContent value="status" className="space-y-4">
+              <Card>
+                <CardContent className="space-y-3 p-4">
+                  <div className="flex items-center gap-2">
+                    {importStatus === 'Completed' ? (
+                      <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                    ) : importStatus === 'Failed' || importStatus === 'CompletedWithErrors' ? (
+                      <AlertTriangle className="h-5 w-5 text-amber-600" />
+                    ) : (
+                      <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+                    )}
+                    <p className="text-sm text-slate-700">Job ID: {importJobId || '-'}</p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">Status: {importStatus || 'Not started'}</Badge>
+                    {importing ? <Badge variant="secondary">Polling backend...</Badge> : null}
+                  </div>
+
+                  <p className="text-sm text-slate-600">{importStatusMessage || 'Start import to track progress here.'}</p>
+
+                  <div className="flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleRefreshImportStatus()}
+                      disabled={!importJobId}
+                    >
+                      Refresh Status
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="recover" className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-slate-600">Failed rows to recover: {importFailures.length}</p>
+                <Button onClick={() => void retryFailedRows()} disabled={retryingFailedRows || importFailures.length === 0}>
+                  {retryingFailedRows ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
+                  Retry Corrected Rows
+                </Button>
+              </div>
+
+              {importFailures.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-6 text-center text-slate-600">
+                  No failed rows available. Once backend returns errors, they appear here for manual correction.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {importFailures.map((row, rowIndex) => (
+                    <Card key={`${row.row}-${rowIndex}`}>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base">Row {row.row}</CardTitle>
+                        <CardDescription>{row.reason}</CardDescription>
+                      </CardHeader>
+                      <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
+                        {importEditableColumns.map((key) => (
+                          <div key={key} className="space-y-1">
+                            <Label className="text-xs text-slate-500">{key}</Label>
+                            <Input
+                              value={row.data[key] || ''}
+                              onChange={(event) => handleFailureCellEdit(rowIndex, key, event.target.value)}
+                            />
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+
+          <DialogFooter>
+            <div className="mr-auto text-xs text-slate-500">
+              {importing || importStatus === 'Pending' || importStatus === 'Processing'
+                ? 'Closing keeps tracking in the background.'
+                : 'Close and clear import session.'}
+            </div>
+            <Button variant="outline" onClick={resetImportDialog}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function LabelledInput({
+  label,
+  value,
+  onChange,
+  type = 'text',
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label>{label}</Label>
+      <Input type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+    </div>
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  onValueChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onValueChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label>{label}</Label>
+      <Select value={value} onValueChange={onValueChange}>
+        <SelectTrigger>
+          <SelectValue placeholder={`Select ${label}`} />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }
