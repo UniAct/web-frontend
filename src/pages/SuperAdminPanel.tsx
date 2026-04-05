@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -99,23 +100,44 @@ const navigationItems = [
   { id: 'settings', label: 'Settings', icon: Settings, description: 'System configuration' }
 ] as const;
 
+function resolveAdminPageFromQuery(raw: string | null, isSuperAdmin: boolean, isAdmin: boolean): AdminPage {
+  if (isSuperAdmin) return 'universities';
+
+  const allowedPages: AdminPage[] = isAdmin
+    ? [
+        'statistics',
+        'settings',
+        'admins',
+        'programs',
+        'rooms',
+        'timetabling',
+        'staff',
+        'students',
+        'enrollment',
+        'level-tables',
+        'attendance',
+        'grades',
+        'announcements',
+        'audit',
+      ]
+    : ['universities'];
+
+  if (!raw) return isAdmin ? 'statistics' : 'universities';
+  return allowedPages.includes(raw as AdminPage) ? (raw as AdminPage) : (isAdmin ? 'statistics' : 'universities');
+}
+
 export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
   const isSuperAdmin = user.role === 'superadmin';
   const isAdmin = user.role === 'admin';
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const currentPage = resolveAdminPageFromQuery(new URLSearchParams(location.search).get('adminPage'), isSuperAdmin, isAdmin);
 
-  // Set initial page based on role
-  const [currentPage, setCurrentPageState] = useState<AdminPage>(
-    isSuperAdmin ? 'universities' : 'statistics'
-  );
-
-  // Wrapper to ensure SuperAdmins stay on universities page
   const setCurrentPage = (page: AdminPage) => {
-    if (isSuperAdmin) {
-      // SuperAdmins can only view universities page
-      setCurrentPageState('universities');
-    } else {
-      setCurrentPageState(page);
-    }
+    const next = new URLSearchParams(location.search);
+    next.set('page', 'superadmin');
+    next.set('adminPage', isSuperAdmin ? 'universities' : page);
+    setSearchParams(next, { replace: true });
   };
 
   // Set initial university based on role

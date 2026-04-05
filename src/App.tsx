@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Routes, Route, useLocation } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { HomePage } from './pages/HomePage';
 import { Dashboard } from './pages/Dashboard';
 import { TenantNotFoundPage } from './pages/TenantNotFoundPage';
@@ -17,7 +17,6 @@ import { AcademicRegistrationPage } from './pages/AcademicRegistrationPage';
 import { TimetablePage } from './pages/TimetablePage';
 import { Navigation } from './components/layout/Navigation';
 import { Header } from './components/layout/Header';
-import { SidebarProvider, SidebarInset } from './components/ui/sidebar';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
 import { BootstrapAnimation } from './components/bootstrap/BootstrapAnimation';
@@ -72,6 +71,20 @@ function resolveDashboardPage(role: UserRole): string {
   return 'dashboard';
 }
 
+function resolvePageFromQuery(page: string | null, role: UserRole): string {
+  if (!page) return resolveDashboardPage(role);
+
+  const allowedPages: Record<UserRole, string[]> = {
+    student: ['dashboard', 'academic-registration', 'timetable', 'attendance', 'teams', 'groups', 'ai-assistant', 'alumni-hub', 'career-board', 'profile'],
+    faculty: ['dashboard', 'attendance', 'teams', 'groups', 'ai-assistant', 'profile'],
+    admin: ['superadmin'],
+    alumni: ['dashboard', 'alumni-hub', 'career-board', 'profile'],
+    superadmin: ['superadmin'],
+  };
+
+  return allowedPages[role].includes(page) ? page : resolveDashboardPage(role);
+}
+
 function buildUserFromSession(parsed: any, role: UserRole): User {
   return {
     id: parsed.id ? String(parsed.id) : parsed.username || parsed.email || 'unknown',
@@ -84,7 +97,7 @@ function buildUserFromSession(parsed: any, role: UserRole): User {
 
 export default function App() {
   const location = useLocation();
-  const [currentPage, setCurrentPage] = useState('home');
+  const [searchParams, setSearchParams] = useSearchParams();
   const [user, setUser] = useState<User | null>(null);
   const [tenantNotFound, setTenantNotFound] = useState(false);
   const [tenantSubdomain, setTenantSubdomain] = useState<string>('');
@@ -115,6 +128,19 @@ export default function App() {
     const roleKey = user?.role ?? 'guest';
     document.documentElement.setAttribute('data-user-role', roleKey);
   }, [user]);
+
+  const currentPage = user ? resolvePageFromQuery(searchParams.get('page'), user.role) : 'home';
+
+  const navigateToPage = (page: string) => {
+    const next = new URLSearchParams(location.search);
+    next.set('page', page);
+
+    if (page !== 'superadmin') {
+      next.delete('adminPage');
+    }
+
+    setSearchParams(next, { replace: true });
+  };
 
   // Check tenant validity on mount
   useEffect(() => {
@@ -180,8 +206,6 @@ export default function App() {
         const restoredRole = resolveUserRole(parsed, 'student');
         const restoredUser = buildUserFromSession(parsed, restoredRole);
         setUser(restoredUser);
-
-        setCurrentPage(resolveDashboardPage(restoredRole));
       }
     } catch (err) {
       // corrupted localStorage entries - clear them
@@ -221,16 +245,16 @@ export default function App() {
         if (tenantContext.isSuperAdmin) {
           // SuperAdmin: show only tenant management page
           console.log('[App] Routing to SuperAdminPanel (SuperAdmin context)');
-          setCurrentPage('superadmin');
+          navigateToPage(resolvePageFromQuery(new URLSearchParams(location.search).get('page'), 'superadmin'));
         } else {
           // Tenant users: route based on role
           if (finalRole === 'admin') {
             console.log('[App] Routing to SuperAdminPanel (Admin role at tenant)');
-            setCurrentPage('superadmin'); // Admin gets admin panel (RBAC Management)
+            navigateToPage(resolvePageFromQuery(new URLSearchParams(location.search).get('page'), 'admin')); // Admin gets admin panel (RBAC Management)
           } else {
-            const nextPage = resolveDashboardPage(finalRole);
+            const nextPage = resolvePageFromQuery(new URLSearchParams(location.search).get('page'), finalRole);
             console.log(`[App] Routing to ${nextPage} (${finalRole} role at tenant)`);
-            setCurrentPage(nextPage);
+            navigateToPage(nextPage);
           }
         }
         return;
@@ -251,7 +275,7 @@ export default function App() {
         department: 'System Administration'
       };
       setUser(superAdminUser);
-      setCurrentPage('superadmin');
+      navigateToPage(resolvePageFromQuery(new URLSearchParams(location.search).get('page'), 'superadmin'));
       return;
     }
 
@@ -265,7 +289,7 @@ export default function App() {
         department: 'Alexandria National University'
       };
       setUser(adminUser);
-      setCurrentPage('superadmin');
+      navigateToPage(resolvePageFromQuery(new URLSearchParams(location.search).get('page'), 'admin'));
       return;
     }
 
@@ -279,16 +303,16 @@ export default function App() {
       year: role === 'student' ? 2024 : undefined
     };
     setUser(mockUser);
-    setCurrentPage(resolveDashboardPage(role));
+    navigateToPage(resolvePageFromQuery(new URLSearchParams(location.search).get('page'), role));
   };
 
   const handleLogout = () => {
     setUser(null);
-    setCurrentPage('home');
     // clear storage
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     localStorage.removeItem('tenantId');
+    setSearchParams(new URLSearchParams(), { replace: true });
     // keep tenantId for dev convenience if you want; remove if you prefer full logout
     // localStorage.removeItem('tenantId');
   };
@@ -410,7 +434,7 @@ export default function App() {
       <Navigation
         user={user}
         currentPage={currentPage}
-        onNavigate={setCurrentPage}
+        onNavigate={navigateToPage}
         onLogout={handleLogout}
       />
 
