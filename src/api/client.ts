@@ -1,5 +1,6 @@
 import { httpClient } from './core/http-client';
 import { authApi } from './modules/auth/auth.api';
+import { classroomApi } from './modules/classroom/classroom.api';
 import { courseApi } from './modules/course/course.api';
 import { facultyApi } from './modules/faculty/faculty.api';
 import { programApi } from './modules/program/program.api';
@@ -15,6 +16,7 @@ export const apiClient = {
   ...studentApi,
   ...universityApi,
   ...userApi,
+  ...classroomApi,
   ...courseApi,
   ...facultyApi,
   ...programApi,

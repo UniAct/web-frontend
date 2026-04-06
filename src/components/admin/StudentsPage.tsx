@@ -111,7 +111,7 @@ const emptyStudentDraft: StudentDraft = {
   address: '',
   city: '',
   country: 'Egypt',
-  status: 'Active',
+  status: 'New',
   religion: 'M',
   gender: 'M',
   previousQualification: '',
@@ -176,7 +176,7 @@ const importTemplateSampleRow = [
   'Smouha, Alexandria',
   'Alexandria',
   'Egypt',
-  'Active',
+  'New',
   '2026-09-15',
   'M',
   'M',
@@ -189,7 +189,25 @@ const importTemplateSampleRow = [
 
 const getImportStorageKey = (universityId: string) => `studentsImportSession:${universityId}`;
 
-const defaultStatusOptions: StudentStatus[] = ['Active', 'Inactive', 'Graduated', 'Suspended', 'Dismissed'];
+const defaultStatusOptions: StudentStatus[] = ['New', 'Repeat', 'SingleChance', 'ExternalReenrollment', 'Deactivate'];
+
+const studentStatusLabels: Record<StudentStatus, string> = {
+  New: 'New',
+  Repeat: 'Repeat',
+  SingleChance: 'Single Chance',
+  ExternalReenrollment: 'External Re-enrollment',
+  Deactivate: 'Deactivate',
+};
+
+function formatStudentStatus(status: StudentStatus): string {
+  return studentStatusLabels[status] ?? status;
+}
+
+function getStudentStatusBadgeVariant(status: StudentStatus): 'default' | 'secondary' | 'destructive' {
+  if (status === 'New') return 'default';
+  if (status === 'Deactivate') return 'destructive';
+  return 'secondary';
+}
 
 function toCamelKey(value: string): string {
   return value
@@ -480,7 +498,7 @@ export function StudentsPage({ selectedUniversity }: StudentsPageProps) {
   );
 
   const loadStudents = async () => {
-    if (!selectedUniversity || !activeSemester) {
+    if (!selectedUniversity || !activeSemester || !activeSemesterId) {
       setStudents([]);
       setLoading(false);
       return;
@@ -491,11 +509,13 @@ export function StudentsPage({ selectedUniversity }: StudentsPageProps) {
 
       const queryBase: {
         programId?: number;
+        semesterId?: number;
         status?: StudentStatus;
         isBlocked?: boolean;
         sortOrder: 'asc' | 'desc';
       } = {
         sortOrder,
+        semesterId: activeSemesterId,
       };
 
       if (programFilter !== 'all') queryBase.programId = Number(programFilter);
@@ -609,7 +629,7 @@ export function StudentsPage({ selectedUniversity }: StudentsPageProps) {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, programFilter, levelFilter, statusFilter, deleteFilter]);
+  }, [search, programFilter, levelFilter, statusFilter, deleteFilter, activeSemesterId]);
 
   const filteredStudents = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -624,20 +644,9 @@ export function StudentsPage({ selectedUniversity }: StudentsPageProps) {
         String(student.universityStudentId).includes(term);
 
       const matchesLevel = levelFilter === 'all' || String(student.programLevelId) === levelFilter;
-      const enrollmentDate = parseDateValue(student.enrollmentDate);
-
-      let matchesActiveSemester = true;
-      if (activeSemester) {
-        const start = parseDateValue(activeSemester.startDate);
-        const end = parseDateValue(activeSemester.endDate);
-        if (start && end && enrollmentDate) {
-          matchesActiveSemester = enrollmentDate >= start && enrollmentDate <= end;
-        }
-      }
-
-      return matchesSearch && matchesLevel && matchesActiveSemester;
+      return matchesSearch && matchesLevel;
     });
-  }, [students, search, levelFilter, activeSemester]);
+  }, [students, search, levelFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredStudents.length / pageSize));
   const pageStart = (currentPage - 1) * pageSize;
@@ -983,7 +992,7 @@ export function StudentsPage({ selectedUniversity }: StudentsPageProps) {
       address: (row.data.address || '').trim(),
       city: (row.data.city || '').trim(),
       country: (row.data.country || '').trim() || 'Egypt',
-      status: ((row.data.status || 'Active').trim() as StudentStatus) || 'Active',
+      status: ((row.data.status || 'New').trim() as StudentStatus) || 'New',
       enrollmentDate: (row.data.enrollmentDate || '').trim(),
       religion: ((row.data.religion || 'M').trim() as 'M' | 'C') || 'M',
       gender: ((row.data.gender || 'M').trim() as 'M' | 'F') || 'M',
@@ -1199,7 +1208,7 @@ export function StudentsPage({ selectedUniversity }: StudentsPageProps) {
                 <SelectItem value="all">All Statuses</SelectItem>
                 {statusOptions.map((status) => (
                   <SelectItem key={status} value={status}>
-                    {status}
+                    {formatStudentStatus(status)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1286,7 +1295,7 @@ export function StudentsPage({ selectedUniversity }: StudentsPageProps) {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={student.status === 'Active' ? 'default' : 'secondary'}>{student.status}</Badge>
+                        <Badge variant={getStudentStatusBadgeVariant(student.status)}>{formatStudentStatus(student.status)}</Badge>
                       </TableCell>
                       <TableCell>
                         {student.isBlocked ? (
@@ -1417,7 +1426,7 @@ export function StudentsPage({ selectedUniversity }: StudentsPageProps) {
               label="Status *"
               value={createDraft.status}
               onValueChange={(value) => setCreateDraft((d) => ({ ...d, status: value as StudentStatus }))}
-              options={statusOptions.map((status) => ({ value: status, label: status }))}
+              options={statusOptions.map((status) => ({ value: status, label: formatStudentStatus(status) }))}
             />
             <SelectField
               label="Religion *"
@@ -1494,7 +1503,7 @@ export function StudentsPage({ selectedUniversity }: StudentsPageProps) {
               label="Status"
               value={editDraft.status}
               onValueChange={(value) => setEditDraft((d) => ({ ...d, status: value as StudentStatus }))}
-              options={statusOptions.map((status) => ({ value: status, label: status }))}
+              options={statusOptions.map((status) => ({ value: status, label: formatStudentStatus(status) }))}
             />
             <SelectField
               label="Religion"
@@ -1527,7 +1536,7 @@ export function StudentsPage({ selectedUniversity }: StudentsPageProps) {
       </Dialog>
 
       <Dialog open={isImportOpen} onOpenChange={(open) => (!open ? resetImportDialog() : setIsImportOpen(true))}>
-        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-6xl">
+        <DialogContent className="!flex !h-[90vh] !max-h-[90vh] !w-[min(96vw,72rem)] !flex-col !overflow-hidden sm:!max-w-[72rem]">
           <DialogHeader>
             <DialogTitle>Import Students</DialogTitle>
             <DialogDescription>
@@ -1535,14 +1544,17 @@ export function StudentsPage({ selectedUniversity }: StudentsPageProps) {
             </DialogDescription>
           </DialogHeader>
 
-          <Tabs value={importTab} onValueChange={(value) => setImportTab(value as 'setup' | 'status' | 'recover')} className="space-y-4">
+          <Tabs value={importTab} onValueChange={(value) => setImportTab(value as 'setup' | 'status' | 'recover')} className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="setup">Setup</TabsTrigger>
               <TabsTrigger value="status">Processing</TabsTrigger>
               <TabsTrigger value="recover">Recover Errors</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="setup" className="space-y-4">
+            <TabsContent
+              value="setup"
+              className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-2 data-[state=inactive]:max-h-0 data-[state=inactive]:overflow-hidden"
+            >
               <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <div className="text-sm text-slate-600">
                   Download the official template with all backend-required columns before filling data.
@@ -1640,7 +1652,7 @@ export function StudentsPage({ selectedUniversity }: StudentsPageProps) {
               ) : null}
             </TabsContent>
 
-            <TabsContent value="status" className="space-y-4">
+            <TabsContent value="status" className="min-h-0 space-y-4 overflow-y-auto pr-2">
               <Card>
                 <CardContent className="space-y-3 p-4">
                   <div className="flex items-center gap-2">
@@ -1675,40 +1687,59 @@ export function StudentsPage({ selectedUniversity }: StudentsPageProps) {
               </Card>
             </TabsContent>
 
-            <TabsContent value="recover" className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm text-slate-600">Failed rows to recover: {importFailures.length}</p>
-                <Button onClick={() => void retryFailedRows()} disabled={retryingFailedRows || importFailures.length === 0}>
-                  {retryingFailedRows ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
-                  Retry Corrected Rows
-                </Button>
+            <TabsContent
+              value="recover"
+              className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden"
+              style={importTab === 'recover' ? undefined : { maxHeight: '0px' }}
+            >
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">Failed rows to recover: {importFailures.length}</p>
+                    <p className="text-xs text-slate-600">
+                      Review each error row, correct the fields, then retry only the rows that still need recovery.
+                    </p>
+                  </div>
+                  <Button onClick={() => void retryFailedRows()} disabled={retryingFailedRows || importFailures.length === 0}>
+                    {retryingFailedRows ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
+                    Retry Corrected Rows
+                  </Button>
+                </div>
               </div>
 
               {importFailures.length === 0 ? (
-                <div className="rounded-lg border border-dashed p-6 text-center text-slate-600">
+                <div className="rounded-xl border border-dashed p-8 text-center text-slate-600">
                   No failed rows available. Once backend returns errors, they appear here for manual correction.
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {importFailures.map((row, rowIndex) => (
-                    <Card key={`${row.row}-${rowIndex}`}>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-base">Row {row.row}</CardTitle>
-                        <CardDescription>{row.reason}</CardDescription>
-                      </CardHeader>
-                      <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
-                        {importEditableColumns.map((key) => (
-                          <div key={key} className="space-y-1">
-                            <Label className="text-xs text-slate-500">{key}</Label>
-                            <Input
-                              value={row.data[key] || ''}
-                              onChange={(event) => handleFailureCellEdit(rowIndex, key, event.target.value)}
-                            />
+                <div className="min-h-0 flex-1 overflow-y-auto pr-2">
+                  <div className="space-y-3">
+                    {importFailures.map((row, rowIndex) => (
+                      <Card key={`${row.row}-${rowIndex}`} className="border-slate-200 shadow-sm">
+                        <CardHeader className="pb-3">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <CardTitle className="text-base">Row {row.row}</CardTitle>
+                              <CardDescription className="mt-1">{row.reason}</CardDescription>
+                            </div>
+                            {row.username ? <Badge variant="secondary">@{row.username}</Badge> : null}
                           </div>
-                        ))}
-                      </CardContent>
-                    </Card>
-                  ))}
+                        </CardHeader>
+                        <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                          {importEditableColumns.map((key) => (
+                            <div key={key} className="space-y-1">
+                              <Label className="text-xs font-medium text-slate-500">{key}</Label>
+                              <Input
+                                className="bg-white"
+                                value={row.data[key] || ''}
+                                onChange={(event) => handleFailureCellEdit(rowIndex, key, event.target.value)}
+                              />
+                            </div>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
                 </div>
               )}
             </TabsContent>
@@ -1724,7 +1755,7 @@ export function StudentsPage({ selectedUniversity }: StudentsPageProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </div >
   );
 }
 

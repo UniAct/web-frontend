@@ -105,21 +105,21 @@ function resolveAdminPageFromQuery(raw: string | null, isSuperAdmin: boolean, is
 
   const allowedPages: AdminPage[] = isAdmin
     ? [
-        'statistics',
-        'settings',
-        'admins',
-        'programs',
-        'rooms',
-        'timetabling',
-        'staff',
-        'students',
-        'enrollment',
-        'level-tables',
-        'attendance',
-        'grades',
-        'announcements',
-        'audit',
-      ]
+      'statistics',
+      'settings',
+      'admins',
+      'programs',
+      'rooms',
+      'timetabling',
+      'staff',
+      'students',
+      'enrollment',
+      'level-tables',
+      'attendance',
+      'grades',
+      'announcements',
+      'audit',
+    ]
     : ['universities'];
 
   if (!raw) return isAdmin ? 'statistics' : 'universities';

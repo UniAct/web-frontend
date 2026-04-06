@@ -1,4 +1,4 @@
-export type StudentStatus = 'Active' | 'Inactive' | 'Graduated' | 'Suspended' | 'Dismissed';
+export type StudentStatus = 'New' | 'Repeat' | 'SingleChance' | 'ExternalReenrollment' | 'Deactivate';
 export type StudentGender = 'M' | 'F';
 export type StudentReligion = 'M' | 'C';
 export type StudentSortOrder = 'asc' | 'desc';
@@ -37,6 +37,7 @@ export interface StudentListQuery {
   nationalId?: string;
   status?: StudentStatus;
   programId?: number;
+  semesterId?: number;
   isVerified?: boolean;
   isBlocked?: boolean;
   sortOrder?: StudentSortOrder;

@@ -1,10 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Modal, ModalContent, ModalDescription, ModalHeader, ModalTitle } from '../ui/modal';
-import { Textarea } from '../ui/textarea';
 import {
   Search,
   Plus,
@@ -14,24 +13,22 @@ import {
   Users,
   Building,
   Monitor,
-  Wifi,
-  Volume2,
   Presentation,
-  Download
+  Download,
+  Loader2,
+  RefreshCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { ClassroomService, type Classroom, type ClassroomCreateInput, type ClassroomType } from '../../api';
 
-interface Room {
-  id: string;
-  code: string;
-  name: string;
-  maxStudents: number;
-  type: 'lecture' | 'lab' | 'seminar' | 'tutorial';
+type Room = Classroom;
+
+interface RoomFormData {
+  roomNumber: string;
   building: string;
-  floor: number;
-  equipment: string[];
-  isActive: boolean;
-  createdAt: string;
+  capacity: number;
+  type: ClassroomType;
+  isAvailable: boolean;
 }
 
 interface RoomsPageProps {
@@ -39,205 +36,211 @@ interface RoomsPageProps {
   setSelectedUniversity: (id: string | null) => void;
 }
 
-// Mock data
-const mockRooms: Room[] = [
-  {
-    id: '1',
-    code: 'A101',
-    name: 'Lecture Hall A101',
-    maxStudents: 150,
-    type: 'lecture',
-    building: 'Engineering Building',
-    floor: 1,
-    equipment: ['Projector', 'Sound System', 'Whiteboard', 'Air Conditioning'],
-    isActive: true,
-    createdAt: '2023-06-01'
-  },
-  {
-    id: '2',
-    code: 'CS-LAB1',
-    name: 'Computer Science Lab 1',
-    maxStudents: 30,
-    type: 'lab',
-    building: 'Computer Science Building',
-    floor: 2,
-    equipment: ['30 Computers', 'Projector', 'Network', 'Air Conditioning'],
-    isActive: true,
-    createdAt: '2023-06-01'
-  },
-  {
-    id: '3',
-    code: 'B205',
-    name: 'Tutorial Room B205',
-    maxStudents: 25,
-    type: 'tutorial',
-    building: 'Main Building',
-    floor: 2,
-    equipment: ['Whiteboard', 'Tables', 'Chairs'],
-    isActive: true,
-    createdAt: '2023-06-15'
-  },
-  {
-    id: '4',
-    code: 'SEM1',
-    name: 'Seminar Room 1',
-    maxStudents: 40,
-    type: 'seminar',
-    building: 'Business Building',
-    floor: 1,
-    equipment: ['Smart Board', 'Video Conference', 'Sound System', 'Air Conditioning'],
-    isActive: true,
-    createdAt: '2023-07-01'
-  }
-];
+const initialFormData: RoomFormData = {
+  roomNumber: '',
+  building: '',
+  capacity: 30,
+  type: 'Lecture',
+  isAvailable: true,
+};
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
+}
 
 export function RoomsPage({ selectedUniversity }: RoomsPageProps) {
-  const [rooms, setRooms] = useState<Room[]>(mockRooms);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
   const [filterType, setFilterType] = useState<'all' | Room['type']>('all');
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
-  const [formData, setFormData] = useState({
-    code: '',
-    name: '',
-    maxStudents: 30,
-    type: 'lecture' as Room['type'],
-    building: '',
-    floor: 1,
-    equipment: [] as string[],
-  });
+  const [formData, setFormData] = useState<RoomFormData>(initialFormData);
 
-  const filteredRooms = rooms.filter(room => {
-    const matchesSearch = room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      room.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      room.building.toLowerCase().includes(searchQuery.toLowerCase());
+  const loadRooms = async () => {
+    if (!selectedUniversity) return;
+
+    try {
+      setLoading(true);
+      setFetchError(null);
+      const fetchedRooms = await ClassroomService.getAll();
+      setRooms(fetchedRooms);
+    } catch (error) {
+      const message = getErrorMessage(error, 'Failed to load classrooms');
+      setFetchError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadRooms();
+  }, [selectedUniversity]);
+
+  const filteredRooms = useMemo(() => rooms.filter((room) => {
+    const normalizedSearch = searchQuery.trim().toLowerCase();
+    const matchesSearch =
+      room.roomNumber.toLowerCase().includes(normalizedSearch) ||
+      room.building.toLowerCase().includes(normalizedSearch);
     const matchesType = filterType === 'all' || room.type === filterType;
     return matchesSearch && matchesType;
-  });
+  }), [rooms, searchQuery, filterType]);
 
-  const handleAddRoom = () => {
-    if (!formData.code || !formData.name || !formData.building) {
-      toast.error('Please fill in all required fields');
-      return;
-    }
-
-    // Check if room code already exists
-    if (rooms.some(r => r.code === formData.code && r.id !== editingRoom?.id)) {
-      toast.error('Room code already exists');
-      return;
-    }
-
-    const newRoom: Room = {
-      id: Date.now().toString(),
-      code: formData.code,
-      name: formData.name,
-      maxStudents: formData.maxStudents,
-      type: formData.type,
-      building: formData.building,
-      floor: formData.floor,
-      equipment: formData.equipment,
-      isActive: true,
-      createdAt: new Date().toISOString().split('T')[0]
-    };
-
-    setRooms([...rooms, newRoom]);
-    setShowAddModal(false);
-    resetForm();
-    toast.success('Room added successfully');
+  const resetForm = () => {
+    setFormData(initialFormData);
   };
 
-  const handleEditRoom = () => {
-    if (!editingRoom || !formData.code || !formData.name || !formData.building) {
-      toast.error('Please fill in all required fields');
-      return;
-    }
-
-    if (rooms.some(r => r.code === formData.code && r.id !== editingRoom.id)) {
-      toast.error('Room code already exists');
-      return;
-    }
-
-    setRooms(rooms.map(room =>
-      room.id === editingRoom.id
-        ? {
-          ...room,
-          code: formData.code,
-          name: formData.name,
-          maxStudents: formData.maxStudents,
-          type: formData.type,
-          building: formData.building,
-          floor: formData.floor,
-          equipment: formData.equipment
-        }
-        : room
-    ));
+  const closeModal = () => {
+    setShowAddModal(false);
     setEditingRoom(null);
     resetForm();
-    toast.success('Room updated successfully');
   };
 
-  const handleDeleteRoom = (id: string) => {
-    setRooms(rooms.filter(room => room.id !== id));
-    toast.success('Room deleted successfully');
+  const isDuplicateRoomNumber = () => {
+    return rooms.some(
+      (room) =>
+        room.roomNumber.trim().toLowerCase() === formData.roomNumber.trim().toLowerCase() &&
+        room.id !== editingRoom?.id,
+    );
+  };
+
+  const handleAddRoom = async () => {
+    if (!formData.roomNumber.trim() || !formData.building.trim()) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    if (isDuplicateRoomNumber()) {
+      toast.error('Room number already exists');
+      return;
+    }
+
+    const payload: ClassroomCreateInput = {
+      roomNumber: formData.roomNumber.trim(),
+      building: formData.building.trim(),
+      capacity: formData.capacity,
+      type: formData.type,
+      isAvailable: formData.isAvailable,
+    };
+
+    try {
+      setSaving(true);
+      const createdRoom = await ClassroomService.create(payload);
+      setRooms((current) => [...current, createdRoom]);
+      closeModal();
+      toast.success('Room added successfully');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to create room'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEditRoom = async () => {
+    if (!editingRoom || !formData.roomNumber.trim() || !formData.building.trim()) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    if (isDuplicateRoomNumber()) {
+      toast.error('Room number already exists');
+      return;
+    }
+
+    const payload: ClassroomCreateInput = {
+      roomNumber: formData.roomNumber.trim(),
+      building: formData.building.trim(),
+      capacity: formData.capacity,
+      type: formData.type,
+      isAvailable: formData.isAvailable,
+    };
+
+    try {
+      setSaving(true);
+      const updatedRoom = await ClassroomService.update(editingRoom.id, payload);
+      setRooms((current) => current.map((room) => (room.id === editingRoom.id ? updatedRoom : room)));
+      closeModal();
+      toast.success('Room updated successfully');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to update room'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteRoom = async (id: number) => {
+    const confirmed = window.confirm('Are you sure you want to delete this room?');
+    if (!confirmed) return;
+
+    try {
+      setDeletingId(id);
+      await ClassroomService.delete(id);
+      setRooms((current) => current.filter((room) => room.id !== id));
+      toast.success('Room deleted successfully');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to delete room'));
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const openEditModal = (room: Room) => {
     setEditingRoom(room);
     setFormData({
-      code: room.code,
-      name: room.name,
-      maxStudents: room.maxStudents,
-      type: room.type,
+      roomNumber: room.roomNumber,
       building: room.building,
-      floor: room.floor,
-      equipment: room.equipment
-    });
-  };
-
-  const resetForm = () => {
-    setFormData({
-      code: '',
-      name: '',
-      maxStudents: 30,
-      type: 'lecture',
-      building: '',
-      floor: 1,
-      equipment: []
+      capacity: room.capacity,
+      type: room.type,
+      isAvailable: room.isAvailable,
     });
   };
 
   const getTypeIcon = (type: Room['type']) => {
     switch (type) {
-      case 'lecture': return <Presentation className="w-4 h-4" />;
-      case 'lab': return <Monitor className="w-4 h-4" />;
-      case 'seminar': return <Users className="w-4 h-4" />;
-      case 'tutorial': return <Building className="w-4 h-4" />;
+      case 'Lecture': return <Presentation className="w-4 h-4" />;
+      case 'Lab': return <Monitor className="w-4 h-4" />;
+      case 'Auditorium': return <Users className="w-4 h-4" />;
+      case 'Other': return <Building className="w-4 h-4" />;
       default: return <Building className="w-4 h-4" />;
+    }
+  };
+
+  const getTypeLabel = (type: Room['type']) => {
+    switch (type) {
+      case 'Lecture': return 'Lecture Hall';
+      case 'Lab': return 'Laboratory';
+      case 'Auditorium': return 'Auditorium';
+      case 'Other': return 'Other';
+      default: return type;
     }
   };
 
   const getTypeColor = (type: Room['type']) => {
     switch (type) {
-      case 'lecture': return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'lab': return 'bg-green-100 text-green-800 border-green-200';
-      case 'seminar': return 'bg-purple-100 text-purple-800 border-purple-200';
-      case 'tutorial': return 'bg-orange-100 text-orange-800 border-orange-200';
+      case 'Lecture': return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'Lab': return 'bg-green-100 text-green-800 border-green-200';
+      case 'Auditorium': return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'Other': return 'bg-orange-100 text-orange-800 border-orange-200';
       default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
 
   const exportRoomsData = () => {
     const csvContent = [
-      ['Code', 'Name', 'Max Students', 'Type', 'Building', 'Floor', 'Equipment'].join(','),
+      ['Room Number', 'Building', 'Capacity', 'Type', 'Availability', 'Scheduled Sessions'].join(','),
       ...rooms.map(room => [
-        room.code,
-        `"${room.name}"`,
-        room.maxStudents,
-        room.type,
+        room.roomNumber,
         `"${room.building}"`,
-        room.floor,
-        `"${room.equipment.join(', ')}"`
+        room.capacity,
+        room.type,
+        room.isAvailable ? 'Available' : 'Unavailable',
+        room.classSessions?.length ?? 0,
       ].join(','))
     ].join('\n');
 
@@ -271,14 +274,18 @@ export function RoomsPage({ selectedUniversity }: RoomsPageProps) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-semibold text-slate-900">Rooms Management</h2>
-          <p className="text-slate-600 mt-1">Manage rooms, capacity, and equipment</p>
+          <p className="text-slate-600 mt-1">Manage classrooms, capacity, and availability</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" onClick={exportRoomsData} className="gap-2">
+          <Button variant="outline" onClick={() => void loadRooms()} disabled={loading} className="gap-2">
+            <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          <Button variant="outline" onClick={exportRoomsData} className="gap-2" disabled={loading}>
             <Download className="w-4 h-4" />
             Export Data
           </Button>
-          <Button onClick={() => setShowAddModal(true)} className="gap-2">
+          <Button onClick={() => setShowAddModal(true)} className="gap-2" disabled={loading}>
             <Plus className="w-4 h-4" />
             Add Room
           </Button>
@@ -305,7 +312,7 @@ export function RoomsPage({ selectedUniversity }: RoomsPageProps) {
               <div>
                 <p className="text-sm text-slate-600">Lecture Halls</p>
                 <p className="text-2xl font-semibold text-blue-600">
-                  {rooms.filter(r => r.type === 'lecture').length}
+                  {rooms.filter(r => r.type === 'Lecture').length}
                 </p>
               </div>
               <Presentation className="w-8 h-8 text-blue-600" />
@@ -319,7 +326,7 @@ export function RoomsPage({ selectedUniversity }: RoomsPageProps) {
               <div>
                 <p className="text-sm text-slate-600">Labs</p>
                 <p className="text-2xl font-semibold text-green-600">
-                  {rooms.filter(r => r.type === 'lab').length}
+                  {rooms.filter(r => r.type === 'Lab').length}
                 </p>
               </div>
               <Monitor className="w-8 h-8 text-green-600" />
@@ -333,7 +340,7 @@ export function RoomsPage({ selectedUniversity }: RoomsPageProps) {
               <div>
                 <p className="text-sm text-slate-600">Total Capacity</p>
                 <p className="text-2xl font-semibold text-purple-600">
-                  {rooms.reduce((sum, r) => sum + r.maxStudents, 0)}
+                  {rooms.reduce((sum, r) => sum + r.capacity, 0)}
                 </p>
               </div>
               <Users className="w-8 h-8 text-purple-600" />
@@ -341,6 +348,12 @@ export function RoomsPage({ selectedUniversity }: RoomsPageProps) {
           </CardContent>
         </Card>
       </div>
+
+      {fetchError ? (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="p-4 text-sm text-red-700">{fetchError}</CardContent>
+        </Card>
+      ) : null}
 
       {/* Filters and Search */}
       <Card>
@@ -363,10 +376,10 @@ export function RoomsPage({ selectedUniversity }: RoomsPageProps) {
                 className="px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Types</option>
-                <option value="lecture">Lecture Halls</option>
-                <option value="lab">Labs</option>
-                <option value="seminar">Seminar Rooms</option>
-                <option value="tutorial">Tutorial Rooms</option>
+                <option value="Lecture">Lecture Halls</option>
+                <option value="Lab">Labs</option>
+                <option value="Auditorium">Auditoriums</option>
+                <option value="Other">Other</option>
               </select>
             </div>
           </div>
@@ -375,20 +388,31 @@ export function RoomsPage({ selectedUniversity }: RoomsPageProps) {
 
       {/* Rooms Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredRooms.map((room) => (
+        {loading ? (
+          <div className="col-span-full">
+            <Card>
+              <CardContent className="flex items-center justify-center py-12 text-slate-600">
+                <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                Loading rooms...
+              </CardContent>
+            </Card>
+          </div>
+        ) : null}
+
+        {!loading && filteredRooms.map((room) => (
           <Card key={room.id} className="hover:shadow-lg transition-all duration-200">
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
-                  <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${room.type === 'lecture' ? 'bg-blue-100' :
-                      room.type === 'lab' ? 'bg-green-100' :
-                        room.type === 'seminar' ? 'bg-purple-100' : 'bg-orange-100'
+                  <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${room.type === 'Lecture' ? 'bg-blue-100' :
+                    room.type === 'Lab' ? 'bg-green-100' :
+                      room.type === 'Auditorium' ? 'bg-purple-100' : 'bg-orange-100'
                     }`}>
                     {getTypeIcon(room.type)}
                   </div>
                   <div>
-                    <CardTitle className="text-lg">{room.code}</CardTitle>
-                    <p className="text-sm text-slate-500">{room.name}</p>
+                    <CardTitle className="text-lg">{room.roomNumber}</CardTitle>
+                    <p className="text-sm text-slate-500">{room.building}</p>
                   </div>
                 </div>
                 <div className="flex gap-1">
@@ -396,6 +420,7 @@ export function RoomsPage({ selectedUniversity }: RoomsPageProps) {
                     variant="ghost"
                     size="sm"
                     onClick={() => openEditModal(room)}
+                    disabled={deletingId === room.id || saving}
                     className="h-8 w-8 p-0"
                   >
                     <Edit className="w-4 h-4" />
@@ -404,9 +429,10 @@ export function RoomsPage({ selectedUniversity }: RoomsPageProps) {
                     variant="ghost"
                     size="sm"
                     onClick={() => handleDeleteRoom(room.id)}
+                    disabled={deletingId === room.id || saving}
                     className="text-red-600 hover:text-red-700 h-8 w-8 p-0"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    {deletingId === room.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                   </Button>
                 </div>
               </div>
@@ -416,11 +442,11 @@ export function RoomsPage({ selectedUniversity }: RoomsPageProps) {
               <div className="flex items-center justify-between">
                 <Badge className={`gap-1 ${getTypeColor(room.type)}`}>
                   {getTypeIcon(room.type)}
-                  {room.type}
+                  {getTypeLabel(room.type)}
                 </Badge>
                 <div className="flex items-center gap-1 text-sm font-medium">
                   <Users className="w-4 h-4 text-slate-400" />
-                  <span className="text-lg font-semibold text-blue-600">{room.maxStudents}</span>
+                  <span className="text-lg font-semibold text-blue-600">{room.capacity}</span>
                   <span className="text-slate-600">students</span>
                 </div>
               </div>
@@ -431,31 +457,22 @@ export function RoomsPage({ selectedUniversity }: RoomsPageProps) {
                   <span className="font-medium">{room.building}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-600">Floor:</span>
-                  <span className="font-medium">Floor {room.floor}</span>
+                  <span className="text-slate-600">Availability:</span>
+                  <Badge variant="outline" className={room.isAvailable ? 'text-green-700 border-green-200 bg-green-50' : 'text-red-700 border-red-200 bg-red-50'}>
+                    {room.isAvailable ? 'Available' : 'Unavailable'}
+                  </Badge>
                 </div>
               </div>
 
               <div>
-                <p className="text-sm font-medium text-slate-700 mb-2">Equipment:</p>
-                <div className="flex flex-wrap gap-1">
-                  {room.equipment.slice(0, 3).map((item, index) => (
-                    <Badge key={index} variant="outline" className="text-xs">
-                      {item}
-                    </Badge>
-                  ))}
-                  {room.equipment.length > 3 && (
-                    <Badge variant="outline" className="text-xs">
-                      +{room.equipment.length - 3} more
-                    </Badge>
-                  )}
-                </div>
+                <p className="text-sm font-medium text-slate-700 mb-1">Scheduled sessions</p>
+                <p className="text-sm text-slate-600">{room.classSessions?.length ?? 0} session(s)</p>
               </div>
             </CardContent>
           </Card>
         ))}
 
-        {filteredRooms.length === 0 && (
+        {!loading && filteredRooms.length === 0 && (
           <div className="col-span-full">
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12">
@@ -471,9 +488,7 @@ export function RoomsPage({ selectedUniversity }: RoomsPageProps) {
       {/* Add/Edit Room Modal */}
       <Modal open={showAddModal || !!editingRoom} onOpenChange={(open) => {
         if (!open) {
-          setShowAddModal(false);
-          setEditingRoom(null);
-          resetForm();
+          closeModal();
         }
       }}>
         <ModalContent className="max-w-2xl">
@@ -490,23 +505,23 @@ export function RoomsPage({ selectedUniversity }: RoomsPageProps) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Room Code *
+                  Room Number *
                 </label>
                 <Input
-                  value={formData.code}
-                  onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+                  value={formData.roomNumber}
+                  onChange={(e) => setFormData({ ...formData, roomNumber: e.target.value })}
                   placeholder="e.g., A101"
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Room Name *
+                  Building *
                 </label>
                 <Input
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g., Lecture Hall A101"
+                  value={formData.building}
+                  onChange={(e) => setFormData({ ...formData, building: e.target.value })}
+                  placeholder="e.g., Engineering Building"
                 />
               </div>
             </div>
@@ -514,12 +529,12 @@ export function RoomsPage({ selectedUniversity }: RoomsPageProps) {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Maximum Students *
+                  Capacity *
                 </label>
                 <Input
                   type="number"
-                  value={formData.maxStudents}
-                  onChange={(e) => setFormData({ ...formData, maxStudents: parseInt(e.target.value) })}
+                  value={formData.capacity}
+                  onChange={(e) => setFormData({ ...formData, capacity: Math.max(1, Number(e.target.value) || 1) })}
                   min="1"
                   max="500"
                 />
@@ -534,65 +549,38 @@ export function RoomsPage({ selectedUniversity }: RoomsPageProps) {
                   onChange={(e) => setFormData({ ...formData, type: e.target.value as Room['type'] })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="lecture">Lecture Hall</option>
-                  <option value="lab">Laboratory</option>
-                  <option value="seminar">Seminar Room</option>
-                  <option value="tutorial">Tutorial Room</option>
+                  <option value="Lecture">Lecture Hall</option>
+                  <option value="Lab">Laboratory</option>
+                  <option value="Auditorium">Auditorium</option>
+                  <option value="Other">Other</option>
                 </select>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Floor *
+                  Availability
                 </label>
-                <Input
-                  type="number"
-                  value={formData.floor}
-                  onChange={(e) => setFormData({ ...formData, floor: parseInt(e.target.value) })}
-                  min="1"
-                  max="20"
-                />
+                <select
+                  value={formData.isAvailable ? 'yes' : 'no'}
+                  onChange={(e) => setFormData({ ...formData, isAvailable: e.target.value === 'yes' })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="yes">Available</option>
+                  <option value="no">Unavailable</option>
+                </select>
               </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Building *
-              </label>
-              <Input
-                value={formData.building}
-                onChange={(e) => setFormData({ ...formData, building: e.target.value })}
-                placeholder="e.g., Engineering Building"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Equipment (comma separated)
-              </label>
-              <Textarea
-                value={formData.equipment.join(', ')}
-                onChange={(e) => setFormData({
-                  ...formData,
-                  equipment: e.target.value.split(',').map(item => item.trim()).filter(item => item)
-                })}
-                placeholder="e.g., Projector, Sound System, Whiteboard, Air Conditioning"
-                rows={3}
-              />
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t">
               <Button
                 variant="outline"
-                onClick={() => {
-                  setShowAddModal(false);
-                  setEditingRoom(null);
-                  resetForm();
-                }}
+                onClick={closeModal}
+                disabled={saving}
               >
                 Cancel
               </Button>
-              <Button onClick={editingRoom ? handleEditRoom : handleAddRoom}>
+              <Button onClick={() => void (editingRoom ? handleEditRoom() : handleAddRoom())} disabled={saving}>
+                {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                 {editingRoom ? 'Update' : 'Add'} Room
               </Button>
             </div>
