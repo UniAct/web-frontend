@@ -275,9 +275,19 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
   };
 
   useEffect(() => {
-    if (!educationDialogOpen) return;
+    if (!selectedUniversity) {
+      setSemesters([]);
+      setActiveSemesterId(null);
+      return;
+    }
+
     void loadSemesters();
-  }, [educationDialogOpen, selectedUniversity, isSuperAdmin]);
+  }, [selectedUniversity, isSuperAdmin]);
+
+  useEffect(() => {
+    if (!educationDialogOpen || !selectedUniversity) return;
+    void loadSemesters();
+  }, [educationDialogOpen, selectedUniversity]);
 
   useEffect(() => {
     if (!selectedUniversity) {
@@ -285,14 +295,42 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
       return;
     }
 
-    const stored = localStorage.getItem(`activeSemester:${selectedUniversity}`);
-    const parsed = stored ? Number(stored) : NaN;
-    setActiveSemesterId(Number.isFinite(parsed) ? parsed : null);
+    const key = `activeSemester:${selectedUniversity}`;
+    const syncActiveSemester = () => {
+      const stored = localStorage.getItem(key);
+      const parsed = stored ? Number(stored) : NaN;
+      setActiveSemesterId(Number.isFinite(parsed) ? parsed : null);
+    };
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== key) return;
+      syncActiveSemester();
+    };
+
+    const onActiveSemesterChanged = (event: Event) => {
+      const customEvent = event as CustomEvent<{ universityId?: string }>;
+      if (customEvent.detail?.universityId && customEvent.detail.universityId !== selectedUniversity) return;
+      syncActiveSemester();
+    };
+
+    syncActiveSemester();
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('active-semester-updated', onActiveSemesterChanged as EventListener);
+
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('active-semester-updated', onActiveSemesterChanged as EventListener);
+    };
   }, [selectedUniversity]);
 
   useEffect(() => {
     if (!selectedUniversity || !activeSemesterId) return;
     localStorage.setItem(`activeSemester:${selectedUniversity}`, String(activeSemesterId));
+    window.dispatchEvent(
+      new CustomEvent('active-semester-updated', {
+        detail: { universityId: selectedUniversity, semesterId: activeSemesterId },
+      }),
+    );
   }, [selectedUniversity, activeSemesterId]);
 
   const handleCreateSemester = async () => {
@@ -354,9 +392,11 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
 
   const activeSemester = semesters.find((item) => item.id === activeSemesterId) ?? semesters[0];
 
-  const currentSemesterLabel = activeSemester
-    ? `${activeSemester.year} | Semester ${activeSemester.term}`
-    : 'No semesters yet';
+  const currentSemesterLabel = semesterLoading
+    ? 'Loading semesters...'
+    : activeSemester
+      ? `${activeSemester.year} | Semester ${activeSemester.term}`
+      : 'No semesters yet';
 
   // Filter navigation items based on role
   const filteredNavigationItems = navigationItems.filter(item => {

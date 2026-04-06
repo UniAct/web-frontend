@@ -9,6 +9,7 @@ export { SemesterService } from './modules/semester/semester.service';
 export { ProgramService } from './modules/program/program.service';
 export { RBACService } from './modules/rbac/rbac.service';
 export { StudentService } from './modules/student/student.service';
+export { ClassSessionService } from './modules/class-session/class-session.service';
 
 export { apiClient } from './client';
 
@@ -54,6 +55,15 @@ export type {
   ClassroomUpdateInput,
   ClassroomType,
   ClassSessionSummary,
+  DayOfWeek,
+  TimetableCourseLookup,
+  TimetableClassroomLookup,
+  TimetableStaffLookup,
+  TimetableSession,
+  TimetableLevelResponse,
+  TimetableSaveSessionInput,
+  TimetableSaveLevelInput,
+  TimetableSaveResult,
   Semester,
   SemesterCreateInput,
   SemesterUpdateInput,

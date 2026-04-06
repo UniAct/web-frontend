@@ -1,6 +1,5 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import {
   Card,
   CardContent,
@@ -16,6 +15,7 @@ import {
   ModalHeader,
   ModalTitle,
 } from "../ui/modal";
+import { SearchableSelect } from "../ui/searchable-select";
 import {
   Plus,
   Calendar,
@@ -38,12 +38,24 @@ import {
   Layers,
   GripVertical,
   LayoutGrid,
+  Loader2,
   Save,
   Download,
   FileText,
   RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  ClassSessionService,
+  FacultyService,
+  ProgramService,
+  type DayOfWeek,
+  type Faculty,
+  type Program,
+  type TimetableClassroomLookup,
+  type TimetableCourseLookup,
+  type TimetableStaffLookup,
+} from "../../api";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  INTERFACES
@@ -54,23 +66,18 @@ interface RoomsTimetablingPageProps {
   setSelectedUniversity: (university: string | null) => void;
 }
 
-interface Faculty { id: string; name: string; code: string }
-interface Program { id: string; name: string; code: string; facultyId: string }
-interface ProgramLevel { id: string; level: number; label: string; programId: string }
-interface Course { id: string; code: string; name: string; credits: number; programId: string; levelId: string }
-interface Room { id: string; code: string; name: string; capacity: number; type: string }
-
 interface ScheduledClass {
-  id: string;
-  day: string;
+  id: string | number;
+  day: DayOfWeek;
   startTime: string;
   endTime: string;
-  courseId: string;
+  courseId: number;
   courseCode: string;
   courseName: string;
   classType: "lecture" | "lab" | "tutorial" | "seminar";
+  instructorId: number;
   instructor: string;
-  roomId: string;
+  classroomId: number;
   roomCode: string;
 }
 
@@ -119,88 +126,6 @@ const TYPE_COLORS: Record<string, {
 
 const getColors = (type: string) => TYPE_COLORS[type] ?? TYPE_COLORS.lecture;
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  MOCK DATA
-// ─────────────────────────────────────────────────────────────────────────────
-
-const FACULTIES: Faculty[] = [
-  { id: "fac1", code: "ENG", name: "Faculty of Engineering" },
-  { id: "fac2", code: "CS", name: "Faculty of Computer Science" },
-  { id: "fac3", code: "BUS", name: "Faculty of Business" },
-  { id: "fac4", code: "SCI", name: "Faculty of Science" },
-];
-const PROGRAMS: Program[] = [
-  { id: "p1", code: "CE", name: "Computer Engineering", facultyId: "fac1" },
-  { id: "p2", code: "EE", name: "Electrical Engineering", facultyId: "fac1" },
-  { id: "p3", code: "CS", name: "Computer Science", facultyId: "fac2" },
-  { id: "p4", code: "IS", name: "Information Systems", facultyId: "fac2" },
-  { id: "p5", code: "BA", name: "Business Administration", facultyId: "fac3" },
-  { id: "p6", code: "PH", name: "Applied Physics", facultyId: "fac4" },
-];
-const PROGRAM_LEVELS: ProgramLevel[] = [
-  { id: "lv1-p1", level: 1, label: "Level 1", programId: "p1" },
-  { id: "lv2-p1", level: 2, label: "Level 2", programId: "p1" },
-  { id: "lv3-p1", level: 3, label: "Level 3", programId: "p1" },
-  { id: "lv4-p1", level: 4, label: "Level 4", programId: "p1" },
-  { id: "lv1-p3", level: 1, label: "Level 1", programId: "p3" },
-  { id: "lv2-p3", level: 2, label: "Level 2", programId: "p3" },
-  { id: "lv3-p3", level: 3, label: "Level 3", programId: "p3" },
-  { id: "lv1-p4", level: 1, label: "Level 1", programId: "p4" },
-  { id: "lv2-p4", level: 2, label: "Level 2", programId: "p4" },
-  { id: "lv1-p5", level: 1, label: "Level 1", programId: "p5" },
-  { id: "lv2-p5", level: 2, label: "Level 2", programId: "p5" },
-];
-const ALL_COURSES: Course[] = [
-  { id: "c1", code: "CS101", name: "Introduction to Programming", credits: 3, programId: "p1", levelId: "lv1-p1" },
-  { id: "c2", code: "CS101L", name: "Programming Lab", credits: 1, programId: "p1", levelId: "lv1-p1" },
-  { id: "c3", code: "MATH101", name: "Calculus I", credits: 3, programId: "p1", levelId: "lv1-p1" },
-  { id: "c4", code: "PHYS101", name: "Physics I", credits: 3, programId: "p1", levelId: "lv1-p1" },
-  { id: "c5", code: "PHYS101L", name: "Physics Lab I", credits: 1, programId: "p1", levelId: "lv1-p1" },
-  { id: "c6", code: "ENG201", name: "Technical Writing", credits: 2, programId: "p1", levelId: "lv2-p1" },
-  { id: "c7", code: "CE201", name: "Digital Logic Design", credits: 3, programId: "p1", levelId: "lv2-p1" },
-  { id: "c8", code: "CE301", name: "Computer Architecture", credits: 3, programId: "p1", levelId: "lv3-p1" },
-  { id: "c9", code: "CS201", name: "Data Structures & Algorithms", credits: 3, programId: "p3", levelId: "lv1-p3" },
-  { id: "c10", code: "CS301", name: "Operating Systems", credits: 3, programId: "p3", levelId: "lv2-p3" },
-  { id: "c11", code: "IS101", name: "Information Systems Fundamentals", credits: 3, programId: "p4", levelId: "lv1-p4" },
-  { id: "c12", code: "BA101", name: "Principles of Management", credits: 3, programId: "p5", levelId: "lv1-p5" },
-];
-const ROOMS: Room[] = [
-  { id: "r1", code: "A101", name: "Lecture Hall A101", capacity: 150, type: "lecture" },
-  { id: "r2", code: "CS-LAB1", name: "CS Lab 1", capacity: 30, type: "lab" },
-  { id: "r3", code: "B205", name: "Tutorial Room B205", capacity: 25, type: "tutorial" },
-  { id: "r4", code: "C102", name: "Lecture Room C102", capacity: 60, type: "lecture" },
-  { id: "r5", code: "PHYS-LAB", name: "Physics Lab", capacity: 20, type: "lab" },
-  { id: "r6", code: "SEM-A", name: "Seminar Room A", capacity: 40, type: "seminar" },
-];
-
-const INITIAL_CLASSES: ScheduledClass[] = [
-  {
-    id: "sc1", day: "Sunday", startTime: "09:30", endTime: "11:00",
-    courseId: "c1", courseCode: "CS101", courseName: "Introduction to Programming",
-    classType: "lecture", instructor: "Dr. Ahmed Hassan", roomId: "r1", roomCode: "A101"
-  },
-  {
-    id: "sc2", day: "Tuesday", startTime: "11:00", endTime: "12:00",
-    courseId: "c2", courseCode: "CS101L", courseName: "Programming Lab",
-    classType: "lab", instructor: "TA Sara Khaled", roomId: "r2", roomCode: "CS-LAB1"
-  },
-  {
-    id: "sc3", day: "Saturday", startTime: "09:00", endTime: "11:30",
-    courseId: "c3", courseCode: "MATH101", courseName: "Calculus I",
-    classType: "lecture", instructor: "Dr. Nour Eldin", roomId: "r4", roomCode: "C102"
-  },
-  {
-    id: "sc4", day: "Wednesday", startTime: "10:00", endTime: "11:30",
-    courseId: "c4", courseCode: "PHYS101", courseName: "Physics I",
-    classType: "lecture", instructor: "Dr. Omar Farouk", roomId: "r1", roomCode: "A101"
-  },
-  {
-    id: "sc5", day: "Wednesday", startTime: "11:30", endTime: "12:30",
-    courseId: "c5", courseCode: "PHYS101L", courseName: "Physics Lab I",
-    classType: "lab", instructor: "TA Mona Ali", roomId: "r5", roomCode: "PHYS-LAB"
-  },
-];
-
 const DEFAULT_DAY_RANGES: Record<string, DayRange> = {
   Saturday: { startTime: "08:00", endTime: "16:00", enabled: true },
   Sunday: { startTime: "08:00", endTime: "16:00", enabled: true },
@@ -238,14 +163,33 @@ const getTypeIcon = (type: string) => {
 
 const deepCopy = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 
+const toDisplayCode = (name: string) =>
+  name
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .slice(0, 4)
+    .join("");
+
+const levelLabel = (level: number) => `Level ${level}`;
+
+const classroomToClassType = (
+  type: TimetableClassroomLookup["type"] | string,
+): "lecture" | "lab" | "tutorial" | "seminar" => {
+  if (type === "Lab") return "lab";
+  if (type === "Auditorium") return "seminar";
+  if (type === "Other") return "tutorial";
+  return "lecture";
+};
+
 const makeDefaultForm = () => ({
-  day: "Sunday" as string,
+  day: "Sunday" as DayOfWeek,
   startTime: "09:00",
   endTime: "10:30",
   courseId: "",
   classType: "lecture" as "lecture" | "lab" | "tutorial" | "seminar",
-  instructor: "",
-  roomId: "",
+  teacherId: "",
+  classroomId: "",
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -263,9 +207,20 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
   const [dayRanges, setDayRanges] = useState<Record<string, DayRange>>(deepCopy(DEFAULT_DAY_RANGES));
   const [showTimeSettings, setShowTimeSettings] = useState(false);
 
+  // ── API data
+  const [faculties, setFaculties] = useState<Faculty[]>([]);
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [lookupCourses, setLookupCourses] = useState<TimetableCourseLookup[]>([]);
+  const [lookupClassrooms, setLookupClassrooms] = useState<TimetableClassroomLookup[]>([]);
+  const [lookupStaff, setLookupStaff] = useState<TimetableStaffLookup[]>([]);
+  const [activeSemesterId, setActiveSemesterId] = useState<number | null>(null);
+  const [isLoadingLookups, setIsLoadingLookups] = useState(false);
+  const [isLoadingTimetable, setIsLoadingTimetable] = useState(false);
+  const [isSavingTimetable, setIsSavingTimetable] = useState(false);
+
   // ── Draft / Save system (Issue 4)
-  const [savedClasses, setSavedClasses] = useState<ScheduledClass[]>(INITIAL_CLASSES);
-  const [draftClasses, setDraftClasses] = useState<ScheduledClass[]>(deepCopy(INITIAL_CLASSES));
+  const [savedClasses, setSavedClasses] = useState<ScheduledClass[]>([]);
+  const [draftClasses, setDraftClasses] = useState<ScheduledClass[]>([]);
 
   const hasChanges = useMemo(
     () => JSON.stringify(savedClasses) !== JSON.stringify(draftClasses),
@@ -287,11 +242,42 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
   // Force re-render utility
   const [, forceUpdate] = useState(0);
 
-  const handleSave = () => {
-    console.log("handleSave called", { draftClasses });
-    setSavedClasses(deepCopy(draftClasses));
-    toast.success("Timetable saved successfully!");
-    forceUpdate(x => x + 1); // force re-render
+  const handleSave = async () => {
+    if (!activeSemesterId) {
+      toast.error("Please select semester first");
+      return;
+    }
+    if (!selProgramId || !selLevelId) {
+      toast.error("Please select program and level first");
+      return;
+    }
+
+    try {
+      setIsSavingTimetable(true);
+      await ClassSessionService.saveLevelTimetable(
+        {
+          programId: Number(selProgramId),
+          academicLevel: Number(selLevelId),
+          sessions: draftClasses.map((item) => ({
+            courseId: item.courseId,
+            teacherId: item.instructorId,
+            classroomId: item.classroomId,
+            dayOfWeek: item.day,
+            startTime: item.startTime,
+            endTime: item.endTime,
+          })),
+        },
+        activeSemesterId,
+      );
+
+      setSavedClasses(deepCopy(draftClasses));
+      toast.success("Timetable saved successfully!");
+      forceUpdate(x => x + 1); // force re-render
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to save timetable");
+    } finally {
+      setIsSavingTimetable(false);
+    }
   };
   const handleDiscard = () => {
     console.log("handleDiscard called", { savedClasses });
@@ -314,29 +300,157 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
 
+  // ── API hydration
+  useEffect(() => {
+    if (!selectedUniversity) return;
+
+    const load = async () => {
+      try {
+        setIsLoadingLookups(true);
+        const [facultyData, programData] = await Promise.all([
+          FacultyService.getAll(),
+          ProgramService.getAll(),
+        ]);
+
+        setFaculties(facultyData);
+        setPrograms(programData);
+      } catch (error: any) {
+        toast.error(error?.message || "Failed to load timetable lookups");
+      } finally {
+        setIsLoadingLookups(false);
+      }
+    };
+
+    void load();
+  }, [selectedUniversity]);
+
+  useEffect(() => {
+    if (!selectedUniversity) {
+      setActiveSemesterId(null);
+      return;
+    }
+
+    const read = () => {
+      const raw = localStorage.getItem(`activeSemester:${selectedUniversity}`);
+      const parsed = raw ? Number(raw) : NaN;
+      setActiveSemesterId(Number.isFinite(parsed) ? parsed : null);
+    };
+
+    read();
+    const interval = window.setInterval(read, 1000);
+    return () => window.clearInterval(interval);
+  }, [selectedUniversity]);
+
+  useEffect(() => {
+    if (!selectedUniversity || !selProgramId || !selLevelId || !activeSemesterId) {
+      setSavedClasses([]);
+      setDraftClasses([]);
+      setLookupCourses([]);
+      setLookupClassrooms([]);
+      setLookupStaff([]);
+      return;
+    }
+
+    const loadTimetable = async () => {
+      try {
+        setIsLoadingTimetable(true);
+        const data = await ClassSessionService.getLevelTimetable(
+          Number(selProgramId),
+          Number(selLevelId),
+          activeSemesterId,
+        );
+
+        setLookupCourses(data.lookups.courses);
+        setLookupClassrooms(data.lookups.classrooms);
+        setLookupStaff(data.lookups.staff);
+
+        const mapped = data.sessions.map((item) => ({
+          id: String(item.id),
+          day: item.dayOfWeek,
+          startTime: item.startTime,
+          endTime: item.endTime,
+          courseId: item.courseId,
+          courseCode: item.courseCode,
+          courseName: item.courseName,
+          classType: classroomToClassType(
+            data.lookups.classrooms.find((room) => room.id === item.classroomId)?.type || "Lecture",
+          ),
+          instructorId: item.teacherId,
+          instructor: item.instructorName,
+          classroomId: item.classroomId,
+          roomCode: item.classroomCode,
+        })) as ScheduledClass[];
+
+        setSavedClasses(mapped);
+        setDraftClasses(deepCopy(mapped));
+      } catch (error: any) {
+        toast.error(error?.message || "Failed to load timetable");
+      } finally {
+        setIsLoadingTimetable(false);
+      }
+    };
+
+    void loadTimetable();
+  }, [selectedUniversity, selProgramId, selLevelId, activeSemesterId]);
+
   // ─────────────────────────────────────────────────────
   //  DERIVED
   // ─────────────────────────────────────────────────────
 
   const filteredPrograms = useMemo(
-    () => PROGRAMS.filter(p => !selFacultyId || p.facultyId === selFacultyId),
-    [selFacultyId]
-  );
-  const filteredLevels = useMemo(
-    () => PROGRAM_LEVELS.filter(l => !selProgramId || l.programId === selProgramId),
-    [selProgramId]
-  );
-  const filteredCourses = useMemo(
-    () => ALL_COURSES.filter(c =>
-      (!selProgramId || c.programId === selProgramId) &&
-      (!selLevelId || c.levelId === selLevelId)
-    ),
-    [selProgramId, selLevelId]
+    () => programs.filter(p => !selFacultyId || p.facultyId === Number(selFacultyId)),
+    [programs, selFacultyId]
   );
 
-  const selFaculty = FACULTIES.find(f => f.id === selFacultyId);
-  const selProgram = PROGRAMS.find(p => p.id === selProgramId);
-  const selLevel = PROGRAM_LEVELS.find(l => l.id === selLevelId);
+  const selProgram = useMemo(
+    () => programs.find(p => p.id === Number(selProgramId)),
+    [programs, selProgramId],
+  );
+
+  const filteredLevels = useMemo(
+    () => (selProgram?.levels ?? []).sort((a, b) => a.level - b.level),
+    [selProgram]
+  );
+
+  const selLevel = useMemo(
+    () => filteredLevels.find(l => l.level === Number(selLevelId)),
+    [filteredLevels, selLevelId],
+  );
+
+  const filteredCourses = useMemo(
+    () => lookupCourses,
+    [lookupCourses]
+  );
+
+  const courseOptions = useMemo(
+    () => filteredCourses.map((course) => ({
+      value: String(course.id),
+      label: `${course.code} - ${course.name}`,
+      description: `ID: ${course.id}`,
+    })),
+    [filteredCourses],
+  );
+
+  const classroomOptions = useMemo(
+    () => lookupClassrooms.map((room) => ({
+      value: String(room.id),
+      label: `${room.building}-${room.roomNumber}`,
+      description: `Capacity: ${room.capacity} | Type: ${room.type}`,
+    })),
+    [lookupClassrooms],
+  );
+
+  const instructorOptions = useMemo(
+    () => lookupStaff.map((staff) => ({
+      value: String(staff.id),
+      label: staff.name,
+      description: staff.position,
+    })),
+    [lookupStaff],
+  );
+
+  const selFaculty = faculties.find(f => f.id === Number(selFacultyId));
+  const isAnyLoading = isLoadingLookups || isLoadingTimetable || isSavingTimetable;
 
   // Global time range = union of all enabled day ranges
   const { globalStartMin, globalEndMin } = useMemo(() => {
@@ -380,7 +494,7 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
     return markers;
   }, [globalStartMin, globalEndMin]);
 
-  const coursesPool = filteredCourses.length > 0 ? filteredCourses : ALL_COURSES;
+  const coursesPool = filteredCourses;
   const activeDays = DAYS.filter(d => dayRanges[d].enabled);
 
   // ─────────────────────────────────────────────────────
@@ -409,40 +523,42 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
   //   1. Room conflict  — same day + same room + overlapping times
   //   2. Instructor conflict — same day + same instructor + overlapping times
   const getConflictMessage = useCallback((
-    day: string,
+    day: DayOfWeek,
     start: string,
     end: string,
-    roomId: string,
-    instructor: string,
+    classroomId: string,
+    teacherId: string,
     excludeId?: string,
   ): string | null => {
     const s = timeToMinutes(start), e = timeToMinutes(end);
     for (const cls of draftClasses) {
-      if (excludeId && cls.id === excludeId) continue;
+      if (excludeId && String(cls.id) === excludeId) continue;
       if (cls.day !== day) continue;
       const cs = timeToMinutes(cls.startTime), ce = timeToMinutes(cls.endTime);
       const overlaps = s < ce && e > cs;
       if (!overlaps) continue;
 
       // Room conflict check (only when a room has been selected)
-      if (roomId && cls.roomId === roomId) {
-        const room = ROOMS.find(r => r.id === roomId);
-        return `Room ${room?.code ?? roomId} is already booked on ${day} from ${fmt12(cls.startTime)} to ${fmt12(cls.endTime)}`;
+      if (classroomId && cls.classroomId === Number(classroomId)) {
+        const room = lookupClassrooms.find(r => r.id === Number(classroomId));
+        const roomCode = room ? `${room.building}-${room.roomNumber}` : classroomId;
+        return `Room ${roomCode} is already booked on ${day} from ${fmt12(cls.startTime)} to ${fmt12(cls.endTime)}`;
       }
 
       // Instructor conflict check (only when an instructor has been entered)
-      if (instructor && cls.instructor.trim().toLowerCase() === instructor.trim().toLowerCase()) {
-        return `${instructor} is already teaching another class at this time on ${day}`;
+      if (teacherId && cls.instructorId === Number(teacherId)) {
+        const teacher = lookupStaff.find(s => s.id === Number(teacherId));
+        return `${teacher?.name || `Staff ${teacherId}`} is already teaching another class at this time on ${day}`;
       }
     }
     return null;
-  }, [draftClasses]);
+  }, [draftClasses, lookupClassrooms, lookupStaff]);
 
   // Legacy boolean helper retained for the disabled-button check
   const hasConflict = useCallback((
-    day: string, start: string, end: string,
-    roomId: string, instructor: string, excludeId?: string
-  ) => getConflictMessage(day, start, end, roomId, instructor, excludeId) !== null,
+    day: DayOfWeek, start: string, end: string,
+    classroomId: string, teacherId: string, excludeId?: string
+  ) => getConflictMessage(day, start, end, classroomId, teacherId, excludeId) !== null,
     [getConflictMessage]);
 
   const updateDayRange = (day: string, field: keyof DayRange, value: string | boolean) => {
@@ -460,7 +576,7 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
     setEditingClass(null);
     setFormData({
       ...makeDefaultForm(),
-      day,
+      day: day as DayOfWeek,
       startTime: time,
       endTime: minutesToTime(timeToMinutes(time) + Math.max(dur, 30)),
     });
@@ -471,14 +587,14 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
     setEditingClass(cls);
     setFormData({
       day: cls.day, startTime: cls.startTime, endTime: cls.endTime,
-      courseId: cls.courseId, classType: cls.classType,
-      instructor: cls.instructor, roomId: cls.roomId,
+      courseId: String(cls.courseId), classType: cls.classType,
+      teacherId: String(cls.instructorId), classroomId: String(cls.classroomId),
     });
     setShowModal(true);
   };
 
   const handleSaveClass = () => {
-    if (!formData.courseId || !formData.instructor || !formData.roomId) {
+    if (!formData.courseId || !formData.teacherId || !formData.classroomId) {
       toast.error("Please fill in all required fields"); return;
     }
     if (timeToMinutes(formData.startTime) >= timeToMinutes(formData.endTime)) {
@@ -486,19 +602,24 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
     }
     const conflictMsg = getConflictMessage(
       formData.day, formData.startTime, formData.endTime,
-      formData.roomId, formData.instructor, editingClass?.id
+      formData.classroomId, formData.teacherId, editingClass ? String(editingClass.id) : undefined
     );
     if (conflictMsg) { toast.error(conflictMsg); return; }
-    const course = ALL_COURSES.find(c => c.id === formData.courseId);
-    const room = ROOMS.find(r => r.id === formData.roomId);
-    if (!course || !room) return;
+    const course = coursesPool.find(c => c.id === Number(formData.courseId));
+    const classroom = lookupClassrooms.find(r => r.id === Number(formData.classroomId));
+    const teacher = lookupStaff.find(s => s.id === Number(formData.teacherId));
+    if (!course || !classroom || !teacher) return;
+    const classroomCode = `${classroom.building}-${classroom.roomNumber}`;
 
     if (editingClass) {
-      setDraftClasses(prev => prev.map(c => c.id === editingClass.id ? {
+      setDraftClasses(prev => prev.map(c => String(c.id) === String(editingClass.id) ? {
         ...c, day: formData.day, startTime: formData.startTime, endTime: formData.endTime,
         courseId: course.id, courseCode: course.code, courseName: course.name,
-        classType: formData.classType, instructor: formData.instructor,
-        roomId: room.id, roomCode: room.code,
+        classType: classroomToClassType(classroom.type),
+        instructorId: teacher.id,
+        instructor: teacher.name,
+        classroomId: classroom.id,
+        roomCode: classroomCode,
       } : c));
       toast.success("Class updated — remember to save!");
     } else {
@@ -506,8 +627,11 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
         id: Date.now().toString(),
         day: formData.day, startTime: formData.startTime, endTime: formData.endTime,
         courseId: course.id, courseCode: course.code, courseName: course.name,
-        classType: formData.classType, instructor: formData.instructor,
-        roomId: room.id, roomCode: room.code,
+        classType: classroomToClassType(classroom.type),
+        instructorId: teacher.id,
+        instructor: teacher.name,
+        classroomId: classroom.id,
+        roomCode: classroomCode,
       };
       setDraftClasses(prev => [...prev, newClass]);
       toast.success("Class added to draft — remember to save!");
@@ -517,15 +641,15 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
   };
 
   const handleDeleteClass = (id: string) => {
-    setDraftClasses(prev => prev.filter(c => c.id !== id));
+    setDraftClasses(prev => prev.filter(c => String(c.id) !== id));
     toast.info("Class removed — remember to save!");
   };
 
   // Drag & Drop
   const handleDragStart = (e: React.DragEvent, cls: ScheduledClass) => {
-    setDraggingId(cls.id);
+    setDraggingId(String(cls.id));
     e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", cls.id);
+    e.dataTransfer.setData("text/plain", String(cls.id));
   };
   const handleDragEnd = () => { setDraggingId(null); setDragOverKey(null); };
 
@@ -537,14 +661,19 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
   const handleSlotDrop = (e: React.DragEvent, day: string, time: string) => {
     e.preventDefault();
     const classId = e.dataTransfer.getData("text/plain");
-    const cls = draftClasses.find(c => c.id === classId);
+    const cls = draftClasses.find(c => String(c.id) === classId);
     if (!cls) return;
     const duration = timeToMinutes(cls.endTime) - timeToMinutes(cls.startTime);
     const newStartMin = timeToMinutes(time);
     const newEndMin = newStartMin + duration;
     const range = dayRanges[day];
     const dragConflict = getConflictMessage(
-      day, time, minutesToTime(newEndMin), cls.roomId, cls.instructor, classId
+      day as DayOfWeek,
+      time,
+      minutesToTime(newEndMin),
+      String(cls.classroomId),
+      String(cls.instructorId),
+      classId,
     );
     if (!range.enabled || newEndMin > timeToMinutes(range.endTime)) {
       toast.error("Cannot place class outside the day's time range");
@@ -552,8 +681,8 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
       toast.error(dragConflict);
     } else {
       setDraftClasses(prev => prev.map(c =>
-        c.id === classId
-          ? { ...c, day, startTime: time, endTime: minutesToTime(newEndMin) }
+        String(c.id) === classId
+          ? { ...c, day: day as DayOfWeek, startTime: time, endTime: minutesToTime(newEndMin) }
           : c
       ));
       toast.success("Class rescheduled — remember to save!");
@@ -570,7 +699,7 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
 
     const levelsToExport = exportScope === "current" && selLevel
       ? [selLevel]
-      : PROGRAM_LEVELS;
+      : filteredLevels;
 
     const dateStr = new Date().toLocaleDateString("en-US", {
       year: "numeric", month: "long", day: "numeric"
@@ -580,8 +709,8 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
     for (let m = globalStartMin; m <= globalEndMin; m += 60) hourSlots.push(m);
 
     const printContent = levelsToExport.map(level => {
-      const prog = PROGRAMS.find(p => p.id === level.programId);
-      const fac = FACULTIES.find(f => f.id === prog?.facultyId);
+      const prog = selProgram;
+      const fac = selFaculty;
       const classes = draftClasses;
 
       return `
@@ -594,7 +723,7 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
                 <p style="margin: 0 0 4px 0; font-size: 14px; opacity: 0.9;">
                   ${[fac?.name, prog?.name].filter(Boolean).join(" › ") || "All Faculties & Programs"}
                 </p>
-                <p style="margin: 0; font-size: 18px; font-weight: 600;">${level.label}</p>
+                <p style="margin: 0; font-size: 18px; font-weight: 600;">${levelLabel(level.level)}</p>
               </div>
               <div style="text-align: right; font-size: 12px; opacity: 0.8;">
                 <div>Exported: ${dateStr}</div>
@@ -707,7 +836,7 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
       <html>
         <head>
           <meta charset="utf-8">
-          <title>Timetable - ${exportScope === "current" && selLevel ? selLevel.label : "All Levels"}</title>
+          <title>Timetable - ${exportScope === "current" && selLevel ? levelLabel(selLevel.level) : "All Levels"}</title>
           <style>
             @media print {
               @page {
@@ -768,6 +897,20 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
     );
   }
 
+  if (!activeSemesterId) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+          <Calendar className="w-12 h-12 text-slate-400 mb-4" />
+          <h3 className="text-lg font-medium text-slate-900 mb-2">Select a Semester First</h3>
+          <p className="text-slate-500 max-w-md">
+            Open Semester Management from the header and choose the active semester before building timetable slots.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   // ─────────────────────────────────────────────────────
   //  RENDER
   // ���────────────────────────────────────────────────────
@@ -782,13 +925,35 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
           <p className="text-slate-500 mt-1 text-sm">
             Build weekly schedules per program level — click any slot to add, drag to reschedule
           </p>
+          {(isLoadingLookups || isLoadingTimetable || isSavingTimetable) && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {isLoadingLookups && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 border border-blue-200">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Loading faculties and programs
+                </span>
+              )}
+              {isLoadingTimetable && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 border border-indigo-200">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Loading timetable
+                </span>
+              )}
+              {isSavingTimetable && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 border border-amber-200">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Saving timetable changes
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {/* Export button — only after saving */}
           <Button
             variant="outline"
             onClick={() => setShowExportModal(true)}
-            disabled={hasChanges}
+            disabled={hasChanges || isAnyLoading || !selLevel}
             className="gap-2"
             title={hasChanges ? "Save the timetable first before exporting" : "Export timetable as PDF"}
           >
@@ -797,6 +962,7 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
           </Button>
           <Button
             onClick={() => { setEditingClass(null); setFormData(makeDefaultForm()); setShowModal(true); }}
+            disabled={!selLevel || isAnyLoading}
             className="gap-2"
           >
             <Plus className="w-4 h-4" />
@@ -812,7 +978,15 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
           <span className="text-sm font-medium text-white">Scope Filter</span>
           <span className="text-xs text-white/60 ml-1">— Faculty → Program → Level</span>
         </div>
-        <CardContent className="p-4">
+        <CardContent className="p-4 relative">
+          {isLoadingLookups && (
+            <div className="absolute inset-0 z-10 bg-white/70 backdrop-blur-[1px] rounded-b-xl flex items-center justify-center">
+              <div className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm text-blue-700 shadow-sm">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading filter data...
+              </div>
+            </div>
+          )}
           <div className="flex flex-col lg:flex-row items-stretch lg:items-end gap-3">
             {/* Faculty */}
             <div className="flex-1 min-w-[150px]">
@@ -822,10 +996,11 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
               <select
                 value={selFacultyId}
                 onChange={e => { setSelFacultyId(e.target.value); setSelProgramId(""); setSelLevelId(""); }}
+                disabled={isLoadingLookups}
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm"
               >
-                <option value="">All Faculties</option>
-                {FACULTIES.map(f => <option key={f.id} value={f.id}>{f.code} — {f.name}</option>)}
+                <option value="">{isLoadingLookups ? "Loading faculties..." : "All Faculties"}</option>
+                {faculties.map(f => <option key={f.id} value={f.id}>{toDisplayCode(f.name)} — {f.name}</option>)}
               </select>
             </div>
             <ChevronRight className="w-4 h-4 text-slate-400 shrink-0 self-center hidden lg:block" />
@@ -837,11 +1012,11 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
               <select
                 value={selProgramId}
                 onChange={e => { setSelProgramId(e.target.value); setSelLevelId(""); }}
-                disabled={!selFacultyId}
+                disabled={!selFacultyId || isLoadingLookups}
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <option value="">All Programs</option>
-                {filteredPrograms.map(p => <option key={p.id} value={p.id}>{p.code} — {p.name}</option>)}
+                <option value="">{isLoadingLookups ? "Loading programs..." : "All Programs"}</option>
+                {filteredPrograms.map(p => <option key={p.id} value={p.id}>{toDisplayCode(p.name)} — {p.name}</option>)}
               </select>
             </div>
             <ChevronRight className="w-4 h-4 text-slate-400 shrink-0 self-center hidden lg:block" />
@@ -853,18 +1028,18 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
               <select
                 value={selLevelId}
                 onChange={e => setSelLevelId(e.target.value)}
-                disabled={!selProgramId}
+                disabled={!selProgramId || isLoadingTimetable || isLoadingLookups}
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <option value="">All Levels</option>
-                {filteredLevels.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+                <option value="">{isLoadingTimetable ? "Loading level timetable..." : "All Levels"}</option>
+                {filteredLevels.map(l => <option key={l.id} value={l.level}>{levelLabel(l.level)}</option>)}
               </select>
             </div>
             {/* Breadcrumbs */}
             {(selFaculty || selProgram || selLevel) && (
               <div className="flex items-center gap-1.5 flex-wrap lg:pb-0.5">
-                {selFaculty && <Badge className="bg-blue-100 text-blue-800 border border-blue-200">{selFaculty.code}</Badge>}
-                {selProgram && <Badge className="bg-indigo-100 text-indigo-800 border border-indigo-200">{selProgram.code}</Badge>}
+                {selFaculty && <Badge className="bg-blue-100 text-blue-800 border border-blue-200">{toDisplayCode(selFaculty.name)}</Badge>}
+                {selProgram && <Badge className="bg-indigo-100 text-indigo-800 border border-indigo-200">{toDisplayCode(selProgram.name)}</Badge>}
                 {selLevel && <Badge className="bg-purple-100 text-purple-800 border border-purple-200">Yr {selLevel.level}</Badge>}
                 <button
                   onClick={() => { setSelFacultyId(""); setSelProgramId(""); setSelLevelId(""); }}
@@ -985,7 +1160,7 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
                 <Calendar className="w-5 h-5 text-blue-600" />
                 Fluid Weekly Timetable
                 {selLevel && (
-                  <Badge className="bg-indigo-100 text-indigo-700 border border-indigo-200 ml-1">{selLevel.label}</Badge>
+                  <Badge className="bg-indigo-100 text-indigo-700 border border-indigo-200 ml-1">{levelLabel(selLevel.level)}</Badge>
                 )}
                 {hasChanges && (
                   <Badge className="bg-amber-100 text-amber-700 border border-amber-200 ml-1 animate-pulse">
@@ -1019,7 +1194,15 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
           </div>
         </CardHeader>
 
-        <CardContent className="p-0">
+        <CardContent className="p-0 relative">
+          {(isLoadingTimetable || isSavingTimetable) && (
+            <div className="absolute inset-0 z-30 bg-white/75 backdrop-blur-[1px] flex items-center justify-center">
+              <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-md flex items-center gap-2 text-sm text-slate-700">
+                <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                {isSavingTimetable ? "Saving timetable changes..." : "Loading timetable for selected level..."}
+              </div>
+            </div>
+          )}
           {/*
             ISSUE 1 FIX ARCHITECTURE:
             overflow-x-auto (outer, shared horizontal scroll)
@@ -1224,7 +1407,7 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
                                       <Edit className="w-3 h-3" />
                                     </button>
                                     <button
-                                      onClick={e => { e.stopPropagation(); handleDeleteClass(cls.id); }}
+                                      onClick={e => { e.stopPropagation(); handleDeleteClass(String(cls.id)); }}
                                       className="p-0.5 rounded hover:bg-white/70 text-red-500 transition-colors"
                                     >
                                       <X className="w-3 h-3" />
@@ -1324,6 +1507,7 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
                 variant="outline"
                 size="sm"
                 onClick={handleDiscard}
+                disabled={isSavingTimetable}
                 className="gap-1.5 flex-1 sm:flex-none border-slate-200 text-slate-600 hover:text-red-600 hover:border-red-200"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
@@ -1332,10 +1516,11 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
               <Button
                 size="sm"
                 onClick={handleSave}
+                disabled={isSavingTimetable || isLoadingTimetable || isLoadingLookups}
                 className="gap-1.5 flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700"
               >
-                <Save className="w-3.5 h-3.5" />
-                Save Timetable
+                {isSavingTimetable ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                {isSavingTimetable ? "Saving..." : "Save Timetable"}
               </Button>
             </div>
           </div>
@@ -1363,7 +1548,7 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Day *</label>
                 <select
                   value={formData.day}
-                  onChange={e => setFormData({ ...formData, day: e.target.value })}
+                  onChange={e => setFormData({ ...formData, day: e.target.value as DayOfWeek })}
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 >
                   {DAYS.filter(d => dayRanges[d].enabled).map(d => <option key={d} value={d}>{d}</option>)}
@@ -1390,13 +1575,14 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Course *</label>
-                <select value={formData.courseId}
-                  onChange={e => setFormData({ ...formData, courseId: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                >
-                  <option value="">Select a course…</option>
-                  {coursesPool.map(c => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
-                </select>
+                <SearchableSelect
+                  value={formData.courseId}
+                  onValueChange={(value) => setFormData({ ...formData, courseId: value })}
+                  options={courseOptions}
+                  placeholder="Select a course..."
+                  searchPlaceholder="Search course by code or name..."
+                  emptyMessage="No course found."
+                />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Class Type *</label>
@@ -1418,24 +1604,35 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
                 </div>
               </div>
             </div>
-            {/* Room / Instructor */}
+            {/* Classroom / Instructor */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Room *</label>
-                <select value={formData.roomId}
-                  onChange={e => setFormData({ ...formData, roomId: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                >
-                  <option value="">Select a room…</option>
-                  {ROOMS.map(r => <option key={r.id} value={r.id}>{r.code} — {r.name} (Cap: {r.capacity})</option>)}
-                </select>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Classroom *</label>
+                <SearchableSelect
+                  value={formData.classroomId}
+                  onValueChange={(nextClassroomId) => {
+                    const nextClassroom = lookupClassrooms.find((item) => item.id === Number(nextClassroomId));
+                    setFormData({
+                      ...formData,
+                      classroomId: nextClassroomId,
+                      classType: classroomToClassType(nextClassroom?.type || "Lecture"),
+                    });
+                  }}
+                  options={classroomOptions}
+                  placeholder="Select a classroom..."
+                  searchPlaceholder="Search room by building, number, or type..."
+                  emptyMessage="No classroom found."
+                />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Instructor *</label>
-                <Input
-                  value={formData.instructor}
-                  onChange={e => setFormData({ ...formData, instructor: e.target.value })}
-                  placeholder="e.g., Dr. Ahmed Hassan"
+                <SearchableSelect
+                  value={formData.teacherId}
+                  onValueChange={(value) => setFormData({ ...formData, teacherId: value })}
+                  options={instructorOptions}
+                  placeholder="Select instructor..."
+                  searchPlaceholder="Search instructor by name or role..."
+                  emptyMessage="No instructor found."
                 />
               </div>
             </div>
@@ -1446,7 +1643,9 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
               const conflictMsg = !timeInvalid
                 ? getConflictMessage(
                   formData.day, formData.startTime, formData.endTime,
-                  formData.roomId, formData.instructor, editingClass?.id
+                  formData.classroomId,
+                  formData.teacherId,
+                  editingClass ? String(editingClass.id) : undefined,
                 )
                 : null;
               const hasError = timeInvalid || !!conflictMsg;
@@ -1486,9 +1685,16 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
               <Button
                 onClick={handleSaveClass}
                 disabled={
-                  !formData.courseId || !formData.instructor || !formData.roomId ||
+                  !formData.courseId || !formData.teacherId || !formData.classroomId ||
                   timeToMinutes(formData.startTime) >= timeToMinutes(formData.endTime) ||
-                  hasConflict(formData.day, formData.startTime, formData.endTime, formData.roomId, formData.instructor, editingClass?.id)
+                  hasConflict(
+                    formData.day,
+                    formData.startTime,
+                    formData.endTime,
+                    formData.classroomId,
+                    formData.teacherId,
+                    editingClass ? String(editingClass.id) : undefined,
+                  )
                 }
               >
                 {editingClass ? "Update Class" : "Add to Draft"}
@@ -1535,7 +1741,7 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
                   <p className="text-sm font-semibold text-slate-800">Current Level Only</p>
                   {selLevel ? (
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Exports a single-page PDF for <span className="font-medium text-blue-600">{selLevel.label}</span>
+                      Exports a single-page PDF for <span className="font-medium text-blue-600">{levelLabel(selLevel.level)}</span>
                       {selProgram && <> ({selProgram.name})</>}
                     </p>
                   ) : (
@@ -1559,7 +1765,7 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
                   <p className="text-sm font-semibold text-slate-800">All Levels</p>
                   <p className="text-xs text-slate-500 mt-0.5">
                     Exports a multi-page PDF with each of the{" "}
-                    <span className="font-medium text-blue-600">{PROGRAM_LEVELS.length} program levels</span>
+                    <span className="font-medium text-blue-600">{filteredLevels.length} program levels</span>
                     {" "}on its own dedicated page
                   </p>
                 </div>

@@ -35,6 +35,17 @@ export type {
   ClassroomType,
   ClassSessionSummary,
 } from './classroom';
+export type {
+  DayOfWeek,
+  TimetableCourseLookup,
+  TimetableClassroomLookup,
+  TimetableStaffLookup,
+  TimetableSession,
+  TimetableLevelResponse,
+  TimetableSaveSessionInput,
+  TimetableSaveLevelInput,
+  TimetableSaveResult,
+} from './class-session';
 export type { Semester, SemesterCreateInput, SemesterUpdateInput } from './semester';
 export type { Role, RoleCreateInput, Permission } from './rbac';
 export type {
