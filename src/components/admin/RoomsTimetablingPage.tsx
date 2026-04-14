@@ -46,7 +46,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  ClassSessionService,
+  ScheduleService,
   FacultyService,
   ProgramService,
   type DayOfWeek,
@@ -55,30 +55,37 @@ import {
   type TimetableClassroomLookup,
   type TimetableCourseLookup,
   type TimetableStaffLookup,
+  TimetableSaveLevelInput,
 } from "../../api";
+import { GetScheduleResponse, SlotType, TimetableSaveResult, TimetableSaveSessionInput } from "src/api/types/schedule";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  INTERFACES
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface RoomsTimetablingPageProps {
-  selectedUniversity: string | null;
-  setSelectedUniversity: (university: string | null) => void;
-}
-
-interface ScheduledClass {
-  id: string | number;
+export interface ScheduledClass {
+  id: string; // Keep as string for local UUIDs/Date.now() before saving
   day: DayOfWeek;
   startTime: string;
   endTime: string;
+  type: SlotType;
+
   courseId: number;
   courseCode: string;
   courseName: string;
-  classType: "lecture" | "lab" | "tutorial" | "seminar";
+
   instructorId: number;
-  instructor: string;
+  instructorName: string;
+
   classroomId: number;
-  roomCode: string;
+  roomLabel: string;
+
+  learningGroupId: number | null;
+}
+
+interface RoomsTimetablingPageProps {
+  selectedUniversity: string | null;
+  setSelectedUniversity: (university: string | null) => void;
 }
 
 interface DayRange { startTime: string; endTime: string; enabled: boolean }
@@ -124,7 +131,10 @@ const TYPE_COLORS: Record<string, {
   },
 };
 
-const getColors = (type: string) => TYPE_COLORS[type] ?? TYPE_COLORS.lecture;
+const getColors = (type: string) => {
+  const normalizedType = type.toLowerCase(); // Convert "Tutorial" -> "tutorial"
+  return TYPE_COLORS[normalizedType] ?? TYPE_COLORS.lecture;
+};
 
 const DEFAULT_DAY_RANGES: Record<string, DayRange> = {
   Saturday: { startTime: "08:00", endTime: "16:00", enabled: true },
@@ -175,11 +185,10 @@ const levelLabel = (level: number) => `Level ${level}`;
 
 const classroomToClassType = (
   type: TimetableClassroomLookup["type"] | string,
-): "lecture" | "lab" | "tutorial" | "seminar" => {
-  if (type === "Lab") return "lab";
-  if (type === "Auditorium") return "seminar";
-  if (type === "Other") return "tutorial";
-  return "lecture";
+): SlotType => {
+  if (type === "Lab") return "Lab";
+  if (type === "Other") return "Tutorial";
+  return "Lecture"; // Default mapping
 };
 
 const makeDefaultForm = () => ({
@@ -187,10 +196,10 @@ const makeDefaultForm = () => ({
   startTime: "09:00",
   endTime: "10:30",
   courseId: "",
-  classType: "lecture" as "lecture" | "lab" | "tutorial" | "seminar",
+  classType: "Lecture" as SlotType,
   teacherId: "",
   classroomId: "",
-});
+})
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  MAIN COMPONENT
@@ -243,42 +252,85 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
   const [, forceUpdate] = useState(0);
 
   const handleSave = async () => {
-    if (!activeSemesterId) {
-      toast.error("Please select semester first");
-      return;
-    }
-    if (!selProgramId || !selLevelId) {
-      toast.error("Please select program and level first");
+    if (!activeSemesterId || !selProgramId || !selLevelId) {
+      toast.error("Please select program, level, and semester.");
       return;
     }
 
     try {
       setIsSavingTimetable(true);
-      await ClassSessionService.saveLevelTimetable(
-        {
-          programId: Number(selProgramId),
-          academicLevel: Number(selLevelId),
-          sessions: draftClasses.map((item) => ({
-            courseId: item.courseId,
-            teacherId: item.instructorId,
-            classroomId: item.classroomId,
-            dayOfWeek: item.day,
-            startTime: item.startTime,
-            endTime: item.endTime,
-          })),
-        },
-        activeSemesterId,
-      );
 
-      setSavedClasses(deepCopy(draftClasses));
-      toast.success("Timetable saved successfully!");
-      forceUpdate(x => x + 1); // force re-render
-    } catch (error: any) {
-      toast.error(error?.message || "Failed to save timetable");
-    } finally {
-      setIsSavingTimetable(false);
+      // 1. Prepare the payload by enriching draftClasses with names from lookups
+      const payload: TimetableSaveLevelInput = {
+        programId: Number(selProgramId),
+        academicLevel: Number(selLevelId),
+        scheduleSlots: draftClasses.map((item) => {
+
+          //Ensure Class Type is PascalCase
+          // This converts 'lab' -> 'Lab' or 'lecture' -> 'Lecture'
+          const normalizedType = (item.type.charAt(0).toUpperCase() + 
+                               item.type.slice(1).toLowerCase()) as SlotType;
+
+
+          //Fix the "startTime/endTime" to match the DB reference date (2000-01-01)
+        // This ensures Zod can coerce it and the TSRANGE logic works perfectly.
+        const formatAsIso = (timeStr: string) => `2000-01-01T${timeStr}:00.000Z`;
+
+          return {
+          id: String(item.id).startsWith('temp-') ? undefined : Number(item.id),
+          courseId: item.courseId,
+          teacherId: item.instructorId,
+          classroomId: item.classroomId,
+          learningGroupId: item.learningGroupId,
+          teacherName: item.instructorName,
+          classroomName: item.roomLabel,
+          dayOfWeek: item.day,
+          startTime: formatAsIso(item.startTime),
+          endTime: formatAsIso(item.endTime),
+          type: normalizedType,
+        };
+      }),
     }
-  };
+
+      
+      const result :TimetableSaveResult = await ScheduleService.saveSchedule(payload, activeSemesterId);
+
+      // Helper to convert "2000-01-01T08:00:00.000Z" -> "08:00"
+    const extractTime = (isoString: string) => {
+      const parts = isoString.split('T');
+      return parts.length > 1 ? parts[1].substring(0, 5) : isoString;
+    };
+      
+      // 2. Map the fresh scheduleSlots from the response to local ScheduledClass type
+
+    const syncedClasses: ScheduledClass[] = result.scheduleSlots.map((slot) => ({
+      id: String(slot.id), // Real DB IDs are now strings for the UI
+      day: slot.dayOfWeek,
+    
+      startTime: extractTime(slot.startTime), 
+      endTime: extractTime(slot.endTime),
+      type: slot.type,
+      courseId: slot.course.id,
+      courseCode: slot.course.code,
+      courseName: slot.course.name,
+      instructorId: slot.teacher.id,
+      instructorName: slot.teacher.name,
+      classroomId: slot.classroom.id,
+      roomLabel: slot.classroom.label,
+      learningGroupId: slot.learningGroup?.id || null,
+    }));
+
+    // 3. Update state with the clean "Truth" from the DB
+    setSavedClasses(syncedClasses);
+    setDraftClasses(deepCopy(syncedClasses)); 
+    
+    toast.success("Timetable saved successfully!");
+  } catch (error: any) {
+    toast.error(error?.message || "Failed to save timetable");
+  } finally {
+    setIsSavingTimetable(false);
+  }
+};
   const handleDiscard = () => {
     console.log("handleDiscard called", { savedClasses });
     setDraftClasses(deepCopy(savedClasses));
@@ -354,32 +406,39 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
     const loadTimetable = async () => {
       try {
         setIsLoadingTimetable(true);
-        const data = await ClassSessionService.getLevelTimetable(
+
+        // API call returns GetScheduleResponse
+        const data: GetScheduleResponse = await ScheduleService.getSchedule(
           Number(selProgramId),
           Number(selLevelId),
-          activeSemesterId,
+          activeSemesterId // This is likely passed to the service to set the Header
         );
 
+        // Hydrate lookup states
         setLookupCourses(data.lookups.courses);
         setLookupClassrooms(data.lookups.classrooms);
         setLookupStaff(data.lookups.staff);
 
-        const mapped = data.sessions.map((item) => ({
-          id: String(item.id),
-          day: item.dayOfWeek,
-          startTime: item.startTime,
-          endTime: item.endTime,
-          courseId: item.courseId,
-          courseCode: item.courseCode,
-          courseName: item.courseName,
-          classType: classroomToClassType(
-            data.lookups.classrooms.find((room) => room.id === item.classroomId)?.type || "Lecture",
-          ),
-          instructorId: item.teacherId,
-          instructor: item.instructorName,
-          classroomId: item.classroomId,
-          roomCode: item.classroomCode,
-        })) as ScheduledClass[];
+        // Map ScheduleSlot[] -> ScheduledClass[]
+        const mapped: ScheduledClass[] = data.scheduleSlots.map((slot) => ({
+          id: String(slot.id), // Cast to string for local state consistency
+          day: slot.dayOfWeek,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          type: slot.type,
+
+          courseId: slot.course.id,
+          courseCode: slot.course.code,
+          courseName: slot.course.name,
+
+          instructorId: slot.teacher.id,
+          instructorName: slot.teacher.name,
+
+          classroomId: slot.classroom.id,
+          roomLabel: slot.classroom.label,
+
+          learningGroupId: slot.learningGroup?.id || null,
+        }));
 
         setSavedClasses(mapped);
         setDraftClasses(deepCopy(mapped));
@@ -434,7 +493,7 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
   const classroomOptions = useMemo(
     () => lookupClassrooms.map((room) => ({
       value: String(room.id),
-      label: `${room.building}-${room.roomNumber}`,
+      label: `${room.building}-${room.classroomNumber}`,
       description: `Capacity: ${room.capacity} | Type: ${room.type}`,
     })),
     [lookupClassrooms],
@@ -507,8 +566,8 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
     return absMin >= timeToMinutes(r.startTime) && absMin < timeToMinutes(r.endTime);
   }, [dayRanges]);
 
-  const getClassDims = (cls: ScheduledClass) => {
-    const s = timeToMinutes(cls.startTime), e = timeToMinutes(cls.endTime);
+  const getClassDims = (item: ScheduledClass) => {
+    const s = timeToMinutes(item.startTime), e = timeToMinutes(item.endTime);
     return {
       top: (s - globalStartMin) * PIXELS_PER_MINUTE,
       height: Math.max((e - s) * PIXELS_PER_MINUTE, 30),
@@ -541,7 +600,7 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
       // Room conflict check (only when a room has been selected)
       if (classroomId && cls.classroomId === Number(classroomId)) {
         const room = lookupClassrooms.find(r => r.id === Number(classroomId));
-        const roomCode = room ? `${room.building}-${room.roomNumber}` : classroomId;
+        const roomCode = room ? `${room.building}-${room.classroomNumber}` : classroomId;
         return `Room ${roomCode} is already booked on ${day} from ${fmt12(cls.startTime)} to ${fmt12(cls.endTime)}`;
       }
 
@@ -583,59 +642,93 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
     setShowModal(true);
   };
 
-  const handleEditClass = (cls: ScheduledClass) => {
-    setEditingClass(cls);
+  const handleEditClass = (item: ScheduledClass) => {
+    setEditingClass(item);
+
     setFormData({
-      day: cls.day, startTime: cls.startTime, endTime: cls.endTime,
-      courseId: String(cls.courseId), classType: cls.classType,
-      teacherId: String(cls.instructorId), classroomId: String(cls.classroomId),
+      day: item.day,
+      startTime: item.startTime,
+      endTime: item.endTime,
+      courseId: String(item.courseId),
+      classType: item.type,
+      teacherId: String(item.instructorId),
+      classroomId: String(item.classroomId),
     });
     setShowModal(true);
   };
 
   const handleSaveClass = () => {
+    // 1. Basic Presence Validation
     if (!formData.courseId || !formData.teacherId || !formData.classroomId) {
-      toast.error("Please fill in all required fields"); return;
+      toast.error("Please fill in all required fields");
+      return;
     }
+
+    // 2. Time Logic Validation (RE-ADDED)
     if (timeToMinutes(formData.startTime) >= timeToMinutes(formData.endTime)) {
-      toast.error("End time must be after start time"); return;
+      toast.error("End time must be after start time");
+      return;
     }
+
+    // 3. Conflict Detection (RE-ADDED)
+    // Uses your existing getConflictMessage helper to check room/instructor availability
     const conflictMsg = getConflictMessage(
-      formData.day, formData.startTime, formData.endTime,
-      formData.classroomId, formData.teacherId, editingClass ? String(editingClass.id) : undefined
+      formData.day,
+      formData.startTime,
+      formData.endTime,
+      formData.classroomId,
+      formData.teacherId,
+      editingClass ? String(editingClass.id) : undefined
     );
-    if (conflictMsg) { toast.error(conflictMsg); return; }
-    const course = coursesPool.find(c => c.id === Number(formData.courseId));
+
+    if (conflictMsg) {
+      toast.error(conflictMsg);
+      return;
+    }
+
+    // 4. Lookup Data Retrieval
+    const course = lookupCourses.find(c => c.id === Number(formData.courseId));
     const classroom = lookupClassrooms.find(r => r.id === Number(formData.classroomId));
     const teacher = lookupStaff.find(s => s.id === Number(formData.teacherId));
-    if (!course || !classroom || !teacher) return;
-    const classroomCode = `${classroom.building}-${classroom.roomNumber}`;
 
+    if (!course || !classroom || !teacher) {
+      toast.error("Invalid selection. Please try again.");
+      return;
+    }
+
+    // 5. Prepare the  Object
+    const updatedItem: ScheduledClass = {
+      //backend rely on id presence to tell (if it exists) then i will update it if needed but if it's not sent
+      //then backends knows it's a new slot to create (in this case i currently use a temp id)
+      id: editingClass ? editingClass.id : `temp-${Date.now()}`,
+      day: formData.day,
+      startTime: formData.startTime,
+      endTime: formData.endTime,
+      type: formData.classType as SlotType, // Directly uses 'Lecture' | 'Lab' | 'Tutorial'
+
+      courseId: course.id,
+      courseCode: course.code,
+      courseName: course.name,
+
+      instructorId: teacher.id,
+      instructorName: teacher.name,
+
+      classroomId: classroom.id,
+      roomLabel: `${classroom.building} / ${classroom.classroomNumber}`,
+
+      // Maintain the group ID if we are editing an existing slot
+      learningGroupId: editingClass?.learningGroupId,
+    };
+
+    // 6. Update State
     if (editingClass) {
-      setDraftClasses(prev => prev.map(c => String(c.id) === String(editingClass.id) ? {
-        ...c, day: formData.day, startTime: formData.startTime, endTime: formData.endTime,
-        courseId: course.id, courseCode: course.code, courseName: course.name,
-        classType: classroomToClassType(classroom.type),
-        instructorId: teacher.id,
-        instructor: teacher.name,
-        classroomId: classroom.id,
-        roomCode: classroomCode,
-      } : c));
+      setDraftClasses(prev => prev.map(c => c.id === editingClass.id ? updatedItem : c));
       toast.success("Class updated — remember to save!");
     } else {
-      const newClass: ScheduledClass = {
-        id: Date.now().toString(),
-        day: formData.day, startTime: formData.startTime, endTime: formData.endTime,
-        courseId: course.id, courseCode: course.code, courseName: course.name,
-        classType: classroomToClassType(classroom.type),
-        instructorId: teacher.id,
-        instructor: teacher.name,
-        classroomId: classroom.id,
-        roomCode: classroomCode,
-      };
-      setDraftClasses(prev => [...prev, newClass]);
+      setDraftClasses(prev => [...prev, updatedItem]);
       toast.success("Class added to draft — remember to save!");
     }
+
     setShowModal(false);
     setEditingClass(null);
   };
@@ -755,10 +848,10 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
             <tbody>
               ${hourSlots.map((timeSlot, rowIndex) => {
         return `<tr>
-                  <td style="border: 1px solid #e2e8f0; padding: 8px; text-align: center; background: #fafafa; font-weight: 500; color: #475569; vertical-align: top;">
-                    ${fmt12(minutesToTime(timeSlot))}
-                  </td>
-                  ${DAYS.map(day => {
+    <td style="border: 1px solid #e2e8f0; padding: 8px; text-align: center; background: #fafafa; font-weight: 500; color: #475569; vertical-align: top;">
+      ${fmt12(minutesToTime(timeSlot))}
+    </td>
+    ${DAYS.map(day => {
           const r = dayRanges[day];
           const cellClasses = classes.filter(cls => {
             if (cls.day !== day) return false;
@@ -775,44 +868,45 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
 
           if (!r.enabled) {
             return `<td style="border: 1px solid #e2e8f0; background: repeating-linear-gradient(45deg, #f8fafc, #f8fafc 10px, #f1f5f9 10px, #f1f5f9 20px); position: relative;">
-                        ${rowIndex === Math.floor(hourSlots.length / 2) ? '<div style="text-align: center; color: #94a3b8; font-size: 10px; padding: 8px;">Closed</div>' : ''}
-                      </td>`;
+                  ${rowIndex === Math.floor(hourSlots.length / 2) ? '<div style="text-align: center; color: #94a3b8; font-size: 10px; padding: 8px;">Closed</div>' : ''}
+                </td>`;
           }
 
           if (mainClass) {
             const duration = timeToMinutes(mainClass.endTime) - timeToMinutes(mainClass.startTime);
             const rowSpan = Math.ceil(duration / 60);
-            const colors = TYPE_COLORS[mainClass.classType];
+            // FIX: classType -> type
+            const colors = TYPE_COLORS[mainClass.type];
 
             return `<td rowspan="${rowSpan}" style="border: 1px solid #e2e8f0; padding: 0; vertical-align: top;">
-                        <div style="background: linear-gradient(135deg, ${colors.bg} 0%, white 100%); 
-                                    border-left: 4px solid ${colors.header}; 
-                                    padding: 8px; height: 100%; min-height: ${rowSpan * 40}px;">
-                          <div style="font-weight: 700; color: ${colors.text}; margin-bottom: 4px; font-size: 12px;">
-                            ${mainClass.courseCode}
-                          </div>
-                          <div style="color: #334155; font-size: 10px; line-height: 1.3; margin-bottom: 6px;">
-                            ${mainClass.courseName}
-                          </div>
-                          <div style="font-size: 9px; color: #64748b; margin-top: 6px; border-top: 1px solid ${colors.border}; padding-top: 4px;">
-                            <div>${fmt12(mainClass.startTime)} – ${fmt12(mainClass.endTime)}</div>
-                            <div>${mainClass.instructor}</div>
-                            <div>Room: ${mainClass.roomCode}</div>
-                            <div style="margin-top: 2px;">
-                              <span style="background: ${colors.header}; color: white; padding: 2px 6px; border-radius: 3px; font-size: 8px; font-weight: 600;">
-                                ${mainClass.classType.toUpperCase()}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </td>`;
+                  <div style="background: linear-gradient(135deg, ${colors.bg} 0%, white 100%); 
+                              border-left: 4px solid ${colors.header}; 
+                              padding: 8px; height: 100%; min-height: ${rowSpan * 40}px;">
+                    <div style="font-weight: 700; color: ${colors.text}; margin-bottom: 4px; font-size: 12px;">
+                      ${mainClass.courseCode}
+                    </div>
+                    <div style="color: #334155; font-size: 10px; line-height: 1.3; margin-bottom: 6px;">
+                      ${mainClass.courseName}
+                    </div>
+                    <div style="font-size: 9px; color: #64748b; margin-top: 6px; border-top: 1px solid ${colors.border}; padding-top: 4px;">
+                      <div>${fmt12(mainClass.startTime)} – ${fmt12(mainClass.endTime)}</div>
+                      <div>${mainClass.instructorName}</div> 
+                      <div>Room: ${mainClass.roomLabel}</div>
+                      <div style="margin-top: 2px;">
+                        <span style="background: ${colors.header}; color: white; padding: 2px 6px; border-radius: 3px; font-size: 8px; font-weight: 600;">
+                          ${mainClass.type.toUpperCase()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </td>`;
           } else if (cellClasses.length === 0) {
             return `<td style="border: 1px solid #e2e8f0; background: white; height: 40px;"></td>`;
           } else {
             return '';
           }
         }).join("")}
-                </tr>`;
+  </tr>`;
       }).join("")}
             </tbody>
           </table>
@@ -1181,7 +1275,7 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
             </div>
             {/* Color legend — type-based (Issue 2) */}
             <div className="flex flex-wrap gap-1.5">
-              {(["lecture", "lab", "tutorial", "seminar"] as const).map(type => {
+              {(["lecture", "lab", "tutorial"] as const).map(type => {
                 const c = TYPE_COLORS[type];
                 return (
                   <span key={type} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${c.bg} ${c.text} ${c.border}`}>
@@ -1364,19 +1458,19 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
                         )}
 
                         {/* Class cards — Issue 2: color by type */}
-                        {dayClasses.map(cls => {
-                          const { top, height, duration } = getClassDims(cls);
-                          const colors = getColors(cls.classType);
-                          const isDragging = draggingId === cls.id;
+                        {dayClasses.map(item => {
+                          const { top, height, duration } = getClassDims(item);
+                          const colors = getColors(item.type);
+                          const isDragging = draggingId === item.id;
 
                           return (
                             <div
-                              key={cls.id}
+                              key={item.id}
                               draggable
-                              onDragStart={e => handleDragStart(e, cls)}
+                              onDragStart={e => handleDragStart(e, item)}
                               onDragEnd={handleDragEnd}
                               // ISSUE 2 FIX: double-click opens edit modal (single-click unchanged)
-                              onDoubleClick={e => { e.stopPropagation(); handleEditClass(cls); }}
+                              onDoubleClick={e => { e.stopPropagation(); handleEditClass(item); }}
                               className={`absolute left-1 right-1 rounded-xl border-2 overflow-hidden z-20 select-none
                                 transition-all duration-200 group
                                 ${colors.bg} ${colors.border}
@@ -1394,20 +1488,20 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
                                 {/* Badge row + actions */}
                                 <div className="flex items-start justify-between gap-0.5 mt-1">
                                   <div className="flex items-center gap-1 min-w-0">
-                                    {getTypeIcon(cls.classType)}
+                                    {getTypeIcon(item.type)}
                                     <Badge variant="outline" className="text-xs py-0 px-1.5 bg-white/80 border-white/60 shrink-0">
-                                      {cls.courseCode}
+                                      {item.courseCode}
                                     </Badge>
                                   </div>
                                   <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                                     <button
-                                      onClick={e => { e.stopPropagation(); handleEditClass(cls); }}
+                                      onClick={e => { e.stopPropagation(); handleEditClass(item); }}
                                       className={`p-0.5 rounded hover:bg-white/70 ${colors.text} transition-colors`}
                                     >
                                       <Edit className="w-3 h-3" />
                                     </button>
                                     <button
-                                      onClick={e => { e.stopPropagation(); handleDeleteClass(String(cls.id)); }}
+                                      onClick={e => { e.stopPropagation(); handleDeleteClass(String(item.id)); }}
                                       className="p-0.5 rounded hover:bg-white/70 text-red-500 transition-colors"
                                     >
                                       <X className="w-3 h-3" />
@@ -1417,20 +1511,20 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
 
                                 {/* Course name */}
                                 {height >= 54 && (
-                                  <p className={`text-xs font-semibold ${colors.text} line-clamp-2 leading-tight mt-0.5`} title={cls.courseName}>
-                                    {cls.courseName}
+                                  <p className={`text-xs font-semibold ${colors.text} line-clamp-2 leading-tight mt-0.5`} title={item.courseName}>
+                                    {item.courseName}
                                   </p>
                                 )}
 
                                 {/* Time */}
                                 <div className={`text-xs ${colors.text} opacity-80 font-medium mt-auto`}>
-                                  {fmt12(cls.startTime)} – {fmt12(cls.endTime)}
+                                  {fmt12(item.startTime)} – {fmt12(item.endTime)}
                                 </div>
 
                                 {/* Room + duration */}
                                 {height >= 72 && (
                                   <div className="text-xs text-slate-500 opacity-70">
-                                    {duration}min · {cls.roomCode}
+                                    {duration}min · {item.roomLabel}
                                   </div>
                                 )}
 
@@ -1438,7 +1532,7 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
                                 {height >= 92 && (
                                   <div className={`text-xs ${colors.text} opacity-70 flex items-center gap-1 mt-0.5 truncate`}>
                                     <Users className="w-2.5 h-2.5 shrink-0" />
-                                    <span className="truncate">{cls.instructor}</span>
+                                    <span className="truncate">{item.instructorName}</span>
                                   </div>
                                 )}
 
@@ -1591,10 +1685,9 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
                   onChange={e => setFormData({ ...formData, classType: e.target.value as typeof formData.classType })}
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 >
-                  <option value="lecture">Lecture</option>
-                  <option value="lab">Lab</option>
-                  <option value="tutorial">Tutorial</option>
-                  <option value="seminar">Seminar</option>
+                  <option value="Lecture">Lecture</option>
+                  <option value="Lab">Lab</option>
+                  <option value="Tutorial">Tutorial</option>
                 </select>
                 <div className="mt-1">
                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${getColors(formData.classType).bg} ${getColors(formData.classType).text} ${getColors(formData.classType).border}`}>

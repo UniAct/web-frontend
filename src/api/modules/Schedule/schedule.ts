@@ -1,7 +1,7 @@
+import { GetScheduleResponse } from 'src/api/types/schedule';
 import { httpClient } from '../../core/http-client';
 import type {
   ApiResponse,
-  TimetableLevelResponse,
   TimetableSaveLevelInput,
   TimetableSaveResult,
 } from '../../types';
@@ -15,32 +15,32 @@ function withSemesterHeader(semesterId: number) {
   } as const;
 }
 
-export const classSessionApi = {
-  getLevelTimetable(
+export const scheduleApi = {
+  getSchedule(
     programId: number,
     academicLevel: number,
     semesterId: number,
-  ): Promise<ApiResponse<TimetableLevelResponse>> {
+  ): Promise<ApiResponse<GetScheduleResponse>> {
     const query = new URLSearchParams({
       programId: String(programId),
       academicLevel: String(academicLevel),
     });
 
-    return httpClient.request<TimetableLevelResponse>(
+    return httpClient.request<GetScheduleResponse>(
       'GET',
-      `/class-session/level?${query.toString()}`,
+      `/schedule?${query.toString()}`,
       undefined,
       withSemesterHeader(semesterId),
     );
   },
 
-  saveLevelTimetable(
+  saveSchedule(
     payload: TimetableSaveLevelInput,
     semesterId: number,
   ): Promise<ApiResponse<TimetableSaveResult>> {
     return httpClient.request<TimetableSaveResult>(
       'PUT',
-      '/class-session/level',
+      '/schedule',
       payload,
       withSemesterHeader(semesterId),
     );

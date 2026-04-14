@@ -40,12 +40,12 @@ export type {
   TimetableCourseLookup,
   TimetableClassroomLookup,
   TimetableStaffLookup,
-  TimetableSession,
-  TimetableLevelResponse,
+  ScheduleSlot,
+  getScheduleResponse,
   TimetableSaveSessionInput,
   TimetableSaveLevelInput,
   TimetableSaveResult,
-} from './class-session';
+} from './schedule';
 export type { Semester, SemesterCreateInput, SemesterUpdateInput } from './semester';
 export type { Role, RoleCreateInput, Permission } from './rbac';
 export type {
