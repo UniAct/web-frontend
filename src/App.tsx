@@ -37,7 +37,11 @@ export interface User {
   programId?: number;
   programName?: string;
   programLevelId?: number;
+  programLevel?: number;
   currentSemesterId?: number;
+  currentSemesterType?: 'Fall' | 'Spring' | 'Summer';
+  currentSemesterYear?: number;
+  currentSemesterTerm?: number;
 }
 
 function resolveFrontendRoleFromBackendRoles(rawRoles: unknown): UserRole {
@@ -87,7 +91,8 @@ function resolvePageFromQuery(page: string | null, role: UserRole): string {
     superadmin: ['superadmin'],
   };
 
-  return allowedPages[role].includes(page) ? page : resolveDashboardPage(role);
+  const rolePages = allowedPages[role] ?? allowedPages.student;
+  return rolePages.includes(page) ? page : resolveDashboardPage(role);
 }
 
 function parseOptionalNumber(value: unknown): number | undefined {
@@ -99,34 +104,112 @@ function parseOptionalNumber(value: unknown): number | undefined {
   return undefined;
 }
 
+function parseOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 function buildUserFromSession(parsed: any, role: UserRole): User {
+  const firstName = parseOptionalString(parsed?.firstName);
+  const lastName = parseOptionalString(parsed?.lastName);
+
   const resolvedName =
-    parsed?.studentFullname ||
-    parsed?.student_fullname ||
-    parsed?.['student Fullname'] ||
-    (parsed?.firstName ? `${parsed.firstName} ${parsed.lastName ?? ''}`.trim() : undefined) ||
-    parsed?.username ||
-    parsed?.email ||
+    parseOptionalString(parsed?.studentFullname) ||
+    parseOptionalString(parsed?.student_fullname) ||
+    parseOptionalString(parsed?.['student Fullname']) ||
+    parseOptionalString(parsed?.student?.fullname) ||
+    (firstName ? `${firstName} ${lastName ?? ''}`.trim() : undefined) ||
+    parseOptionalString(parsed?.username) ||
+    parseOptionalString(parsed?.email) ||
     'Unknown User';
 
+  const resolvedEmail =
+    parseOptionalString(parsed?.email) ||
+    parseOptionalString(parsed?.username) ||
+    'unknown@example.com';
+
   return {
-    id: parsed.id ? String(parsed.id) : parsed.username || parsed.email || 'unknown',
+    id:
+      parsed?.id !== undefined && parsed?.id !== null
+        ? String(parsed.id)
+        : parseOptionalString(parsed?.username) || resolvedEmail || 'unknown',
     name: resolvedName,
-    email: parsed.email || parsed.username || 'unknown@example.com',
+    email: resolvedEmail,
     role,
-    department: parsed.department || parsed.university || parsed.university_name || undefined,
-    studentId: parsed.universityStudentId ? String(parsed.universityStudentId) : parsed.id ? String(parsed.id) : undefined,
-    programId: parseOptionalNumber(parsed.programId ?? parsed.programID ?? parsed.student?.programId),
-    programName: parsed.programName || parsed.program_name || parsed.program || undefined,
+    department:
+      parseOptionalString(parsed?.department) ||
+      parseOptionalString(parsed?.university) ||
+      parseOptionalString(parsed?.university_name) ||
+      undefined,
+    studentId:
+      (parsed?.universityStudentId !== undefined && parsed?.universityStudentId !== null
+        ? String(parsed.universityStudentId)
+        : undefined) ||
+      (parsed?.student?.universityStudentId !== undefined && parsed?.student?.universityStudentId !== null
+        ? String(parsed.student.universityStudentId)
+        : undefined) ||
+      (parsed?.id !== undefined && parsed?.id !== null ? String(parsed.id) : undefined),
+    programId: parseOptionalNumber(
+      parsed?.programId ??
+      parsed?.programID ??
+      parsed?.program?.id ??
+      parsed?.student?.programId ??
+      parsed?.student?.program?.id,
+    ),
+    programName:
+      parseOptionalString(parsed?.programName) ||
+      parseOptionalString(parsed?.program_name) ||
+      parseOptionalString(parsed?.program) ||
+      parseOptionalString(parsed?.program?.programName) ||
+      parseOptionalString(parsed?.program?.name) ||
+      parseOptionalString(parsed?.student?.program?.name) ||
+      undefined,
     programLevelId: parseOptionalNumber(
-      parsed.programLevelId ?? parsed.programLevelID ?? parsed.student?.programLevelId,
+      parsed?.programLevelId ??
+      parsed?.programLevelID ??
+      parsed?.programLevel?.id ??
+      parsed?.student?.programLevelId ??
+      parsed?.student?.programLevel?.id,
+    ),
+    programLevel: parseOptionalNumber(
+      parsed?.programLevel?.level ??
+      parsed?.programLevel ??
+      parsed?.programLEVEL ??
+      parsed?.programLevelNumber ??
+      parsed?.program_level ??
+      parsed?.student?.programLevel?.level,
     ),
     currentSemesterId: parseOptionalNumber(
-      parsed.currentSemesterId ??
-      parsed.currentSemesterID ??
-      parsed.semesterId ??
-      parsed.semesterID ??
-      parsed.student?.currentSemesterId,
+      parsed?.semester?.id ??
+      parsed?.currentSemesterId ??
+      parsed?.currentSemesterID ??
+      parsed?.semesterId ??
+      parsed?.semesterID ??
+      parsed?.student?.currentSemesterId,
+    ),
+    currentSemesterType: (() => {
+      const semesterType =
+        parseOptionalString(parsed?.semester?.type) ||
+        parseOptionalString(parsed?.currentSemesterType) ||
+        parseOptionalString(parsed?.currentSemesterTYPE) ||
+        parseOptionalString(parsed?.student?.currentSemesterType);
+
+      return semesterType === 'Fall' || semesterType === 'Spring' || semesterType === 'Summer'
+        ? semesterType
+        : undefined;
+    })(),
+    currentSemesterYear: parseOptionalNumber(
+      parsed?.semester?.year ??
+      parsed?.currentSemesterYear ??
+      parsed?.currentSemesterYEAR ??
+      parsed?.student?.currentSemesterYear,
+    ),
+    currentSemesterTerm: parseOptionalNumber(
+      parsed?.semester?.term ??
+      parsed?.currentSemesterTerm ??
+      parsed?.currentSemesterTERM ??
+      parsed?.student?.currentSemesterTerm,
     ),
   };
 }

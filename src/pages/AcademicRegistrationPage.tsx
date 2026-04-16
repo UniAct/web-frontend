@@ -181,7 +181,7 @@ function shortTime(t: string) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps) {
-  const [selectedLevel, setSelectedLevel] = useState(String(user.programLevelId ?? 1));
+  const [selectedLevel, setSelectedLevel] = useState(String(user.programLevel ?? user.programLevelId ?? 1));
   const [courses, setCourses] = useState<Course[]>([]);
   const [isLoadingCourses, setIsLoadingCourses] = useState(false);
   const [selectedSessions, setSelectedSessions] = useState<SelectedSession[]>([]);
@@ -204,6 +204,11 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
 
   useEffect(() => {
     if (user.role !== 'student') return;
+    if (user.programLevel) {
+      setSelectedLevel(String(user.programLevel));
+      return;
+    }
+
     if (!user.programId || !user.programLevelId) return;
 
     let isMounted = true;
@@ -231,7 +236,8 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
     return () => {
       isMounted = false;
     };
-  }, [user.role, user.programId, user.programLevelId]);
+  }, [user.role, user.programId, user.programLevelId, user.programLevel]);
+  
 
   useEffect(() => {
     if (user.role !== 'student') return;

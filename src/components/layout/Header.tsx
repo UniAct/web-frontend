@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Bell, Search, MessageSquare, Settings } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Badge } from '../ui/badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,12 +31,19 @@ export function Header({ user, notifications, onNotificationRead }: HeaderProps)
   const [searchQuery, setSearchQuery] = useState('');
   const unreadCount = notifications.filter(n => !n.read).length;
 
+  const semesterLabel =
+    user.currentSemesterType && user.currentSemesterYear && user.currentSemesterTerm
+      ? `${user.currentSemesterType} ${user.currentSemesterYear} (Term ${user.currentSemesterTerm})`
+      : 'N/A';
+
+  const levelLabel = user.programLevel ? `Level ${user.programLevel}` : 'N/A';
+
   const studentHeaderDetails = {
     studentName: user.name || 'N/A',
     studentId: user.studentId || user.id || 'N/A',
-    program: user.programName || (user.programId ? `Program #${user.programId}` : 'N/A'),
-    level: user.programLevelId ?? 'N/A',
-    semester: user.currentSemesterId ?? 'N/A',
+    program: user.programName || 'N/A',
+    level: levelLabel,
+    semester: semesterLabel,
   };
 
   return (
