@@ -41,7 +41,7 @@ export type {
   TimetableClassroomLookup,
   TimetableStaffLookup,
   ScheduleSlot,
-  getScheduleResponse,
+  GetScheduleResponse,
   TimetableSaveSessionInput,
   TimetableSaveLevelInput,
   TimetableSaveResult,

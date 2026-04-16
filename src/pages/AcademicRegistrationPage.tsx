@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import type { User as AppUser } from '../App';
 import { toast } from 'sonner';
+import { ProgramService, ScheduleService, type ScheduleSlot } from '../api';
 
 interface AcademicRegistrationPageProps {
   user: AppUser;
@@ -48,105 +49,89 @@ interface SelectedSession extends CourseSession {
   addedAt: Date;
 }
 
-// ─── Mock Data ───────────────────────────────────────────────────────────────
-const mockCourses: Course[] = [
-  // Level 1
-  {
-    id: 'CS101', name: 'Introduction to Programming', code: 'CS-101',
-    type: 'Program Mandatory', creditHours: 3, failureTimes: 0, level: 1,
-    sessions: [
-      { sessionId: 'CS101-S1', lecturer: 'Dr. Ahmed Hassan', content: ['Lecture'], day: 'Sunday', timeFrom: '10:00 AM', timeTo: '12:00 PM', room: 'CS-101', availableSeats: 15 },
-      { sessionId: 'CS101-S2', lecturer: 'Dr. Ahmed Hassan', content: ['Lab'], day: 'Tuesday', timeFrom: '02:00 PM', timeTo: '04:00 PM', room: 'CS-Lab-01', availableSeats: 15 },
-      { sessionId: 'CS101-S3', lecturer: 'Prof. Sarah Wilson', content: ['Lecture'], day: 'Monday', timeFrom: '08:00 AM', timeTo: '10:00 AM', room: 'CS-102', availableSeats: 8 },
-    ],
-  },
-  {
-    id: 'MATH101', name: 'Calculus I', code: 'MATH-101',
-    type: 'Faculty Mandatory', creditHours: 4, failureTimes: 0, level: 1,
-    sessions: [
-      { sessionId: 'MATH101-S1', lecturer: 'Prof. Sarah Wilson', content: ['Lecture'], day: 'Saturday', timeFrom: '08:00 AM', timeTo: '10:00 AM', room: 'Math-201', availableSeats: 20 },
-      { sessionId: 'MATH101-S2', lecturer: 'Dr. Michael Brown', content: ['Lecture'], day: 'Sunday', timeFrom: '02:00 PM', timeTo: '04:00 PM', room: 'Math-202', availableSeats: 12 },
-    ],
-  },
-  {
-    id: 'ENG101', name: 'English Communication', code: 'ENG-101',
-    type: 'University Mandatory', creditHours: 2, failureTimes: 0, level: 1,
-    sessions: [
-      { sessionId: 'ENG101-S1', lecturer: 'Dr. Emily Chen', content: ['Lecture'], day: 'Wednesday', timeFrom: '02:00 PM', timeTo: '04:00 PM', room: 'A-Building-105', availableSeats: 25 },
-    ],
-  },
-  {
-    id: 'PHYS101', name: 'Physics I', code: 'PHYS-101',
-    type: 'Faculty Elective', creditHours: 3, failureTimes: 0, level: 1,
-    sessions: [
-      { sessionId: 'PHYS101-S1', lecturer: 'Dr. Michael Brown', content: ['Lecture'], day: 'Thursday', timeFrom: '10:00 AM', timeTo: '12:00 PM', room: 'Physics-201', availableSeats: 18 },
-      { sessionId: 'PHYS101-S2', lecturer: 'Dr. Michael Brown', content: ['Lab'], day: 'Thursday', timeFrom: '02:00 PM', timeTo: '04:00 PM', room: 'Physics-Lab-02', availableSeats: 18 },
-    ],
-  },
-  // Level 2
-  {
-    id: 'CS201', name: 'Data Structures', code: 'CS-201',
-    type: 'Program Mandatory', creditHours: 4, failureTimes: 0, level: 2,
-    sessions: [
-      { sessionId: 'CS201-S1', lecturer: 'Prof. Michael Johnson', content: ['Lecture'], day: 'Saturday', timeFrom: '10:00 AM', timeTo: '12:00 PM', room: 'CS-201', availableSeats: 10 },
-      { sessionId: 'CS201-S2', lecturer: 'Prof. Michael Johnson', content: ['Lab'], day: 'Monday', timeFrom: '02:00 PM', timeTo: '04:00 PM', room: 'CS-Lab-02', availableSeats: 10 },
-    ],
-  },
-  {
-    id: 'CS202', name: 'Object-Oriented Programming', code: 'CS-202',
-    type: 'Program Mandatory', creditHours: 3, failureTimes: 0, level: 2,
-    sessions: [
-      { sessionId: 'CS202-S1', lecturer: 'Dr. Lisa Anderson', content: ['Lecture', 'Lab'], day: 'Sunday', timeFrom: '02:00 PM', timeTo: '05:00 PM', room: 'CS-Lab-03', availableSeats: 18 },
-    ],
-  },
-  {
-    id: 'MATH201', name: 'Discrete Mathematics', code: 'MATH-201',
-    type: 'Faculty Mandatory', creditHours: 3, failureTimes: 0, level: 2,
-    sessions: [
-      { sessionId: 'MATH201-S1', lecturer: 'Prof. David Lee', content: ['Lecture'], day: 'Wednesday', timeFrom: '10:00 AM', timeTo: '12:00 PM', room: 'Math-303', availableSeats: 14 },
-    ],
-  },
-  {
-    id: 'DB201', name: 'Database Management Systems', code: 'DB-201',
-    type: 'Program Mandatory', creditHours: 4, failureTimes: 0, level: 2,
-    sessions: [
-      { sessionId: 'DB201-S1', lecturer: 'Dr. Robert Taylor', content: ['Lecture'], day: 'Thursday', timeFrom: '08:00 AM', timeTo: '10:00 AM', room: 'CS-301', availableSeats: 16 },
-      { sessionId: 'DB201-S2', lecturer: 'Dr. Robert Taylor', content: ['Lab'], day: 'Thursday', timeFrom: '10:00 AM', timeTo: '12:00 PM', room: 'CS-Lab-04', availableSeats: 16 },
-    ],
-  },
-  // Level 3
-  {
-    id: 'CS301', name: 'Advanced Algorithms', code: 'CS-301',
-    type: 'Program Mandatory', creditHours: 4, failureTimes: 0, level: 3,
-    sessions: [
-      { sessionId: 'CS301-S1', lecturer: 'Dr. Sarah Wilson', content: ['Lecture', 'Workshop'], day: 'Saturday', timeFrom: '02:00 PM', timeTo: '05:00 PM', room: 'CS-401', availableSeats: 22 },
-    ],
-  },
-  {
-    id: 'NET301', name: 'Computer Networks', code: 'NET-301',
-    type: 'Program Mandatory', creditHours: 3, failureTimes: 0, level: 3,
-    sessions: [
-      { sessionId: 'NET301-S1', lecturer: 'Dr. Omar Farouk', content: ['Lecture'], day: 'Monday', timeFrom: '10:00 AM', timeTo: '12:00 PM', room: 'CS-402', availableSeats: 20 },
-      { sessionId: 'NET301-S2', lecturer: 'Dr. Omar Farouk', content: ['Lab'], day: 'Wednesday', timeFrom: '08:00 AM', timeTo: '10:00 AM', room: 'Net-Lab-01', availableSeats: 20 },
-    ],
-  },
-  // Level 4
-  {
-    id: 'CS401', name: 'Software Engineering', code: 'CS-401',
-    type: 'Program Mandatory', creditHours: 4, failureTimes: 0, level: 4,
-    sessions: [
-      { sessionId: 'CS401-S1', lecturer: 'Prof. Jennifer Clark', content: ['Lecture'], day: 'Saturday', timeFrom: '08:00 AM', timeTo: '10:00 AM', room: 'CS-501', availableSeats: 18 },
-      { sessionId: 'CS401-S2', lecturer: 'Prof. Jennifer Clark', content: ['Project'], day: 'Sunday', timeFrom: '10:00 AM', timeTo: '12:00 PM', room: 'CS-501', availableSeats: 18 },
-    ],
-  },
-  {
-    id: 'AI401', name: 'Artificial Intelligence', code: 'AI-401',
-    type: 'Program Elective', creditHours: 3, failureTimes: 0, level: 4,
-    sessions: [
-      { sessionId: 'AI401-S1', lecturer: 'Dr. Nour El-Din', content: ['Lecture'], day: 'Tuesday', timeFrom: '10:00 AM', timeTo: '12:00 PM', room: 'CS-502', availableSeats: 15 },
-    ],
-  },
-];
+function format24HourTo12Hour(time24: string) {
+  const [rawHour, rawMinute] = time24.split(':');
+  const hour = Number(rawHour);
+  const minute = Number(rawMinute);
+
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    return time24;
+  }
+
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const twelveHour = hour % 12 === 0 ? 12 : hour % 12;
+  return `${String(twelveHour).padStart(2, '0')}:${String(minute).padStart(2, '0')} ${period}`;
+}
+
+function parse12HourToMinutes(time12: string): number | null {
+  const normalized = time12.trim().toUpperCase();
+  const match = normalized.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+  if (!match) return null;
+
+  const [, rawHour, rawMinute, period] = match;
+  const hour = Number(rawHour);
+  const minute = Number(rawMinute);
+
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour < 1 || hour > 12 || minute < 0 || minute > 59) {
+    return null;
+  }
+
+  let hour24 = hour % 12;
+  if (period === 'PM') hour24 += 12;
+  return hour24 * 60 + minute;
+}
+
+function formatMinutesTo12Hour(totalMinutes: number): string {
+  const normalized = ((totalMinutes % (24 * 60)) + (24 * 60)) % (24 * 60);
+  const hour24 = Math.floor(normalized / 60);
+  const minute = normalized % 60;
+  const period = hour24 >= 12 ? 'PM' : 'AM';
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return `${String(hour12).padStart(2, '0')}:${String(minute).padStart(2, '0')} ${period}`;
+}
+
+function sessionsOverlap(startA: number, endA: number, startB: number, endB: number): boolean {
+  return startA < endB && endA > startB;
+}
+
+function mapScheduleSlotsToCourses(slots: ScheduleSlot[], level: number): Course[] {
+  const courseMap = new Map<string, Course>();
+
+  slots.forEach((slot) => {
+    const courseId = String(slot.course.id);
+    const defaultCapacity = slot.classroom.capacity ?? Math.max((slot.enrolledSeats ?? 0) + 30, 30);
+    const availableSeats = Math.max(defaultCapacity - (slot.enrolledSeats ?? 0), 0);
+
+    const session: CourseSession = {
+      sessionId: String(slot.id),
+      lecturer: slot.teacher.name,
+      content: [slot.type],
+      day: slot.dayOfWeek,
+      timeFrom: format24HourTo12Hour(slot.startTime),
+      timeTo: format24HourTo12Hour(slot.endTime),
+      room: slot.classroom.label,
+      availableSeats,
+    };
+
+    if (!courseMap.has(courseId)) {
+      courseMap.set(courseId, {
+        id: courseId,
+        name: slot.course.name,
+        code: slot.course.code,
+        type: 'Program Mandatory',
+        creditHours: 3,
+        failureTimes: 0,
+        level,
+        sessions: [session],
+      });
+      return;
+    }
+
+    courseMap.get(courseId)!.sessions.push(session);
+  });
+
+  return Array.from(courseMap.values());
+}
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const timeSlots = [
@@ -189,7 +174,6 @@ const TYPE_COLOR: Record<string, string> = {
   'Program Elective': 'bg-emerald-50 text-emerald-600 border-emerald-100',
 };
 
-function timeIdx(t: string) { return timeSlots.indexOf(t); }
 function shortTime(t: string) {
   const [hm, ampm] = t.split(' ');
   return `${parseInt(hm.split(':')[0], 10)} ${ampm}`;
@@ -197,7 +181,9 @@ function shortTime(t: string) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps) {
-  const [selectedLevel, setSelectedLevel] = useState('1');
+  const [selectedLevel, setSelectedLevel] = useState(String(user.programLevelId ?? 1));
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [isLoadingCourses, setIsLoadingCourses] = useState(false);
   const [selectedSessions, setSelectedSessions] = useState<SelectedSession[]>([]);
   const [sessionSeats, setSessionSeats] = useState<Record<string, number>>({});
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
@@ -216,6 +202,75 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
   // Split-screen threshold: 900px viewport (avoids lg=1024px issue in sidebar layouts)
   const isSplit = vpWidth >= 900;
 
+  useEffect(() => {
+    if (user.role !== 'student') return;
+    if (!user.programId || !user.programLevelId) return;
+
+    let isMounted = true;
+
+    const resolveAcademicLevel = async () => {
+      try {
+        const program = await ProgramService.getById(user.programId);
+
+        if (!isMounted) return;
+
+        const levelById = program.levels.find((level) => level.id === user.programLevelId);
+        const levelByNumber = program.levels.find((level) => level.level === user.programLevelId);
+        const resolvedLevel = levelById?.level ?? levelByNumber?.level;
+
+        if (resolvedLevel) {
+          setSelectedLevel(String(resolvedLevel));
+        }
+      } catch {
+        // Keep fallback selectedLevel when program lookup is unavailable.
+      }
+    };
+
+    void resolveAcademicLevel();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user.role, user.programId, user.programLevelId]);
+
+  useEffect(() => {
+    if (user.role !== 'student') return;
+
+    if (!user.programId || !user.currentSemesterId) {
+      setCourses([]);
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadSchedule = async () => {
+      try {
+        setIsLoadingCourses(true);
+        const scheduleSlots = await ScheduleService.getScheduleSlots(
+          user.programId,
+          Number(selectedLevel),
+          user.currentSemesterId,
+        );
+
+        if (!isMounted) return;
+
+        setCourses(mapScheduleSlotsToCourses(scheduleSlots, Number(selectedLevel)));
+      } catch (error) {
+        if (!isMounted) return;
+        setCourses([]);
+        toast.error(error instanceof Error ? error.message : 'Failed to load student schedule');
+      } finally {
+        if (isMounted) setIsLoadingCourses(false);
+      }
+    };
+
+    void loadSchedule();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user.role, user.programId, user.currentSemesterId, selectedLevel]);
+
   // ── Business logic (all preserved) ────────────────────────────────────────
   const isSessionAdded = (sessionId: string) =>
     selectedSessions.some(s => s.sessionId === sessionId);
@@ -231,22 +286,34 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
     }, 0);
   };
 
-  const hasTimeConflict = (session: CourseSession) =>
-    selectedSessions.some(sel => {
+  const hasTimeConflict = (session: CourseSession) => {
+    const newStart = parse12HourToMinutes(session.timeFrom);
+    const newEnd = parse12HourToMinutes(session.timeTo);
+    if (newStart === null || newEnd === null || newEnd <= newStart) return false;
+
+    return selectedSessions.some(sel => {
       if (sel.day !== session.day) return false;
-      const { timeFrom: sS, timeTo: sE } = sel;
-      const { timeFrom: nS, timeTo: nE } = session;
-      return (nS >= sS && nS < sE) || (nE > sS && nE <= sE) || (nS <= sS && nE >= sE);
+      const selectedStart = parse12HourToMinutes(sel.timeFrom);
+      const selectedEnd = parse12HourToMinutes(sel.timeTo);
+      if (selectedStart === null || selectedEnd === null || selectedEnd <= selectedStart) return false;
+      return sessionsOverlap(newStart, newEnd, selectedStart, selectedEnd);
     });
+  };
 
   const hasConflictInTimetable = (sessionId: string) => {
     const session = selectedSessions.find(s => s.sessionId === sessionId);
     if (!session) return false;
+
+    const currentStart = parse12HourToMinutes(session.timeFrom);
+    const currentEnd = parse12HourToMinutes(session.timeTo);
+    if (currentStart === null || currentEnd === null || currentEnd <= currentStart) return false;
+
     return selectedSessions.some(other => {
       if (other.sessionId === sessionId || other.day !== session.day) return false;
-      const { timeFrom: sS, timeTo: sE } = other;
-      const { timeFrom: nS, timeTo: nE } = session;
-      return (nS >= sS && nS < sE) || (nE > sS && nE <= sE) || (nS <= sS && nE >= sE);
+      const otherStart = parse12HourToMinutes(other.timeFrom);
+      const otherEnd = parse12HourToMinutes(other.timeTo);
+      if (otherStart === null || otherEnd === null || otherEnd <= otherStart) return false;
+      return sessionsOverlap(currentStart, currentEnd, otherStart, otherEnd);
     });
   };
 
@@ -287,7 +354,7 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
     toast.success(`✓ Registration submitted — ${getTotalCreditHours()} credit hours`);
   };
 
-  const getCoursesForLevel = (level: number) => mockCourses.filter(c => c.level === level);
+  const getCoursesForLevel = (level: number) => courses.filter(c => c.level === level);
 
   // ── Stats ─────────────────────────────────────────────────────────────────
   const totalCredits = getTotalCreditHours();
@@ -296,8 +363,28 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
   const creditBarColor = creditPct >= 100 ? '#ef4444' : creditPct >= 75 ? '#f59e0b' : '#10b981';
 
   // ── Timetable dims ────────────────────────────────────────────────────────
-  const totalSlots = timeSlots.length - 1; // 10 usable hour columns
+  const defaultStartMinutes = parse12HourToMinutes(timeSlots[0]) ?? 8 * 60;
+  const defaultEndMinutes = parse12HourToMinutes(timeSlots[timeSlots.length - 1]) ?? 18 * 60;
+
+  const sessionRanges = selectedSessions
+    .map((session) => {
+      const start = parse12HourToMinutes(session.timeFrom);
+      const end = parse12HourToMinutes(session.timeTo);
+      if (start === null || end === null || end <= start) return null;
+      return { start, end };
+    })
+    .filter((range): range is { start: number; end: number } => range !== null);
+
+  const minSessionStart = sessionRanges.length > 0 ? Math.min(...sessionRanges.map((range) => range.start)) : defaultStartMinutes;
+  const maxSessionEnd = sessionRanges.length > 0 ? Math.max(...sessionRanges.map((range) => range.end)) : defaultEndMinutes;
+
+  const timetableStartMinutes = Math.min(defaultStartMinutes, Math.floor(minSessionStart / 60) * 60);
+  const timetableEndMinutes = Math.max(defaultEndMinutes, Math.ceil(maxSessionEnd / 60) * 60);
+  const totalSlots = Math.max(Math.ceil((timetableEndMinutes - timetableStartMinutes) / 60), 1);
   const totalTimeWidth = totalSlots * SLOT_W;
+  const timelineHeaders = Array.from({ length: totalSlots }, (_, index) =>
+    formatMinutesTo12Hour(timetableStartMinutes + index * 60)
+  );
 
   // ══════════════════════════════════════════════════════════════════════════
   // PANEL: course table
@@ -391,7 +478,19 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
           </thead>
 
           <tbody>
-            {getCoursesForLevel(Number(selectedLevel)).map(course =>
+            {isLoadingCourses ? (
+              <tr>
+                <td colSpan={12} style={{ padding: '18px 12px', textAlign: 'center', color: '#64748b', fontSize: 13 }}>
+                  Loading stored schedule...
+                </td>
+              </tr>
+            ) : getCoursesForLevel(Number(selectedLevel)).length === 0 ? (
+              <tr>
+                <td colSpan={12} style={{ padding: '18px 12px', textAlign: 'center', color: '#64748b', fontSize: 13 }}>
+                  No stored schedule found for this level.
+                </td>
+              </tr>
+            ) : getCoursesForLevel(Number(selectedLevel)).map(course =>
               course.sessions.map((session, si) => {
                 const isAdded = isSessionAdded(session.sessionId);
                 const seats = getAvailableSeats(session.sessionId, session.availableSeats);
@@ -627,7 +726,7 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
                 </div>
 
                 {/* Hour label cells */}
-                {timeSlots.slice(0, -1).map(time => (
+                {timelineHeaders.map(time => (
                   <div
                     key={time}
                     style={{
@@ -669,7 +768,7 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
                     {/* Slot area with absolutely positioned session blocks */}
                     <div style={{ position: 'relative', width: totalTimeWidth, minWidth: totalTimeWidth, flexShrink: 0 }}>
                       {/* Vertical grid lines */}
-                      {timeSlots.slice(0, -1).map((_, i) => (
+                      {timelineHeaders.map((_, i) => (
                         <div
                           key={i}
                           style={{
@@ -682,11 +781,16 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
 
                       {/* Session blocks */}
                       {daySessions.map(session => {
-                        const si = timeIdx(session.timeFrom);
-                        const ei = timeIdx(session.timeTo);
-                        if (si < 0 || ei < 0 || ei <= si) return null;
-                        const leftPx = si * SLOT_W + 2;
-                        const widthPx = (ei - si) * SLOT_W - 4;
+                        const start = parse12HourToMinutes(session.timeFrom);
+                        const end = parse12HourToMinutes(session.timeTo);
+                        if (start === null || end === null || end <= start) return null;
+
+                        const clampedStart = Math.max(start, timetableStartMinutes);
+                        const clampedEnd = Math.min(end, timetableEndMinutes);
+                        if (clampedEnd <= clampedStart) return null;
+
+                        const leftPx = ((clampedStart - timetableStartMinutes) / 60) * SLOT_W + 2;
+                        const widthPx = Math.max(((clampedEnd - clampedStart) / 60) * SLOT_W - 4, 8);
                         const conflict = hasConflictInTimetable(session.sessionId);
                         const color = courseColor(session.courseId);
 

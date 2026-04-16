@@ -1,4 +1,4 @@
-export type ClassroomType = 'Lecture' | 'Lab' | 'Auditorium' | 'Other';
+export type ClassroomType = 'Hall' | 'Lab' | 'Auditorium' | 'Other';
 
 export interface ClassSessionSummary {
   id: number;
@@ -6,20 +6,19 @@ export interface ClassSessionSummary {
 
 export interface Classroom {
   id: number;
-  roomNumber: string;
+  classroomNumber: string;
   building: string;
   capacity: number;
   type: ClassroomType;
-  isAvailable: boolean;
-  classSessions?: ClassSessionSummary[];
+  underMaintenance?: boolean;
+  scheduleSlot?: ClassSessionSummary[];
 }
 
 export interface ClassroomCreateInput {
-  roomNumber: string;
+  classroomNumber: string;
   building: string;
   capacity: number;
   type: ClassroomType;
-  isAvailable?: boolean;
 }
 
 export interface ClassroomUpdateInput extends ClassroomCreateInput { }

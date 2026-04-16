@@ -33,6 +33,11 @@ export interface User {
   avatar?: string;
   department?: string;
   year?: number;
+  studentId?: string;
+  programId?: number;
+  programName?: string;
+  programLevelId?: number;
+  currentSemesterId?: number;
 }
 
 function resolveFrontendRoleFromBackendRoles(rawRoles: unknown): UserRole {
@@ -85,13 +90,44 @@ function resolvePageFromQuery(page: string | null, role: UserRole): string {
   return allowedPages[role].includes(page) ? page : resolveDashboardPage(role);
 }
 
+function parseOptionalNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
 function buildUserFromSession(parsed: any, role: UserRole): User {
+  const resolvedName =
+    parsed?.studentFullname ||
+    parsed?.student_fullname ||
+    parsed?.['student Fullname'] ||
+    (parsed?.firstName ? `${parsed.firstName} ${parsed.lastName ?? ''}`.trim() : undefined) ||
+    parsed?.username ||
+    parsed?.email ||
+    'Unknown User';
+
   return {
     id: parsed.id ? String(parsed.id) : parsed.username || parsed.email || 'unknown',
-    name: parsed.firstName ? `${parsed.firstName} ${parsed.lastName}` : parsed.username || parsed.email || 'Unknown User',
+    name: resolvedName,
     email: parsed.email || parsed.username || 'unknown@example.com',
     role,
     department: parsed.department || parsed.university || parsed.university_name || undefined,
+    studentId: parsed.universityStudentId ? String(parsed.universityStudentId) : parsed.id ? String(parsed.id) : undefined,
+    programId: parseOptionalNumber(parsed.programId ?? parsed.programID ?? parsed.student?.programId),
+    programName: parsed.programName || parsed.program_name || parsed.program || undefined,
+    programLevelId: parseOptionalNumber(
+      parsed.programLevelId ?? parsed.programLevelID ?? parsed.student?.programLevelId,
+    ),
+    currentSemesterId: parseOptionalNumber(
+      parsed.currentSemesterId ??
+      parsed.currentSemesterID ??
+      parsed.semesterId ??
+      parsed.semesterID ??
+      parsed.student?.currentSemesterId,
+    ),
   };
 }
 

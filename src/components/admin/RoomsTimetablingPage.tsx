@@ -186,6 +186,8 @@ const levelLabel = (level: number) => `Level ${level}`;
 const classroomToClassType = (
   type: TimetableClassroomLookup["type"] | string,
 ): SlotType => {
+  if (type === "Hall") return "Lecture";
+  if (type === "Auditorium") return "Lecture";
   if (type === "Lab") return "Lab";
   if (type === "Other") return "Tutorial";
   return "Lecture"; // Default mapping
@@ -268,69 +270,69 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
 
           //Ensure Class Type is PascalCase
           // This converts 'lab' -> 'Lab' or 'lecture' -> 'Lecture'
-          const normalizedType = (item.type.charAt(0).toUpperCase() + 
-                               item.type.slice(1).toLowerCase()) as SlotType;
+          const normalizedType = (item.type.charAt(0).toUpperCase() +
+            item.type.slice(1).toLowerCase()) as SlotType;
 
 
           //Fix the "startTime/endTime" to match the DB reference date (2000-01-01)
-        // This ensures Zod can coerce it and the TSRANGE logic works perfectly.
-        const formatAsIso = (timeStr: string) => `2000-01-01T${timeStr}:00.000Z`;
+          // This ensures Zod can coerce it and the TSRANGE logic works perfectly.
+          const formatAsIso = (timeStr: string) => `2000-01-01T${timeStr}:00.000Z`;
 
           return {
-          id: String(item.id).startsWith('temp-') ? undefined : Number(item.id),
-          courseId: item.courseId,
-          teacherId: item.instructorId,
-          classroomId: item.classroomId,
-          learningGroupId: item.learningGroupId,
-          teacherName: item.instructorName,
-          classroomName: item.roomLabel,
-          dayOfWeek: item.day,
-          startTime: formatAsIso(item.startTime),
-          endTime: formatAsIso(item.endTime),
-          type: normalizedType,
-        };
-      }),
-    }
+            id: String(item.id).startsWith('temp-') ? undefined : Number(item.id),
+            courseId: item.courseId,
+            teacherId: item.instructorId,
+            classroomId: item.classroomId,
+            learningGroupId: item.learningGroupId,
+            teacherName: item.instructorName,
+            classroomName: item.roomLabel,
+            dayOfWeek: item.day,
+            startTime: formatAsIso(item.startTime),
+            endTime: formatAsIso(item.endTime),
+            type: normalizedType,
+          };
+        }),
+      }
 
-      
-      const result :TimetableSaveResult = await ScheduleService.saveSchedule(payload, activeSemesterId);
+
+      const result: TimetableSaveResult = await ScheduleService.saveSchedule(payload, activeSemesterId);
 
       // Helper to convert "2000-01-01T08:00:00.000Z" -> "08:00"
-    const extractTime = (isoString: string) => {
-      const parts = isoString.split('T');
-      return parts.length > 1 ? parts[1].substring(0, 5) : isoString;
-    };
-      
+      const extractTime = (isoString: string) => {
+        const parts = isoString.split('T');
+        return parts.length > 1 ? parts[1].substring(0, 5) : isoString;
+      };
+
       // 2. Map the fresh scheduleSlots from the response to local ScheduledClass type
 
-    const syncedClasses: ScheduledClass[] = result.scheduleSlots.map((slot) => ({
-      id: String(slot.id), // Real DB IDs are now strings for the UI
-      day: slot.dayOfWeek,
-    
-      startTime: extractTime(slot.startTime), 
-      endTime: extractTime(slot.endTime),
-      type: slot.type,
-      courseId: slot.course.id,
-      courseCode: slot.course.code,
-      courseName: slot.course.name,
-      instructorId: slot.teacher.id,
-      instructorName: slot.teacher.name,
-      classroomId: slot.classroom.id,
-      roomLabel: slot.classroom.label,
-      learningGroupId: slot.learningGroup?.id || null,
-    }));
+      const syncedClasses: ScheduledClass[] = result.scheduleSlots.map((slot) => ({
+        id: String(slot.id), // Real DB IDs are now strings for the UI
+        day: slot.dayOfWeek,
 
-    // 3. Update state with the clean "Truth" from the DB
-    setSavedClasses(syncedClasses);
-    setDraftClasses(deepCopy(syncedClasses)); 
-    
-    toast.success("Timetable saved successfully!");
-  } catch (error: any) {
-    toast.error(error?.message || "Failed to save timetable");
-  } finally {
-    setIsSavingTimetable(false);
-  }
-};
+        startTime: extractTime(slot.startTime),
+        endTime: extractTime(slot.endTime),
+        type: slot.type,
+        courseId: slot.course.id,
+        courseCode: slot.course.code,
+        courseName: slot.course.name,
+        instructorId: slot.teacher.id,
+        instructorName: slot.teacher.name,
+        classroomId: slot.classroom.id,
+        roomLabel: slot.classroom.label,
+        learningGroupId: slot.learningGroup?.id || null,
+      }));
+
+      // 3. Update state with the clean "Truth" from the DB
+      setSavedClasses(syncedClasses);
+      setDraftClasses(deepCopy(syncedClasses));
+
+      toast.success("Timetable saved successfully!");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to save timetable");
+    } finally {
+      setIsSavingTimetable(false);
+    }
+  };
   const handleDiscard = () => {
     console.log("handleDiscard called", { savedClasses });
     setDraftClasses(deepCopy(savedClasses));
@@ -1708,7 +1710,7 @@ export function RoomsTimetablingPage({ selectedUniversity }: RoomsTimetablingPag
                     setFormData({
                       ...formData,
                       classroomId: nextClassroomId,
-                      classType: classroomToClassType(nextClassroom?.type || "Lecture"),
+                      classType: classroomToClassType(nextClassroom?.type || "Hall"),
                     });
                   }}
                   options={classroomOptions}

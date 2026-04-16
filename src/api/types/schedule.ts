@@ -1,5 +1,5 @@
-export type DayOfWeek = 
-  | 'Saturday' | 'Sunday' | 'Monday' | 'Tuesday' 
+export type DayOfWeek =
+  | 'Saturday' | 'Sunday' | 'Monday' | 'Tuesday'
   | 'Wednesday' | 'Thursday' | 'Friday';
 
 export type SlotType = 'Lecture' | 'Lab' | 'Tutorial';
@@ -15,7 +15,7 @@ export interface TimetableClassroomLookup {
   classroomNumber: string;
   building: string;
   capacity: number;
-  type: 'Lecture' | 'Lab' | 'Auditorium' | 'Other';
+  type: 'Hall' | 'Lab' | 'Auditorium' | 'Other';
 }
 
 export interface TimetableStaffLookup {
@@ -31,23 +31,25 @@ export interface ScheduleSlot {
   startTime: string; // "HH:mm"
   endTime: string;   // "HH:mm"
   type: SlotType;
-  
+  enrolledSeats?: number;
+
   course: {
     id: number;
     code: string;
     name: string;
   };
-  
+
   teacher: {
     id: number;
     name: string;
   };
-  
+
   classroom: {
     id: number;
     label: string; // e.g., "Building A / Room 101"
+    capacity?: number;
   };
-  
+
   learningGroup: {
     id: number;
     name: string;
@@ -61,7 +63,7 @@ export interface GetScheduleResponse {
     academicLevel: number;
     semesterId: number;
   };
-  lookups: {
+  lookups?: {
     courses: TimetableCourseLookup[];
     classrooms: TimetableClassroomLookup[];
     staff: TimetableStaffLookup[];
@@ -76,9 +78,9 @@ export interface TimetableSaveSessionInput {
   teacherId: number;
   classroomId: number;
   learningGroupId: number | null;
-  
+
   // Mandatory Helpers for Backend Conflict Reporting
-  teacherName: string; 
+  teacherName: string;
   classroomName: string;
 
   dayOfWeek: DayOfWeek;
@@ -98,7 +100,7 @@ export interface TimetableSaveResult {
   created: number;
   updated: number;
   unchanged: number;
-scheduleSlots: Array<{
+  scheduleSlots: Array<{
     id: number;
     dayOfWeek: DayOfWeek;
     startTime: string;

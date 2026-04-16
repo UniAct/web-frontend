@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator
 } from '../ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
-import type { User } from '../../App';
+import type { User as AppUser } from '../../App';
 import { motion } from 'framer-motion';
 
 interface Notification {
@@ -32,12 +32,12 @@ export function Header({ user, notifications, onNotificationRead }: HeaderProps)
   const [searchQuery, setSearchQuery] = useState('');
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  // Student program details (mock data - would come from user object in real app)
-  const studentProgramDetails = {
-    program: 'Cybersecurity Engineering',
-    level: 'Bachelor',
-    year: 4,
-    semester: 1
+  const studentHeaderDetails = {
+    studentName: user.name || 'N/A',
+    studentId: user.studentId || user.id || 'N/A',
+    program: user.programName || (user.programId ? `Program #${user.programId}` : 'N/A'),
+    level: user.programLevelId ?? 'N/A',
+    semester: user.currentSemesterId ?? 'N/A',
   };
 
   return (
@@ -53,20 +53,24 @@ export function Header({ user, notifications, onNotificationRead }: HeaderProps)
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm text-gray-700">
-                  <span className="text-gray-500">Program:</span> <span className="font-medium">{studentProgramDetails.program}</span>
+                  <span className="text-gray-500">Name:</span> <span className="font-medium">{studentHeaderDetails.studentName}</span>
                 </span>
                 <span className="text-gray-300">|</span>
                 <span className="text-sm text-gray-700">
-                  <span className="text-gray-500">Level:</span> <span className="font-medium">{studentProgramDetails.level}</span>
+                  <span className="text-gray-500">ID:</span> <span className="font-medium">{studentHeaderDetails.studentId}</span>
                 </span>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm text-gray-700">
-                  <span className="text-gray-500">Year:</span> <span className="font-medium">{studentProgramDetails.year}</span>
+                  <span className="text-gray-500">Program:</span> <span className="font-medium">{studentHeaderDetails.program}</span>
                 </span>
                 <span className="text-gray-300">|</span>
                 <span className="text-sm text-gray-700">
-                  <span className="text-gray-500">Semester:</span> <span className="font-medium">{studentProgramDetails.semester}</span>
+                  <span className="text-gray-500">Level:</span> <span className="font-medium">{studentHeaderDetails.level}</span>
+                </span>
+                <span className="text-gray-300">|</span>
+                <span className="text-sm text-gray-700">
+                  <span className="text-gray-500">Semester:</span> <span className="font-medium">{studentHeaderDetails.semester}</span>
                 </span>
               </div>
             </div>
