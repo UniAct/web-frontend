@@ -41,10 +41,11 @@ import { TenantDetectionService } from '../services/TenantDetectionService';
 import { homeEvents, homeFaculties, homeHeroImages } from '../features/home';
 import type { PublicTenantProfile } from '../api';
 import type { UserRole } from '../App';
+import type { LoginResponse } from '../api';
 import type { Faculty, HomeEvent } from '../features/home';
 
 interface HomePageProps {
-  onLogin: (email: string, role: UserRole) => void;
+  onLogin: (email: string, role: UserRole, session?: LoginResponse) => void;
 }
 
 export function HomePage({ onLogin }: HomePageProps) {
@@ -201,7 +202,7 @@ export function HomePage({ onLogin }: HomePageProps) {
         console.log('[HomePage] SuperAdmin login successful:', response);
 
         // Call the onLogin callback with superadmin role
-        onLogin(email, 'superadmin' as UserRole);
+        onLogin(email, 'superadmin' as UserRole, response);
 
         // Close modal and reset form
         setShowLoginModal(false);
@@ -217,7 +218,7 @@ export function HomePage({ onLogin }: HomePageProps) {
         console.log('[HomePage] Tenant user login successful:', response);
 
         // App.tsx resolves the final role from backend token/session roles.
-        onLogin(email, 'student');
+        onLogin(email, 'student', response);
 
         // Close modal and reset form
         setShowLoginModal(false);

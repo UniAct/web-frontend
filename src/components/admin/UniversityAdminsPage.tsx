@@ -11,9 +11,10 @@ import {
   Search,
   Trash2,
   Shield,
-  KeyRound,
   Loader2,
   RefreshCcw,
+  FolderKanban,
+  Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { RBACService } from '../../api';
@@ -35,6 +36,115 @@ const emptyForm: RoleFormState = {
   description: '',
   permissions: [],
 };
+
+type PermissionGroup = {
+  moduleKey: string;
+  moduleLabel: string;
+  actions: string[];
+  rawPermissions: string[];
+};
+
+const actionOrder = ['read', 'create', 'update', 'delete', 'assign_role', 'enroll'];
+const moduleAccentClasses = [
+  'border-blue-200 bg-blue-50/80',
+  'border-emerald-200 bg-emerald-50/80',
+  'border-violet-200 bg-violet-50/80',
+  'border-amber-200 bg-amber-50/80',
+  'border-cyan-200 bg-cyan-50/80',
+  'border-rose-200 bg-rose-50/80',
+];
+
+function formatModuleLabel(moduleName: string): string {
+  return moduleName
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function formatActionLabel(actionName: string): string {
+  if (actionName === 'assign_role') return 'assign role';
+
+  return actionName
+    .split(/[-_]/)
+    .filter(Boolean)
+    .join(' ');
+}
+
+function comparePermissionActions(left: string, right: string): number {
+  const leftIndex = actionOrder.indexOf(left);
+  const rightIndex = actionOrder.indexOf(right);
+
+  if (leftIndex === -1 && rightIndex === -1) return left.localeCompare(right);
+  if (leftIndex === -1) return 1;
+  if (rightIndex === -1) return -1;
+  return leftIndex - rightIndex;
+}
+
+function getActionBadgeClasses(action: string): string {
+  switch (action) {
+    case 'read':
+      return 'border-sky-200 bg-sky-100 text-sky-700';
+    case 'create':
+      return 'border-emerald-200 bg-emerald-100 text-emerald-700';
+    case 'update':
+      return 'border-amber-200 bg-amber-100 text-amber-700';
+    case 'delete':
+      return 'border-rose-200 bg-rose-100 text-rose-700';
+    case 'assign_role':
+      return 'border-violet-200 bg-violet-100 text-violet-700';
+    case 'enroll':
+      return 'border-indigo-200 bg-indigo-100 text-indigo-700';
+    default:
+      return 'border-slate-200 bg-slate-100 text-slate-700';
+  }
+}
+
+function getModuleAccentClasses(moduleKey: string): string {
+  let hash = 0;
+  for (let index = 0; index < moduleKey.length; index += 1) {
+    hash = (hash * 31 + moduleKey.charCodeAt(index)) % moduleAccentClasses.length;
+  }
+
+  return moduleAccentClasses[hash];
+}
+
+function getModuleBadgeClasses(moduleKey: string): string {
+  return `${getModuleAccentClasses(moduleKey)} text-slate-800 shadow-none`;
+}
+
+function groupPermissions(permissionNames: string[]): PermissionGroup[] {
+  const groups = new Map<string, PermissionGroup>();
+
+  permissionNames.forEach((permissionName) => {
+    const [moduleName, ...actionParts] = permissionName.split('.');
+    const normalizedModule = (moduleName || 'general').trim().toLowerCase();
+    const normalizedAction = (actionParts.join('.') || 'access').trim().toLowerCase();
+
+    if (!groups.has(normalizedModule)) {
+      groups.set(normalizedModule, {
+        moduleKey: normalizedModule,
+        moduleLabel: formatModuleLabel(normalizedModule),
+        actions: [],
+        rawPermissions: [],
+      });
+    }
+
+    const group = groups.get(normalizedModule)!;
+    if (!group.actions.includes(normalizedAction)) {
+      group.actions.push(normalizedAction);
+    }
+    group.rawPermissions.push(permissionName);
+  });
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      ...group,
+      actions: [...group.actions].sort(comparePermissionActions),
+      rawPermissions: [...group.rawPermissions].sort(),
+    }))
+    .sort((left, right) => left.moduleLabel.localeCompare(right.moduleLabel));
+}
 
 export function UniversityAdminsPage({ selectedUniversity }: UniversityAdminsPageProps) {
   const [roles, setRoles] = useState<Role[]>([]);
@@ -82,6 +192,25 @@ export function UniversityAdminsPage({ selectedUniversity }: UniversityAdminsPag
       );
     });
   }, [roles, searchQuery]);
+
+  const permissionGroups = useMemo(
+    () =>
+      groupPermissions(
+        permissions
+          .map((permission) => permission.name)
+          .filter(Boolean),
+      ),
+    [permissions],
+  );
+
+  const groupedRoles = useMemo(
+    () =>
+      filteredRoles.map((role) => ({
+        ...role,
+        permissionGroups: groupPermissions(role.permissions ?? []),
+      })),
+    [filteredRoles],
+  );
 
   const resetForm = () => {
     setForm(emptyForm);
@@ -219,7 +348,7 @@ export function UniversityAdminsPage({ selectedUniversity }: UniversityAdminsPag
         </Card>
       </div>
 
-      <Card>
+      <Card className="border-slate-200 shadow-sm">
         <CardContent className="p-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -233,8 +362,8 @@ export function UniversityAdminsPage({ selectedUniversity }: UniversityAdminsPag
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
+      <Card className="overflow-hidden border-slate-200 shadow-sm">
+        <CardHeader className="border-b border-slate-200 bg-slate-50/60">
           <CardTitle>Configured Roles</CardTitle>
           <CardDescription>
             Create role templates and assign permissions so each admin can access the right tools.
@@ -247,49 +376,126 @@ export function UniversityAdminsPage({ selectedUniversity }: UniversityAdminsPag
               Loading roles...
             </div>
           ) : (
-            <Table>
-              <TableHeader>
+            <div className="overflow-x-auto">
+            <Table className="min-w-[1120px]">
+              <TableHeader className="bg-white">
                 <TableRow>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Permissions</TableHead>
-                  <TableHead className="w-[140px]">Actions</TableHead>
+                  <TableHead className="w-[250px]">Role</TableHead>
+                  <TableHead className="w-[280px]">Summary</TableHead>
+                  <TableHead className="w-[520px]">Permissions by Module</TableHead>
+                  <TableHead className="w-[160px] text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRoles.length > 0 ? (
-                  filteredRoles.map((role) => (
-                    <TableRow key={role.id}>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Shield className="h-4 w-4 text-blue-600" />
-                          <span className="font-medium text-slate-900">{role.name}</span>
+                {groupedRoles.length > 0 ? (
+                  groupedRoles.map((role) => (
+                    <TableRow key={role.id} className="align-top hover:bg-slate-50/70">
+                      <TableCell className="align-top">
+                        <div className="space-y-3">
+                          <div className="flex items-start gap-3">
+                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 text-white shadow-sm">
+                              <Shield className="h-5 w-5" />
+                            </div>
+                            <div className="min-w-0 space-y-1">
+                              <p className="truncate text-base font-semibold text-slate-900">{role.name}</p>
+                              <div className="flex flex-wrap gap-2">
+                                <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
+                                  Role #{role.id}
+                                </Badge>
+                                <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
+                                  {role.permissionGroups.length} module{role.permissionGroups.length === 1 ? '' : 's'}
+                                </Badge>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       </TableCell>
-                      <TableCell>{role.description || '-'}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-2">
-                          {(role.permissions ?? []).length > 0 ? (
-                            (role.permissions ?? []).map((permission) => (
-                              <Badge key={permission} variant="outline" className="gap-1">
-                                <KeyRound className="h-3 w-3" />
-                                {permission}
+                      <TableCell className="max-w-[280px] align-top">
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                          <div className="mb-3 flex items-center gap-2">
+                            <Sparkles className="h-4 w-4 text-slate-500" />
+                            <p className="text-sm font-semibold text-slate-900">Role Overview</p>
+                          </div>
+                          <p className="text-sm leading-6 text-slate-700">
+                            {role.description || 'No description provided for this role yet.'}
+                          </p>
+                          <div className="mt-4 grid grid-cols-2 gap-2">
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                              <p className="text-xs uppercase tracking-wide text-slate-500">Permissions</p>
+                              <p className="mt-1 text-lg font-semibold text-slate-900">
+                                {(role.permissions ?? []).length}
+                              </p>
+                            </div>
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                              <p className="text-xs uppercase tracking-wide text-slate-500">Coverage</p>
+                              <p className="mt-1 text-lg font-semibold text-slate-900">
+                                {role.permissionGroups.length}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="align-top">
+                        {(role.permissions ?? []).length > 0 ? (
+                          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                            <div className="mb-4 flex flex-wrap items-center gap-2">
+                              <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
+                                {(role.permissions ?? []).length} total
                               </Badge>
-                            ))
-                          ) : (
-                            <span className="text-slate-500">No permissions assigned</span>
-                          )}
-                        </div>
+                              <Badge variant="outline" className="border-slate-200 bg-white text-slate-600">
+                                {role.permissionGroups.length} modules
+                              </Badge>
+                            </div>
+                            <div className="grid gap-2 lg:grid-cols-2">
+                              {role.permissionGroups.map((group) => (
+                                <div
+                                  key={`${role.id}-${group.moduleKey}`}
+                                  className={`rounded-2xl border p-3 ${getModuleAccentClasses(group.moduleKey)}`}
+                                >
+                                  <div className="mb-2 flex items-center gap-2">
+                                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/80 text-slate-700 shadow-sm">
+                                      <FolderKanban className="h-4 w-4" />
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-semibold text-slate-900">
+                                        {group.moduleLabel}
+                                      </p>
+                                      <p className="text-xs text-slate-500">
+                                        {group.actions.length} action{group.actions.length === 1 ? '' : 's'}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {group.actions.map((action) => (
+                                      <Badge
+                                        key={`${group.moduleKey}-${action}`}
+                                        variant="outline"
+                                        className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium capitalize ${getActionBadgeClasses(action)}`}
+                                      >
+                                        {formatActionLabel(action)}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex min-h-24 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 text-sm text-slate-500">
+                            No permissions assigned
+                          </div>
+                        )}
                       </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button variant="ghost" size="sm" onClick={() => openEditModal(role)}>
+                      <TableCell className="align-top">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="outline" size="sm" className="border-slate-200 bg-white" onClick={() => openEditModal(role)}>
                             Edit
                           </Button>
                           <Button
-                            variant="ghost"
+                            variant="outline"
                             size="sm"
-                            className="text-red-600 hover:text-red-700"
+                            className="border-red-200 bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700"
                             onClick={() => void handleDeleteRole(role)}
                           >
                             <Trash2 className="h-4 w-4" />
@@ -307,6 +513,7 @@ export function UniversityAdminsPage({ selectedUniversity }: UniversityAdminsPag
                 )}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -352,28 +559,60 @@ export function UniversityAdminsPage({ selectedUniversity }: UniversityAdminsPag
             </div>
 
             <div>
-              <p className="mb-3 text-sm font-medium text-slate-700">Permissions</p>
-              <div className="grid max-h-72 grid-cols-1 gap-3 overflow-y-auto overflow-x-hidden rounded-lg border p-4 lg:grid-cols-2">
-                {permissions.map((permission) => {
-                  const checked = form.permissions.includes(permission.name);
-                  return (
-                    <label
-                      key={permission.name}
-                      className="flex min-w-0 items-start gap-3 rounded-md border p-3 text-sm"
-                    >
-                      <Checkbox
-                        checked={checked}
-                        onCheckedChange={(value) =>
-                          togglePermission(permission.name, Boolean(value))
-                        }
-                      />
-                      <div className="min-w-0">
-                        <p className="font-medium text-slate-900 break-all">{permission.name}</p>
-                        <p className="text-slate-500 break-words">{permission.description || 'No description'}</p>
-                      </div>
-                    </label>
-                  );
-                })}
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <p className="text-sm font-medium text-slate-700">Permissions</p>
+                <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-600">
+                  {form.permissions.length} selected
+                </Badge>
+              </div>
+              <div className="max-h-72 space-y-4 overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+                {permissionGroups.map((group) => (
+                  <div key={group.moduleKey} className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className={`border px-2.5 py-1 text-xs font-semibold ${getModuleBadgeClasses(group.moduleKey)}`}>
+                        {group.moduleLabel}
+                      </Badge>
+                      <span className="text-xs text-slate-500">
+                        {group.actions.length} action{group.actions.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                      {group.rawPermissions.map((permissionName) => {
+                        const permission = permissions.find((item) => item.name === permissionName);
+                        if (!permission) return null;
+
+                        const checked = form.permissions.includes(permission.name);
+                        const actionName = permission.name.split('.').slice(1).join('.') || 'access';
+
+                        return (
+                          <label
+                            key={permission.name}
+                            className="flex min-w-0 items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-sm shadow-sm transition-colors hover:border-slate-300"
+                          >
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(value) =>
+                                togglePermission(permission.name, Boolean(value))
+                              }
+                            />
+                            <div className="min-w-0 space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-medium text-slate-900">{formatActionLabel(actionName)}</p>
+                                <Badge
+                                  variant="outline"
+                                  className={`rounded-full border px-2 py-0.5 text-[11px] font-medium capitalize ${getActionBadgeClasses(actionName)}`}
+                                >
+                                  {permission.name}
+                                </Badge>
+                              </div>
+                              <p className="text-slate-500 break-words">{permission.description || 'No description'}</p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 

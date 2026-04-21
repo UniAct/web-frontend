@@ -66,3 +66,12 @@ export type {
   StudentImportStatusResponse,
   StudentWriteResponse,
 } from './student';
+export type {
+  EnrollmentSubmitInput,
+  EnrollmentScheduleSlot,
+  EnrollmentSubmitResponse,
+  EnrollmentJobStatus,
+  EnrollmentJobSlotResult,
+  EnrollmentJobResult,
+  EnrollmentStatusResponse,
+} from './enrollment';

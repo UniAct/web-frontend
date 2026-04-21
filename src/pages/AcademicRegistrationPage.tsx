@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import type { User as AppUser } from '../App';
 import { toast } from 'sonner';
-import { ProgramService, ScheduleService, type ScheduleSlot } from '../api';
+import { ProgramService, ScheduleService, EnrollmentService, type ScheduleSlot } from '../api';
 
 interface AcademicRegistrationPageProps {
   user: AppUser;
@@ -15,6 +15,7 @@ interface AcademicRegistrationPageProps {
 
 interface CourseSession {
   sessionId: string;
+  slotId: number;
   lecturer: string;
   content: string[];
   day: string;
@@ -22,6 +23,7 @@ interface CourseSession {
   timeTo: string;
   room: string;
   availableSeats: number;
+  rawSlot: ScheduleSlot;
 }
 
 interface Course {
@@ -104,6 +106,7 @@ function mapScheduleSlotsToCourses(slots: ScheduleSlot[], level: number): Course
 
     const session: CourseSession = {
       sessionId: String(slot.id),
+      slotId: slot.slotId ?? slot.id,
       lecturer: slot.teacher.name,
       content: [slot.type],
       day: slot.dayOfWeek,
@@ -111,15 +114,16 @@ function mapScheduleSlotsToCourses(slots: ScheduleSlot[], level: number): Course
       timeTo: format24HourTo12Hour(slot.endTime),
       room: slot.classroom.label,
       availableSeats,
+      rawSlot: slot,
     };
 
     if (!courseMap.has(courseId)) {
       courseMap.set(courseId, {
         id: courseId,
         name: slot.course.name,
-        code: slot.course.code,
+        code: slot.course.code || slot.course.name || `Course ${slot.course.id}`,
         type: 'Program Mandatory',
-        creditHours: 3,
+        creditHours: slot.course.credits ?? 3,
         failureTimes: 0,
         level,
         sessions: [session],
@@ -140,6 +144,8 @@ const timeSlots = [
 ];
 const daysOfWeek = ['Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const MAX_CREDIT_HOURS = 21;
+const ENROLLMENT_POLL_DELAY_MS = 1500;
+const ENROLLMENT_MAX_POLLS = 40;
 
 // Timetable column dims (px)
 const SLOT_W = 82;
@@ -179,11 +185,64 @@ function shortTime(t: string) {
   return `${parseInt(hm.split(':')[0], 10)} ${ampm}`;
 }
 
+function buildIsoDateTime(time24: string, dayOffset = 0): string {
+  const [rawHour = '00', rawMinute = '00'] = time24.split(':');
+  const hour = Number(rawHour);
+  const minute = Number(rawMinute);
+  const safeHour = Number.isFinite(hour) ? hour : 0;
+  const safeMinute = Number.isFinite(minute) ? minute : 0;
+  return new Date(Date.UTC(1970, 0, 1 + dayOffset, safeHour, safeMinute, 0, 0)).toISOString();
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function getPhysicalSlotId(session: Pick<SelectedSession, 'rawSlot' | 'slotId'>): number {
+  return session.rawSlot.slotId ?? session.slotId ?? session.rawSlot.id;
+}
+
+function getEnrollmentCredits(
+  sessions: SelectedSession[],
+  enrolledSlotIds: Set<number>,
+): number {
+  const enrolledCourseCredits = new Map<string, number>();
+
+  sessions.forEach((session) => {
+    if (!enrolledSlotIds.has(getPhysicalSlotId(session))) {
+      return;
+    }
+
+    if (!enrolledCourseCredits.has(session.courseId)) {
+      enrolledCourseCredits.set(session.courseId, session.creditHours);
+    }
+  });
+
+  return Array.from(enrolledCourseCredits.values()).reduce((sum, credits) => sum + credits, 0);
+}
+
+function getFailedEnrollmentMessage(failedSessions: Array<{ courseCode?: string; reason?: string }>): string {
+  const details = failedSessions
+    .slice(0, 2)
+    .map((session) => {
+      const label = session.courseCode?.trim();
+      const reason = session.reason?.trim() || 'Registration failed';
+      return label ? `${label}: ${reason}` : reason;
+    })
+    .join(' | ');
+
+  return details || 'Registration could not be completed.';
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps) {
-  const [selectedLevel, setSelectedLevel] = useState(String(user.programLevel ?? user.programLevelId ?? 1));
+  const [selectedLevel, setSelectedLevel] = useState(() =>
+    user.programLevel ? String(user.programLevel) : ''
+  );
+  const [isLevelResolved, setIsLevelResolved] = useState(() => !!user.programLevel);
   const [courses, setCourses] = useState<Course[]>([]);
   const [isLoadingCourses, setIsLoadingCourses] = useState(false);
+  const [isSubmittingRegistration, setIsSubmittingRegistration] = useState(false);
   const [selectedSessions, setSelectedSessions] = useState<SelectedSession[]>([]);
   const [sessionSeats, setSessionSeats] = useState<Record<string, number>>({});
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
@@ -206,6 +265,7 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
     if (user.role !== 'student') return;
     if (user.programLevel) {
       setSelectedLevel(String(user.programLevel));
+      setIsLevelResolved(true);
       return;
     }
 
@@ -226,7 +286,10 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
         if (resolvedLevel) {
           setSelectedLevel(String(resolvedLevel));
         }
+
+        setIsLevelResolved(true);
       } catch {
+        setIsLevelResolved(true);
         // Keep fallback selectedLevel when program lookup is unavailable.
       }
     };
@@ -242,7 +305,7 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
   useEffect(() => {
     if (user.role !== 'student') return;
 
-    if (!user.programId || !user.currentSemesterId) {
+    if (!isLevelResolved || !selectedLevel || !user.programId || !user.currentSemesterId) {
       setCourses([]);
       return;
     }
@@ -275,7 +338,7 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
     return () => {
       isMounted = false;
     };
-  }, [user.role, user.programId, user.currentSemesterId, selectedLevel]);
+  }, [isLevelResolved, selectedLevel, user.role, user.programId, user.currentSemesterId]);
 
   // ── Business logic (all preserved) ────────────────────────────────────────
   const isSessionAdded = (sessionId: string) =>
@@ -343,7 +406,7 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
       { ...session, courseId: course.id, courseName: course.name, courseCode: course.code, creditHours: course.creditHours, addedAt: new Date() },
     ]);
     setSessionSeats(prev => ({ ...prev, [session.sessionId]: seats - 1 }));
-    toast.success(`✓ ${course.code} added to timetable`);
+    toast.success(`✓ ${course.code || course.name || 'Course'} added to timetable`);
   };
 
   const removeSession = (sessionId: string) => {
@@ -355,9 +418,107 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
     toast.success('Session removed from timetable');
   };
 
-  const submitRegistration = () => {
-    if (selectedSessions.length === 0) { toast.error('Please select at least one course session'); return; }
-    toast.success(`✓ Registration submitted — ${getTotalCreditHours()} credit hours`);
+  const submitRegistration = async () => {
+    if (selectedSessions.length === 0) {
+      toast.error('Please select at least one course session');
+      return;
+    }
+
+    try {
+      setIsSubmittingRegistration(true);
+      const submittedSessions = [...selectedSessions];
+
+      const enrollmentData = {
+        scheduleSlots: submittedSessions.map((session) => {
+          const slot = session.rawSlot;
+          const slotId = slot.slotId ?? session.slotId ?? slot.id;
+
+          return {
+            id: slotId,
+            start_time: buildIsoDateTime(slot.startTime),
+            end_time: buildIsoDateTime(slot.endTime, slot.endTime <= slot.startTime ? 1 : 0),
+            type: slot.type,
+            course: {
+              id: slot.course.id,
+              code: slot.course.code || session.courseCode || session.courseName,
+              name: slot.course.name || session.courseName,
+              credits: slot.course.credits ?? session.creditHours,
+            },
+            teacher: {
+              id: slot.teacher.id,
+              name: slot.teacher.name,
+            },
+            classroom: {
+              id: slot.classroom.id,
+              label: slot.classroom.label,
+              capacity: slot.classroom.capacity ?? 1,
+            },
+          };
+        }),
+      };
+
+      const response = await EnrollmentService.submitEnrollment(enrollmentData);
+
+      let finalStatus = await EnrollmentService.getEnrollmentStatus(response.jobId);
+
+      toast.success(response.message || 'Registration submitted. Your enrollment is being processed.');
+
+      for (let attempt = 0; attempt < ENROLLMENT_MAX_POLLS && !finalStatus.isCompleted; attempt += 1) {
+        await delay(ENROLLMENT_POLL_DELAY_MS);
+        finalStatus = await EnrollmentService.getEnrollmentStatus(response.jobId);
+      }
+
+      if (!finalStatus.isCompleted) {
+        toast.warning('Registration is still processing. Please refresh in a moment to see the final result.');
+        return;
+      }
+
+      const result = finalStatus.result;
+
+      if (finalStatus.hasError || result?.error) {
+        toast.error(result?.error || 'Registration could not be completed.');
+        return;
+      }
+
+      const enrolledSessions = (result?.slots || []).filter((slot) => slot.status === 'enrolled');
+      const failedSessions = (result?.slots || []).filter((slot) => slot.status === 'failed');
+      const enrolledSlotIds = new Set(enrolledSessions.map((slot) => slot.slotId));
+      const enrolledCredits = getEnrollmentCredits(submittedSessions, enrolledSlotIds);
+
+      if (enrolledSlotIds.size > 0) {
+        setSelectedSessions((currentSessions) =>
+          currentSessions.filter((session) => !enrolledSlotIds.has(getPhysicalSlotId(session)))
+        );
+      }
+
+      setSessionSeats({});
+
+      if (enrolledSessions.length > 0 && failedSessions.length === 0) {
+        toast.success(`Registration completed - ${enrolledCredits} credit hours enrolled`);
+        return;
+      }
+
+      if (enrolledSessions.length > 0) {
+        toast.warning(
+          `Registration completed with issues - ${enrolledCredits} credit hours enrolled. ${getFailedEnrollmentMessage(failedSessions)}`
+        );
+        return;
+      }
+
+      toast.error(getFailedEnrollmentMessage(failedSessions));
+      return;
+
+      /*
+      // Unreachable legacy toast removed by the async job flow above.
+        response.message || `✓ Registration submitted — ${response.totalCredits} credit hours enrolled`
+      );
+      */
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to submit enrollment';
+      toast.error(errorMessage);
+    } finally {
+      setIsSubmittingRegistration(false);
+    }
   };
 
   const getCoursesForLevel = (level: number) => courses.filter(c => c.level === level);
@@ -941,12 +1102,12 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
       {/* Submit button */}
       <Button
         onClick={submitRegistration}
-        disabled={selectedSessions.length === 0}
+        disabled={selectedSessions.length === 0 || isSubmittingRegistration}
         style={{ flexShrink: 0, marginLeft: isSplit ? 'auto' : 0 }}
         className="bg-blue-500 hover:bg-blue-400 disabled:opacity-40 text-white border-0 gap-1.5 h-8 text-xs font-semibold shadow-lg"
       >
-        <SendHorizonal style={{ width: 14, height: 14 }} />
-        <span>Submit Registration</span>
+        <SendHorizonal style={{ width: 14, height: 14, opacity: isSubmittingRegistration ? 0.6 : 1 }} />
+        <span>{isSubmittingRegistration ? 'Submitting...' : 'Submit Registration'}</span>
       </Button>
     </div>
   );
@@ -1002,10 +1163,11 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
               </span>
               <Button
                 onClick={submitRegistration}
-                className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5 h-8"
+                disabled={isSubmittingRegistration}
+                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs gap-1.5 h-8"
               >
-                <SendHorizonal style={{ width: 13, height: 13 }} />
-                Submit
+                <SendHorizonal style={{ width: 13, height: 13, opacity: isSubmittingRegistration ? 0.6 : 1 }} />
+                {isSubmittingRegistration ? 'Submitting...' : 'Submit'}
               </Button>
             </div>
           )}

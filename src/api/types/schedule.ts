@@ -27,6 +27,7 @@ export interface TimetableStaffLookup {
 
 export interface ScheduleSlot {
   id: number;
+  slotId?: number;
   dayOfWeek: DayOfWeek;
   startTime: string; // "HH:mm"
   endTime: string;   // "HH:mm"
@@ -37,6 +38,7 @@ export interface ScheduleSlot {
     id: number;
     code: string;
     name: string;
+    credits?: number;
   };
 
   teacher: {

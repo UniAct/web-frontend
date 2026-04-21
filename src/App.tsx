@@ -21,9 +21,10 @@ import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
 import { BootstrapAnimation } from './components/bootstrap/BootstrapAnimation';
 import { TenantDetectionService } from './services/TenantDetectionService';
-import { apiClient } from './api';
+import { apiClient, type LoginResponse } from './api';
 
 export type UserRole = 'student' | 'faculty' | 'admin' | 'alumni' | 'superadmin';
+const FRONTEND_ROLE_STORAGE_KEY = 'role';
 
 export interface User {
   id: string;
@@ -42,6 +43,25 @@ export interface User {
   currentSemesterType?: 'Fall' | 'Spring' | 'Summer';
   currentSemesterYear?: number;
   currentSemesterTerm?: number;
+}
+
+type SessionLoginPayload = Pick<LoginResponse, 'token' | 'user'>;
+
+function isUserRole(value: unknown): value is UserRole {
+  return value === 'student' || value === 'faculty' || value === 'admin' || value === 'alumni' || value === 'superadmin';
+}
+
+function readStoredFrontendRole(): UserRole | undefined {
+  try {
+    const raw = localStorage.getItem(FRONTEND_ROLE_STORAGE_KEY);
+    return isUserRole(raw) ? raw : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function persistFrontendRole(role: UserRole): void {
+  localStorage.setItem(FRONTEND_ROLE_STORAGE_KEY, role);
 }
 
 function resolveFrontendRoleFromBackendRoles(rawRoles: unknown): UserRole {
@@ -93,6 +113,32 @@ function resolvePageFromQuery(page: string | null, role: UserRole): string {
 
   const rolePages = allowedPages[role] ?? allowedPages.student;
   return rolePages.includes(page) ? page : resolveDashboardPage(role);
+}
+
+function resolveAdminShellPage(page: string | null, role: Extract<UserRole, 'admin' | 'superadmin'>): string {
+  if (role === 'superadmin') {
+    return 'universities';
+  }
+
+  const allowedPages = [
+    'statistics',
+    'settings',
+    'admins',
+    'programs',
+    'rooms',
+    'timetabling',
+    'staff',
+    'students',
+    'enrollment',
+    'level-tables',
+    'attendance',
+    'grades',
+    'announcements',
+    'audit',
+  ];
+
+  if (!page) return 'statistics';
+  return allowedPages.includes(page) ? page : 'statistics';
 }
 
 function parseOptionalNumber(value: unknown): number | undefined {
@@ -214,10 +260,32 @@ function buildUserFromSession(parsed: any, role: UserRole): User {
   };
 }
 
+function readStoredSessionUser(): User | null {
+  try {
+    const token = localStorage.getItem('token');
+    const userJson = localStorage.getItem('user');
+
+    if (!token || !userJson) {
+      return null;
+    }
+
+    const parsed = JSON.parse(userJson);
+    const restoredRole = resolveUserRole(parsed, readStoredFrontendRole() ?? 'student');
+    return buildUserFromSession(parsed, restoredRole);
+  } catch {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem(FRONTEND_ROLE_STORAGE_KEY);
+    localStorage.removeItem('tenantId');
+    console.warn('Failed to restore session, cleared localStorage.');
+    return null;
+  }
+}
+
 export default function App() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => readStoredSessionUser());
   const [tenantNotFound, setTenantNotFound] = useState(false);
   const [tenantSubdomain, setTenantSubdomain] = useState<string>('');
   const [isCheckingTenant, setIsCheckingTenant] = useState(true);
@@ -243,12 +311,55 @@ export default function App() {
     window.history.replaceState({}, '', nextUrl);
   }, [location.pathname, location.search, location.hash]);
 
-  useEffect(() => {
-    const roleKey = user?.role ?? 'guest';
-    document.documentElement.setAttribute('data-user-role', roleKey);
-  }, [user]);
+  const effectiveUser = user ?? readStoredSessionUser();
 
-  const currentPage = user ? resolvePageFromQuery(searchParams.get('page'), user.role) : 'home';
+  useEffect(() => {
+    const roleKey = (effectiveUser ?? readStoredSessionUser())?.role ?? 'guest';
+    document.documentElement.setAttribute('data-user-role', roleKey);
+  }, [effectiveUser]);
+
+  useEffect(() => {
+    if (user) return;
+
+    const restoredUser = readStoredSessionUser();
+    if (restoredUser) {
+      setUser(restoredUser);
+    }
+  }, [user, location.pathname, location.search]);
+
+  useEffect(() => {
+    if (!effectiveUser) return;
+
+    const next = new URLSearchParams(location.search);
+    let didChange = false;
+
+    const resolvedPage = resolvePageFromQuery(searchParams.get('page'), effectiveUser.role);
+    if (searchParams.get('page') !== resolvedPage) {
+      next.set('page', resolvedPage);
+      didChange = true;
+    }
+
+    if (effectiveUser.role === 'admin' || effectiveUser.role === 'superadmin') {
+      const resolvedAdminPage = resolveAdminShellPage(
+        searchParams.get('adminPage'),
+        effectiveUser.role,
+      );
+
+      if (searchParams.get('adminPage') !== resolvedAdminPage) {
+        next.set('adminPage', resolvedAdminPage);
+        didChange = true;
+      }
+    } else if (next.has('adminPage')) {
+      next.delete('adminPage');
+      didChange = true;
+    }
+
+    if (didChange) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [effectiveUser, location.search, searchParams, setSearchParams]);
+
+  const currentPage = effectiveUser ? resolvePageFromQuery(searchParams.get('page'), effectiveUser.role) : 'home';
 
   const navigateToPage = (page: string) => {
     const next = new URLSearchParams(location.search);
@@ -314,35 +425,25 @@ export default function App() {
     return () => clearTimeout(animationTimer);
   }, []);
 
-  // Try to restore session from localStorage on mount
-  useEffect(() => {
-    try {
-      const token = localStorage.getItem('token');
-      const userJson = localStorage.getItem('user');
-      if (token && userJson) {
-        const parsed = JSON.parse(userJson);
+  // handleLogin: prefer the fresh session payload from login; otherwise fall back to stored session
+  const handleLogin = (email: string, role: UserRole, session?: SessionLoginPayload) => {
+    const sessionCandidate = session?.user
+      ? session.user
+      : (() => {
+          const token = localStorage.getItem('token');
+          const userJson = localStorage.getItem('user');
+          if (!token || !userJson) return null;
 
-        const restoredRole = resolveUserRole(parsed, 'student');
-        const restoredUser = buildUserFromSession(parsed, restoredRole);
-        setUser(restoredUser);
-      }
-    } catch (err) {
-      // corrupted localStorage entries - clear them
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      localStorage.removeItem('tenantId');
-      console.warn('Failed to restore session, cleared localStorage.');
-    }
-  }, []);
+          try {
+            return JSON.parse(userJson);
+          } catch {
+            return null;
+          }
+        })();
 
-  // handleLogin: try to use stored session if available; otherwise fall back to mock logic
-  const handleLogin = (email: string, role: UserRole) => {
-    // If there is a full session in localStorage, restore it
-    const token = localStorage.getItem('token');
-    const userJson = localStorage.getItem('user');
-    if (token && userJson) {
+    if (sessionCandidate) {
       try {
-        const parsed = JSON.parse(userJson);
+        const parsed = sessionCandidate;
 
         // Extract role from backend response
         // The backend may return multiple roles; resolve with explicit priority.
@@ -357,6 +458,7 @@ export default function App() {
         }
 
         const sessionUser = buildUserFromSession(parsed, finalRole);
+        persistFrontendRole(finalRole);
         setUser(sessionUser);
 
         // Route based on role and tenant context
@@ -393,6 +495,7 @@ export default function App() {
         role: 'superadmin',
         department: 'System Administration'
       };
+      persistFrontendRole('superadmin');
       setUser(superAdminUser);
       navigateToPage(resolvePageFromQuery(new URLSearchParams(location.search).get('page'), 'superadmin'));
       return;
@@ -407,6 +510,7 @@ export default function App() {
         role: 'admin',
         department: 'Alexandria National University'
       };
+      persistFrontendRole('admin');
       setUser(adminUser);
       navigateToPage(resolvePageFromQuery(new URLSearchParams(location.search).get('page'), 'admin'));
       return;
@@ -421,6 +525,7 @@ export default function App() {
       department: 'Computer Science',
       year: role === 'student' ? 2024 : undefined
     };
+    persistFrontendRole(role);
     setUser(mockUser);
     navigateToPage(resolvePageFromQuery(new URLSearchParams(location.search).get('page'), role));
   };
@@ -430,6 +535,7 @@ export default function App() {
     // clear storage
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem(FRONTEND_ROLE_STORAGE_KEY);
     localStorage.removeItem('tenantId');
     setSearchParams(new URLSearchParams(), { replace: true });
     // keep tenantId for dev convenience if you want; remove if you prefer full logout
@@ -490,7 +596,7 @@ export default function App() {
   }
 
   // Show homepage when not logged in
-  if (!user) {
+  if (!effectiveUser) {
     return (
       <>
         <HomePage onLogin={handleLogin} />
@@ -502,34 +608,34 @@ export default function App() {
   const renderPage = () => {
     switch (currentPage) {
       case 'superadmin':
-        return <SuperAdminPanel user={user} onLogout={handleLogout} />;
+        return <SuperAdminPanel user={effectiveUser} onLogout={handleLogout} />;
       case 'dashboard':
-        return <Dashboard user={user} />;
+        return <Dashboard user={effectiveUser} />;
       case 'academic-registration':
-        return <AcademicRegistrationPage user={user} />;
+        return <AcademicRegistrationPage user={effectiveUser} />;
       case 'timetable':
-        return <TimetablePage user={user} />;
+        return <TimetablePage user={effectiveUser} />;
       case 'attendance':
-        return <AttendancePage user={user} />;
+        return <AttendancePage user={effectiveUser} />;
       case 'teams':
-        return <TeamsPage user={user} />;
+        return <TeamsPage user={effectiveUser} />;
       case 'groups':
-        return <GroupsPage user={user} />;
+        return <GroupsPage user={effectiveUser} />;
       case 'ai-assistant':
-        return <AIAssistantPage user={user} />;
+        return <AIAssistantPage user={effectiveUser} />;
       case 'alumni-hub':
-        return <AlumniHubPage user={user} />;
+        return <AlumniHubPage user={effectiveUser} />;
       case 'career-board':
-        return <CareerBoardPage user={user} />;
+        return <CareerBoardPage user={effectiveUser} />;
       case 'profile':
-        return <ProfilePage user={user} />;
+        return <ProfilePage user={effectiveUser} />;
       default:
-        return <Dashboard user={user} />;
+        return <Dashboard user={effectiveUser} />;
     }
   };
 
   // Super admin gets their own layout
-  if (user?.role === 'superadmin') {
+  if (effectiveUser?.role === 'superadmin') {
     return (
       <>
         {renderPage()}
@@ -539,7 +645,7 @@ export default function App() {
   }
 
   // Admin also uses super admin panel (unified interface)
-  if (user?.role === 'admin') {
+  if (effectiveUser?.role === 'admin') {
     return (
       <>
         {renderPage()}
@@ -551,7 +657,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20">
       <Navigation
-        user={user}
+        user={effectiveUser}
         currentPage={currentPage}
         onNavigate={navigateToPage}
         onLogout={handleLogout}
@@ -560,7 +666,7 @@ export default function App() {
       {/* Main Content */}
       <div className="lg:ml-20 min-h-screen transition-all duration-300">
         <Header
-          user={user}
+          user={effectiveUser}
           notifications={notifications}
           onNotificationRead={markNotificationAsRead}
         />

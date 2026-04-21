@@ -95,12 +95,18 @@ class HttpClient {
     }
 
     const normalized = message.toLowerCase();
-    return (
-      normalized.includes('token') ||
-      normalized.includes('unauthorized') ||
-      normalized.includes('not authenticated') ||
-      normalized.includes('not authorized')
-    );
+    const hasExplicitTokenFailure =
+      normalized.includes('no token provided') ||
+      normalized.includes('invalid token') ||
+      normalized.includes('token expired') ||
+      normalized.includes('expired token') ||
+      normalized.includes('jwt expired');
+
+    if (status === 403) {
+      return hasExplicitTokenFailure;
+    }
+
+    return hasExplicitTokenFailure || normalized.includes('not authenticated') || normalized.includes('unauthenticated');
   }
 
   private redirectToHomeForAuthFailure(message: string): void {
