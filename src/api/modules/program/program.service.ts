@@ -147,17 +147,56 @@ function mapProgram(raw: RawProgram): Program {
   };
 }
 
+function toProgramArray(payload: unknown): RawProgram[] {
+  if (Array.isArray(payload)) {
+    return payload as RawProgram[];
+  }
+
+  if (payload && typeof payload === 'object') {
+    const maybePrograms = (payload as { programs?: unknown }).programs;
+    if (Array.isArray(maybePrograms)) {
+      return maybePrograms as RawProgram[];
+    }
+  }
+
+  return [];
+}
+
 export const ProgramService = {
   async getAll(): Promise<Program[]> {
     const res = await programApi.getPrograms();
-    if (!res.data) throw new Error(res.message || 'Failed to fetch programs');
-    return (res.data as unknown as RawProgram[]).map(mapProgram);
+
+    // Some backend builds return status=success without a data array.
+    // Treat that case as an empty program list instead of failing the whole page.
+    if (!res.data) {
+      if (res.status === 'success') {
+        return [];
+      }
+
+      throw new Error(res.message || 'Failed to fetch programs');
+    }
+
+    return toProgramArray(res.data).map(mapProgram);
   },
 
   async getById(id: number): Promise<Program> {
     const res = await programApi.getProgramById(id);
-    if (!res.data) throw new Error(res.message || 'Program not found');
-    return mapProgram(res.data as unknown as RawProgram);
+
+    if (!res.data) {
+      throw new Error(res.message || 'Program not found');
+    }
+
+    const payload = res.data as unknown;
+    const rawProgram =
+      payload && typeof payload === 'object'
+        ? ((payload as { program?: RawProgram }).program ?? (payload as RawProgram))
+        : null;
+
+    if (!rawProgram || typeof rawProgram !== 'object') {
+      throw new Error(res.message || 'Program not found');
+    }
+
+    return mapProgram(rawProgram);
   },
 
   async create(data: ProgramCreateInput): Promise<Program> {

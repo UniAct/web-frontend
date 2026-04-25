@@ -7,16 +7,16 @@ import { Switch } from '../components/ui/switch';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { 
-  User, 
-  Mail, 
-  Phone, 
-  MapPin, 
-  Calendar, 
-  Award, 
-  Bell, 
-  Shield, 
-  Edit, 
+import {
+  User,
+  Mail,
+  Phone,
+  MapPin,
+  Calendar,
+  Award,
+  Bell,
+  Shield,
+  Edit,
   Save,
   Camera,
   Settings,
@@ -208,7 +208,7 @@ export function ProfilePage({ user }: ProfilePageProps) {
                 <div>
                   <h3 className="text-lg">{profileData.name}</h3>
                   <p className="text-muted-foreground">{user.role.charAt(0).toUpperCase() + user.role.slice(1)}</p>
-                  <p className="text-sm text-muted-foreground">{user.department}</p>
+                  <p className="text-sm text-muted-foreground">{user.facultyName}</p>
                 </div>
               </div>
 
@@ -357,7 +357,7 @@ export function ProfilePage({ user }: ProfilePageProps) {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="text-sm">Major</label>
-                  <Select 
+                  <Select
                     value={profileData.major}
                     onValueChange={(value) => setProfileData(prev => ({ ...prev, major: value }))}
                     disabled={!isEditingAcademic}
@@ -375,8 +375,8 @@ export function ProfilePage({ user }: ProfilePageProps) {
                 </div>
                 <div>
                   <label className="text-sm">Expected Graduation</label>
-                  <Input 
-                    value={profileData.graduationYear} 
+                  <Input
+                    value={profileData.graduationYear}
                     type="number"
                     onChange={(e) => setProfileData(prev => ({ ...prev, graduationYear: parseInt(e.target.value) || 0 }))}
                     disabled={!isEditingAcademic}
@@ -384,7 +384,7 @@ export function ProfilePage({ user }: ProfilePageProps) {
                 </div>
                 <div>
                   <label className="text-sm">Current GPA</label>
-                  <Input 
+                  <Input
                     value={profileData.gpa}
                     onChange={(e) => setProfileData(prev => ({ ...prev, gpa: e.target.value }))}
                     disabled={!isEditingAcademic}

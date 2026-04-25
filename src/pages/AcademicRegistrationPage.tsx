@@ -300,7 +300,7 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
       isMounted = false;
     };
   }, [user.role, user.programId, user.programLevelId, user.programLevel]);
-  
+
 
   useEffect(() => {
     if (user.role !== 'student') return;
@@ -319,6 +319,7 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
           user.programId,
           Number(selectedLevel),
           user.currentSemesterId,
+          user.facultyId,
         );
 
         if (!isMounted) return;

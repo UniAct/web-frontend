@@ -216,8 +216,8 @@ export function Navigation({ user, currentPage, onNavigate, onLogout }: Navigati
                       <Badge className={`text-xs border ${getRoleBadgeColor(user.role)} mt-1`}>
                         {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
                       </Badge>
-                      {user.department && (
-                        <p className="text-xs text-gray-500 mt-1 truncate">{user.department}</p>
+                      {user.facultyName && (
+                        <p className="text-xs text-gray-500 mt-1 truncate">{user.facultyName}</p>
                       )}
                     </div>
                   </motion.div>
@@ -345,8 +345,8 @@ export function Navigation({ user, currentPage, onNavigate, onLogout }: Navigati
                       {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
                     </Badge>
                   </div>
-                  {user.department && (
-                    <p className="text-xs text-gray-500 mt-1">{user.department}</p>
+                  {user.facultyName && (
+                    <p className="text-xs text-gray-500 mt-1">{user.facultyName}</p>
                   )}
                 </motion.div>
               )}

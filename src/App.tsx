@@ -32,9 +32,10 @@ export interface User {
   email: string;
   role: UserRole;
   avatar?: string;
-  department?: string;
+  facultyName?: string;
   year?: number;
   studentId?: string;
+  facultyId?: number;
   programId?: number;
   programName?: string;
   programLevelId?: number;
@@ -183,7 +184,7 @@ function buildUserFromSession(parsed: any, role: UserRole): User {
     name: resolvedName,
     email: resolvedEmail,
     role,
-    department:
+    facultyName:
       parseOptionalString(parsed?.department) ||
       parseOptionalString(parsed?.university) ||
       parseOptionalString(parsed?.university_name) ||
@@ -196,6 +197,14 @@ function buildUserFromSession(parsed: any, role: UserRole): User {
         ? String(parsed.student.universityStudentId)
         : undefined) ||
       (parsed?.id !== undefined && parsed?.id !== null ? String(parsed.id) : undefined),
+    facultyId: parseOptionalNumber(
+      parsed?.facultyId ??
+      parsed?.facultyID ??
+      parsed?.faculty?.id ??
+      parsed?.program?.facultyId ??
+      parsed?.student?.facultyId ??
+      parsed?.student?.program?.facultyId,
+    ),
     programId: parseOptionalNumber(
       parsed?.programId ??
       parsed?.programID ??
@@ -430,16 +439,16 @@ export default function App() {
     const sessionCandidate = session?.user
       ? session.user
       : (() => {
-          const token = localStorage.getItem('token');
-          const userJson = localStorage.getItem('user');
-          if (!token || !userJson) return null;
+        const token = localStorage.getItem('token');
+        const userJson = localStorage.getItem('user');
+        if (!token || !userJson) return null;
 
-          try {
-            return JSON.parse(userJson);
-          } catch {
-            return null;
-          }
-        })();
+        try {
+          return JSON.parse(userJson);
+        } catch {
+          return null;
+        }
+      })();
 
     if (sessionCandidate) {
       try {
@@ -493,7 +502,7 @@ export default function App() {
         name: 'Super Administrator',
         email: email,
         role: 'superadmin',
-        department: 'System Administration'
+        facultyName: 'System Administration'
       };
       persistFrontendRole('superadmin');
       setUser(superAdminUser);
@@ -508,7 +517,7 @@ export default function App() {
         name: 'Administrator',
         email,
         role: 'admin',
-        department: 'Alexandria National University'
+        facultyName: 'Alexandria National University'
       };
       persistFrontendRole('admin');
       setUser(adminUser);
@@ -522,7 +531,7 @@ export default function App() {
       name: role === 'student' ? 'John Doe' : role === 'faculty' ? 'Dr. Sarah Wilson' : 'Alumni Jane',
       email,
       role,
-      department: 'Computer Science',
+      facultyName: 'Computer Science',
       year: role === 'student' ? 2024 : undefined
     };
     persistFrontendRole(role);
