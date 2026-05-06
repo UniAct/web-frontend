@@ -1,5 +1,5 @@
 import { facultyApi } from './faculty.api';
-import type { Faculty, FacultyCreateInput, FacultyUpdateInput } from '../../types';
+import type { Faculty, FacultyCreateInput, FacultyUpdateInput, Program } from '../../types';
 
 export const FacultyService = {
   async getAll(): Promise<Faculty[]> {
@@ -11,6 +11,12 @@ export const FacultyService = {
   async getById(id: number): Promise<Faculty> {
     const res = await facultyApi.getFacultyById(id);
     if (!res.data) throw new Error(res.message || 'Faculty not found');
+    return res.data;
+  },
+
+  async getProgramsByFacultyId(faclutyId: number): Promise<Program[]> {
+    const res = await facultyApi.getProgramsByFacultyId(faclutyId);
+    if (!res.data) throw new Error (res.message || 'failed to fetch programs');
     return res.data;
   },
 

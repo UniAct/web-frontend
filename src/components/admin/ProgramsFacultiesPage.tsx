@@ -56,10 +56,12 @@ interface FacultyFormState {
 }
 
 interface ProgramFeeDraft extends ProgramFeeInput {
+  id?: number,
   key: string;
 }
 
 interface ProgramLevelDraft {
+  id?: number,
   key: string;
   level: number;
   minCredits: number;
@@ -68,6 +70,7 @@ interface ProgramLevelDraft {
 }
 
 interface ProgramTranscriptDefinitionDraft {
+  id?: number,
   key: string;
   minScore: number;
   maxScore: number;
@@ -78,6 +81,7 @@ interface ProgramTranscriptDefinitionDraft {
 }
 
 interface AcademicLoadSemesterDraft {
+  id?: number
   key: string;
   level: number;
   semester: number;
@@ -86,6 +90,7 @@ interface AcademicLoadSemesterDraft {
 }
 
 interface AcademicLoadGPADraft {
+  id? :number,
   key: string;
   minGPA: number;
   maxGPA: number;
@@ -230,11 +235,13 @@ function programToForm(program: Program): ProgramFormState {
     levels: syncLevels(
       levelsNumber,
       program.levels.map((level) => ({
+        id: level.id,
         key: `level-${level.id}`,
         level: level.level,
         minCredits: level.minCredits,
         maxCredits: level.maxCredits,
         fees: level.fees.map((fee) => ({
+          id: fee.id,
           key: `fee-${fee.id}`,
           feeType: fee.feeType,
           semesterNumber: fee.semesterNumber ?? undefined,
@@ -244,6 +251,7 @@ function programToForm(program: Program): ProgramFormState {
       })),
     ),
     transcriptDefinition: program.transcriptDefinition.map((item) => ({
+      id: item.id,
       key: `transcript-${item.id}`,
       minScore: item.minScore,
       maxScore: item.maxScore,
@@ -255,6 +263,7 @@ function programToForm(program: Program): ProgramFormState {
     academicLoadSemester: syncSemesterLoads(
       levelsNumber,
       program.academicLoadSemester.map((item) => ({
+        id: item.id,
         key: `load-${item.id}`,
         level: item.level,
         semester: item.semester,
@@ -264,6 +273,7 @@ function programToForm(program: Program): ProgramFormState {
     ),
     academicLoadGPA: program.academicLoadGPA.length
       ? program.academicLoadGPA.map((item) => ({
+        id: item.id,
         key: `gpa-${item.id}`,
         minGPA: item.minGPA,
         maxGPA: item.maxGPA,
@@ -289,27 +299,37 @@ function courseToForm(course: Course): CourseFormState {
   };
 }
 
-function buildProgramPayload(form: ProgramFormState): ProgramCreateInput {
-  const levels: ProgramLevelInput[] = form.levels.map((level) => {
-    const mapFee = (fee: ProgramFeeDraft): ProgramFeeInput => ({
-      feeType: fee.feeType,
-      semesterNumber: fee.semesterNumber,
-      amount: fee.amount,
-      description: fee.description?.trim() || undefined,
-    });
-
-    return {
-      level: level.level,
-      minCredits: level.minCredits,
-      maxCredits: level.maxCredits,
-      fees: level.fees.filter((fee) => !fee.semesterNumber).map(mapFee),
-      semesterFees: {
-        semester1: level.fees.filter((fee) => fee.semesterNumber === 1).map(mapFee),
-        semester2: level.fees.filter((fee) => fee.semesterNumber === 2).map(mapFee),
-      },
-      summerFees: level.fees.filter((fee) => fee.semesterNumber === 3).map(mapFee),
-    };
+function buildProgramPayload(form: ProgramFormState): any {
+  // Helper to map fees while preserving their database ID
+  const mapFee = (fee: ProgramFeeDraft) => ({
+    id: fee.id, // <--- Critical for non-destructive fee updates
+    feeType: fee.feeType,
+    semesterNumber: fee.semesterNumber,
+    amount: fee.amount,
+    description: fee.description?.trim() || undefined,
   });
+
+  const levels = form.levels.map((level) => ({
+    id: level.id, // <--- Critical for preserving level identity
+    level: level.level,
+    minCredits: level.minCredits,
+    maxCredits: level.maxCredits,
+    // Separate fees based on your existing logic, but now with IDs
+    fees: level.fees
+      .filter((fee) => !fee.semesterNumber)
+      .map(mapFee),
+    semesterFees: {
+      semester1: level.fees
+        .filter((fee) => fee.semesterNumber === 1)
+        .map(mapFee),
+      semester2: level.fees
+        .filter((fee) => fee.semesterNumber === 2)
+        .map(mapFee),
+    },
+    summerFees: level.fees
+      .filter((fee) => fee.semesterNumber === 3)
+      .map(mapFee),
+  }));
 
   return {
     name: form.name.trim(),
@@ -326,6 +346,7 @@ function buildProgramPayload(form: ProgramFormState): ProgramCreateInput {
     levelsNumber: form.levelsNumber,
     levels,
     transcriptDefinition: form.transcriptDefinition.map((item) => ({
+      id: item.id, // <--- Preserve ID
       minScore: item.minScore,
       maxScore: item.maxScore,
       minGPA: item.minGPA,
@@ -334,12 +355,14 @@ function buildProgramPayload(form: ProgramFormState): ProgramCreateInput {
       equivalentEstimate: item.equivalentEstimate?.trim() || undefined,
     })),
     academicLoadSemester: form.academicLoadSemester.map((item) => ({
+      id: item.id, // <--- Preserve ID
       level: item.level,
       semester: item.semester,
       minCredits: item.minCredits,
       maxCredits: item.maxCredits,
     })),
     academicLoadGPA: form.academicLoadGPA.map((item) => ({
+      id: item.id, // <--- Preserve ID
       minGPA: item.minGPA,
       maxGPA: item.maxGPA,
       minCredits: item.minCredits,
@@ -865,6 +888,7 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
               const open = expandedPrograms.has(program.id);
               const programCourses = filteredCourses.filter((item) => item.programId === program.id);
               return (
+
                 <Card key={program.id}>
                   <CardHeader>
                     <div className="flex items-center justify-between gap-4">

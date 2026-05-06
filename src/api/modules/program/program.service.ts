@@ -9,6 +9,7 @@ import type {
   ProgramTranscriptDefinition,
   ProgramUpdateInput,
 } from '../../types';
+import { facultyApi } from '../faculty/faculty.api';
 
 interface RawProgram {
   id: number;
@@ -176,6 +177,19 @@ export const ProgramService = {
       throw new Error(res.message || 'Failed to fetch programs');
     }
 
+    return toProgramArray(res.data).map(mapProgram);
+  },
+
+  async getProgramsByFacultyId(facultyId:number): Promise<Program[]> {
+    const res = await facultyApi.getProgramsByFacultyId(facultyId);
+
+    if (!res.data) {
+      if (res.status === 'success') {
+        return [];
+      }
+
+      throw new Error(res.message || 'Failed to fetch programs');
+    }
     return toProgramArray(res.data).map(mapProgram);
   },
 

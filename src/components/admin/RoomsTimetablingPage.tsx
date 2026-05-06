@@ -500,12 +500,9 @@ export function RoomsTimetablingPage({
     const load = async () => {
       try {
         setIsLoadingLookups(true);
-        const [facultyData, programData] = await Promise.all([
-          FacultyService.getAll(),
-          ProgramService.getAll(),
-        ]);
+        const facultyData = await FacultyService.getAll();
         setFaculties(facultyData);
-        setPrograms(programData);
+        
       } catch (error: any) {
         toast.error(error?.message || "Failed to load timetable lookups");
       } finally {
@@ -529,6 +526,29 @@ export function RoomsTimetablingPage({
     const interval = window.setInterval(read, 1000);
     return () => window.clearInterval(interval);
   }, [selectedUniversity]);
+
+  // ── Load Programs when Faculty changes
+useEffect(() => {
+  // If no faculty is selected, clear programs and return early
+  if (!selFacultyId) {
+    setPrograms([]);
+    return;
+  }
+
+  const loadPrograms = async () => {
+    try {
+      setIsLoadingLookups(true); // Re-use lookup loader or create a specific one
+      const programData = await FacultyService.getProgramsByFacultyId(Number(selFacultyId));
+      setPrograms(programData);
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to load programs for this faculty");
+    } finally {
+      setIsLoadingLookups(false);
+    }
+  };
+
+  void loadPrograms();
+}, [selFacultyId]); // Triggered whenever the faculty selection changes
 
   useEffect(() => {
     if (
@@ -572,16 +592,12 @@ export function RoomsTimetablingPage({
   //  DERIVED
   // ─────────────────────────────────────────────────────
 
-  const filteredPrograms = useMemo(
-    () =>
-      programs.filter(
-        (p) => !selFacultyId || p.facultyId === Number(selFacultyId),
-      ),
-    [programs, selFacultyId],
-  );
+  const filteredPrograms = useMemo(()=> {
+    return programs;
+  },[programs]);
 
   const selProgram = useMemo(
-    () => programs.find((p) => p.id === Number(selProgramId)),
+    () => programs.find((p) => p.id == Number(selProgramId)),
     [programs, selProgramId],
   );
 
@@ -597,7 +613,9 @@ export function RoomsTimetablingPage({
 
   const courseOptions = useMemo(
     () =>
-      lookupCourses.map((course) => ({
+      
+      lookupCourses.map((course) => (
+      {
         value: String(course.id),
         label: `${course.code} - ${course.name}`,
         description: `ID: ${course.id}`,
@@ -1257,7 +1275,6 @@ export function RoomsTimetablingPage({
   // ─────────────────────────────────────────────────────
   //  RENDER
   // ─────────────────────────────────────────────────────
-
   return (
     <div className="space-y-5 pb-24">
       {/* ── Page Header ── */}

@@ -1,5 +1,5 @@
 import { httpClient } from '../../core/http-client';
-import type { ApiResponse, Faculty, FacultyCreateInput, FacultyUpdateInput } from '../../types';
+import type { ApiResponse, Faculty, FacultyCreateInput, FacultyUpdateInput, Program } from '../../types';
 
 export const facultyApi = {
   createFaculty(data: FacultyCreateInput): Promise<ApiResponse<Faculty>> {
@@ -16,6 +16,12 @@ export const facultyApi = {
 
   getFacultyById(id: number): Promise<ApiResponse<Faculty>> {
     return httpClient.request<Faculty>('GET', `/faculty/${id}`, undefined, {
+      requireResolvedTenant: true,
+    });
+  },
+
+  getProgramsByFacultyId(faclutyId: number): Promise<ApiResponse<Program[]>> {
+    return httpClient.request<Program[]>('GET', `/faculty/${faclutyId}/programs`, undefined, {
       requireResolvedTenant: true,
     });
   },

@@ -80,7 +80,6 @@ export interface TimetableSaveSessionInput {
   teacherId: number;
   classroomId: number;
   learningGroupId: number | null;
-
   // Mandatory Helpers for Backend Conflict Reporting
   teacherName: string;
   classroomName: string;
