@@ -3,6 +3,7 @@ import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Checkbox } from '../ui/checkbox';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '../ui/command';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import {
   Modal,
@@ -13,11 +14,12 @@ import {
 } from '../ui/modal';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
+import * as PopoverPrimitive from '@radix-ui/react-popover';
 import { SearchableSelect } from '../ui/searchable-select';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Textarea } from '../ui/textarea';
-import { ChevronDown, ChevronRight, Edit, Loader2, Plus, RefreshCcw, Search, Trash2, X } from 'lucide-react';
+import { Check, ChevronsUpDown, ChevronDown, ChevronRight, Edit, Loader2, Plus, RefreshCcw, Search, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   apiClient,
@@ -90,7 +92,7 @@ interface AcademicLoadSemesterDraft {
 }
 
 interface AcademicLoadGPADraft {
-  id? :number,
+  id?: number,
   key: string;
   minGPA: number;
   maxGPA: number;
@@ -127,6 +129,7 @@ interface CourseFormState {
   minFinalSuccessPercentage: number;
   totalFail: boolean;
   programId: string;
+  programLevelId: string;
   courseType: CourseType;
 }
 
@@ -208,12 +211,21 @@ function createCourseForm(): CourseFormState {
     minFinalSuccessPercentage: 30,
     totalFail: false,
     programId: '',
+    programLevelId: '',
     courseType: 'Mandatory',
   };
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength - 1)}...`;
 }
 
 function programToForm(program: Program): ProgramFormState {
@@ -295,8 +307,89 @@ function courseToForm(course: Course): CourseFormState {
     minFinalSuccessPercentage: course.minFinalSuccessPercentage ?? 30,
     totalFail: course.totalFail ?? false,
     programId: String(course.programId),
+    programLevelId: '',
     courseType: course.courseType,
   };
+}
+
+interface MultiSearchableSelectProps {
+  values: number[];
+  onValuesChange: (values: number[]) => void;
+  options: { value: number; label: string; description?: string }[];
+  placeholder?: string;
+  searchPlaceholder?: string;
+  emptyMessage?: string;
+  className?: string;
+  disabled?: boolean;
+}
+
+function MultiSearchableSelect({
+  values,
+  onValuesChange,
+  options,
+  searchPlaceholder = 'Search...',
+  emptyMessage = 'No option found.',
+  disabled = false,
+}: MultiSearchableSelectProps) {
+  const [search, setSearch] = useState('');
+
+  const filtered = search.trim()
+    ? options.filter(
+      (o) =>
+        o.label.toLowerCase().includes(search.toLowerCase()) ||
+        (o.description ?? '').toLowerCase().includes(search.toLowerCase()),
+    )
+    : options;
+
+  const toggleValue = (value: number) => {
+    onValuesChange(
+      values.includes(value) ? values.filter((v) => v !== value) : [...values, value],
+    );
+  };
+
+  return (
+    <div className={`rounded-md border bg-white ${disabled ? 'pointer-events-none opacity-50' : ''}`}>
+      <div className="border-b px-3 py-2">
+        <div className="flex items-center gap-2 text-slate-400">
+          <Search className="h-4 w-4 shrink-0" />
+          <input
+            className="w-full bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
+            placeholder={searchPlaceholder}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            disabled={disabled}
+          />
+        </div>
+      </div>
+      <div className="max-h-56 overflow-y-auto">
+        {filtered.length === 0 ? (
+          <p className="px-3 py-4 text-center text-sm text-slate-400">{emptyMessage}</p>
+        ) : (
+          filtered.map((option) => {
+            const checked = values.includes(option.value);
+            return (
+              <label
+                key={option.value}
+                className="flex cursor-pointer items-start gap-3 border-b px-3 py-2.5 last:border-0 hover:bg-slate-50"
+              >
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={() => toggleValue(option.value)}
+                  className="mt-0.5 shrink-0"
+                />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium leading-snug text-slate-900">{option.label}</p>
+                  {option.description && (
+                    <p className="mt-0.5 text-xs leading-snug text-slate-500">{option.description}</p>
+                  )}
+                </div>
+              </label>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
 }
 
 function buildProgramPayload(form: ProgramFormState): any {
@@ -526,6 +619,21 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
     [programs],
   );
 
+  const selectedProgram = useMemo(
+    () => programs.find((item) => String(item.id) === courseForm.programId),
+    [courseForm.programId, programs],
+  );
+
+  const programLevelOptions = useMemo(
+    () =>
+      (selectedProgram?.levels ?? []).map((level) => ({
+        value: level.id,
+        label: `Level ${level.level}`,
+        description: `${level.minCredits}-${level.maxCredits} credits`,
+      })),
+    [selectedProgram],
+  );
+
   const facultyNameById = useMemo(
     () => new Map(faculties.map((item) => [item.id, item.name])),
     [faculties],
@@ -559,6 +667,23 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
       (item) => item.programId === Number(courseForm.programId) && item.id !== editingCourse?.id,
     );
   }, [courseForm.programId, courses, editingCourse]);
+
+  useEffect(() => {
+    if (programLevelOptions.length === 0) {
+      if (courseForm.programLevelId) {
+        setCourseForm((current) => ({ ...current, programLevelId: '' }));
+      }
+      return;
+    }
+
+    const selectedLevelExists = programLevelOptions.some(
+      (option) => option.value === Number(courseForm.programLevelId),
+    );
+
+    if (!selectedLevelExists) {
+      setCourseForm((current) => ({ ...current, programLevelId: String(programLevelOptions[0].value) }));
+    }
+  }, [courseForm.programLevelId, programLevelOptions]);
 
   const resetFacultyDialog = () => {
     setEditingFaculty(null);
@@ -662,6 +787,11 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
       return;
     }
 
+    if (!courseForm.programLevelId) {
+      toast.error('Program level is required');
+      return;
+    }
+
     const payload: CourseCreateInput = {
       name: courseForm.name.trim(),
       code: courseForm.code.trim(),
@@ -672,6 +802,7 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
       minFinalSuccessPercentage: courseForm.minFinalSuccessPercentage,
       totalFail: courseForm.totalFail,
       programId: Number(courseForm.programId),
+      programLevelId: Number(courseForm.programLevelId),
       courseType: courseForm.courseType,
       prerequisiteIds: selectedPrerequisites,
     };
@@ -1020,7 +1151,8 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
             <div className="grid gap-4 md:grid-cols-2">
               <div><Label>Course Name</Label><Input value={courseForm.name} onChange={(event) => setCourseForm((current) => ({ ...current, name: event.target.value }))} /></div>
               <div><Label>Course Code</Label><Input value={courseForm.code} onChange={(event) => setCourseForm((current) => ({ ...current, code: event.target.value }))} /></div>
-              <div><Label>Program</Label><SearchableSelect value={courseForm.programId} onValueChange={(value) => setCourseForm((current) => ({ ...current, programId: value }))} options={programOptions} placeholder="Select program" searchPlaceholder="Search programs..." emptyMessage="No programs found" /></div>
+              <div><Label>Program</Label><SearchableSelect value={courseForm.programId} onValueChange={(value) => { setCourseForm((current) => ({ ...current, programId: value, programLevelId: '' })); setSelectedPrerequisites([]); }} options={programOptions} placeholder="Select program" searchPlaceholder="Search programs..." emptyMessage="No programs found" /></div>
+              <div><Label>Program Level</Label><SearchableSelect value={courseForm.programLevelId} onValueChange={(value) => setCourseForm((current) => ({ ...current, programLevelId: value }))} options={programLevelOptions.map((item) => ({ value: String(item.value), label: item.label, description: item.description }))} placeholder="Select program level" searchPlaceholder="Search levels..." emptyMessage="No levels found" disabled={!courseForm.programId || programLevelOptions.length === 0} /></div>
               <div><Label>Course Type</Label><Select value={courseForm.courseType} onValueChange={(value) => setCourseForm((current) => ({ ...current, courseType: value as CourseType }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{courseTypeOptions.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></div>
               <div><Label>Credits</Label><Input type="number" min="1" value={courseForm.credits} onChange={(event) => setCourseForm((current) => ({ ...current, credits: Number(event.target.value) || 1 }))} /></div>
               <div><Label>Success Percentage</Label><Input type="number" min="0" max="100" value={courseForm.successPercentage} onChange={(event) => setCourseForm((current) => ({ ...current, successPercentage: Number(event.target.value) || 0 }))} /></div>
@@ -1029,7 +1161,37 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
             </div>
             <div><Label>Description</Label><Textarea rows={3} value={courseForm.description} onChange={(event) => setCourseForm((current) => ({ ...current, description: event.target.value }))} /></div>
             <div><Label>Syllabus</Label><Textarea rows={4} value={courseForm.syllabus} onChange={(event) => setCourseForm((current) => ({ ...current, syllabus: event.target.value }))} /></div>
-            <div className="space-y-3"><div><h3 className="font-medium">Prerequisites</h3><p className="text-sm text-slate-500">Only courses from the same program are shown.</p></div><div className="max-h-60 space-y-2 overflow-y-auto rounded-lg border p-4">{prerequisiteCandidates.length === 0 ? <div className="text-sm text-slate-500">No prerequisite candidates available.</div> : prerequisiteCandidates.map((course) => <label key={course.id} className="flex items-center gap-3 rounded-md border p-2"><Checkbox checked={selectedPrerequisites.includes(course.id)} onCheckedChange={(checked) => setSelectedPrerequisites((current) => checked === true ? (current.includes(course.id) ? current : [...current, course.id]) : current.filter((item) => item !== course.id))} /><div className="text-sm"><div className="font-medium">{course.code} - {course.name}</div><div className="text-slate-500">{course.description || 'No description provided'}</div></div></label>)}</div></div>
+            <div className="space-y-3">
+              <div>
+                <h3 className="font-medium">Prerequisites</h3>
+                <p className="text-sm text-slate-500">Choose one or more prerequisite courses from the same program.</p>
+              </div>
+              <MultiSearchableSelect
+                values={selectedPrerequisites}
+                onValuesChange={setSelectedPrerequisites}
+                options={prerequisiteCandidates.map((course) => ({
+                  value: course.id,
+                  label: `${course.code} - ${course.name}`,
+                  description: course.description || 'No description provided',
+                }))}
+                placeholder="Select prerequisite courses"
+                searchPlaceholder="Search prerequisites..."
+                emptyMessage="No prerequisite candidates available."
+                disabled={prerequisiteCandidates.length === 0}
+              />
+              {selectedPrerequisites.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {selectedPrerequisites.map((courseId) => {
+                    const selectedCourse = prerequisiteCandidates.find((course) => course.id === courseId);
+                    return selectedCourse ? (
+                      <Badge key={courseId} variant="secondary">
+                        {selectedCourse.code}
+                      </Badge>
+                    ) : null;
+                  })}
+                </div>
+              )}
+            </div>
             <div className="flex justify-end gap-3 border-t pt-4"><Button variant="outline" onClick={() => { setCourseDialogOpen(false); resetCourseDialog(); }}>Cancel</Button><Button disabled={submitting} onClick={() => void saveCourse()}>{submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{editingCourse ? 'Update Course' : 'Create Course'}</Button></div>
           </div>
         </DialogContent>

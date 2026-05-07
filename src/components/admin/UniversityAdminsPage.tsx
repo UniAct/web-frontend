@@ -377,142 +377,116 @@ export function UniversityAdminsPage({ selectedUniversity }: UniversityAdminsPag
             </div>
           ) : (
             <div className="overflow-x-auto">
-            <Table className="min-w-[1120px]">
-              <TableHeader className="bg-white">
-                <TableRow>
-                  <TableHead className="w-[250px]">Role</TableHead>
-                  <TableHead className="w-[280px]">Summary</TableHead>
-                  <TableHead className="w-[520px]">Permissions by Module</TableHead>
-                  <TableHead className="w-[160px] text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {groupedRoles.length > 0 ? (
-                  groupedRoles.map((role) => (
-                    <TableRow key={role.id} className="align-top hover:bg-slate-50/70">
-                      <TableCell className="align-top">
-                        <div className="space-y-3">
-                          <div className="flex items-start gap-3">
-                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 text-white shadow-sm">
-                              <Shield className="h-5 w-5" />
-                            </div>
-                            <div className="min-w-0 space-y-1">
-                              <p className="truncate text-base font-semibold text-slate-900">{role.name}</p>
-                              <div className="flex flex-wrap gap-2">
-                                <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
-                                  Role #{role.id}
-                                </Badge>
-                                <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
-                                  {role.permissionGroups.length} module{role.permissionGroups.length === 1 ? '' : 's'}
-                                </Badge>
+              <Table className="min-w-[1120px]">
+                <TableHeader className="bg-white">
+                  <TableRow>
+                    <TableHead className="w-[250px]">Role</TableHead>
+                    <TableHead className="flex-1">Permissions by Module</TableHead>
+                    <TableHead className="w-[160px] text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {groupedRoles.length > 0 ? (
+                    groupedRoles.map((role) => (
+                      <TableRow key={role.id} className="align-top hover:bg-slate-50/70">
+                        <TableCell className="align-top">
+                          <div className="space-y-3">
+                            <div className="flex items-start gap-3">
+                              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 text-white shadow-sm">
+                                <Shield className="h-5 w-5" />
+                              </div>
+                              <div className="min-w-0 space-y-1">
+                                <p className="truncate text-base font-semibold text-slate-900">{role.name}</p>
+                                <div className="flex flex-wrap gap-2">
+                                  <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
+                                    Role #{role.id}
+                                  </Badge>
+                                  <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
+                                    {role.permissionGroups.length} module{role.permissionGroups.length === 1 ? '' : 's'}
+                                  </Badge>
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="max-w-[280px] align-top">
-                        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                          <div className="mb-3 flex items-center gap-2">
-                            <Sparkles className="h-4 w-4 text-slate-500" />
-                            <p className="text-sm font-semibold text-slate-900">Role Overview</p>
-                          </div>
-                          <p className="text-sm leading-6 text-slate-700">
-                            {role.description || 'No description provided for this role yet.'}
-                          </p>
-                          <div className="mt-4 grid grid-cols-2 gap-2">
-                            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                              <p className="text-xs uppercase tracking-wide text-slate-500">Permissions</p>
-                              <p className="mt-1 text-lg font-semibold text-slate-900">
-                                {(role.permissions ?? []).length}
-                              </p>
-                            </div>
-                            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                              <p className="text-xs uppercase tracking-wide text-slate-500">Coverage</p>
-                              <p className="mt-1 text-lg font-semibold text-slate-900">
-                                {role.permissionGroups.length}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="align-top">
-                        {(role.permissions ?? []).length > 0 ? (
-                          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                            <div className="mb-4 flex flex-wrap items-center gap-2">
-                              <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
-                                {(role.permissions ?? []).length} total
-                              </Badge>
-                              <Badge variant="outline" className="border-slate-200 bg-white text-slate-600">
-                                {role.permissionGroups.length} modules
-                              </Badge>
-                            </div>
-                            <div className="grid gap-2 lg:grid-cols-2">
-                              {role.permissionGroups.map((group) => (
-                                <div
-                                  key={`${role.id}-${group.moduleKey}`}
-                                  className={`rounded-2xl border p-3 ${getModuleAccentClasses(group.moduleKey)}`}
-                                >
-                                  <div className="mb-2 flex items-center gap-2">
-                                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/80 text-slate-700 shadow-sm">
-                                      <FolderKanban className="h-4 w-4" />
+                        </TableCell>
+                        <TableCell className="align-top">
+                          {(role.permissions ?? []).length > 0 ? (
+                            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                              <div className="mb-4 flex flex-wrap items-center gap-2">
+                                <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
+                                  {(role.permissions ?? []).length} total
+                                </Badge>
+                                <Badge variant="outline" className="border-slate-200 bg-white text-slate-600">
+                                  {role.permissionGroups.length} modules
+                                </Badge>
+                              </div>
+                              <div className="grid gap-2 lg:grid-cols-2">
+                                {role.permissionGroups.map((group) => (
+                                  <div
+                                    key={`${role.id}-${group.moduleKey}`}
+                                    className={`rounded-2xl border p-3 ${getModuleAccentClasses(group.moduleKey)}`}
+                                  >
+                                    <div className="mb-2 flex items-center gap-2">
+                                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/80 text-slate-700 shadow-sm">
+                                        <FolderKanban className="h-4 w-4" />
+                                      </div>
+                                      <div className="min-w-0">
+                                        <p className="truncate text-sm font-semibold text-slate-900">
+                                          {group.moduleLabel}
+                                        </p>
+                                        <p className="text-xs text-slate-500">
+                                          {group.actions.length} action{group.actions.length === 1 ? '' : 's'}
+                                        </p>
+                                      </div>
                                     </div>
-                                    <div className="min-w-0">
-                                      <p className="truncate text-sm font-semibold text-slate-900">
-                                        {group.moduleLabel}
-                                      </p>
-                                      <p className="text-xs text-slate-500">
-                                        {group.actions.length} action{group.actions.length === 1 ? '' : 's'}
-                                      </p>
-                                    </div>
-                                  </div>
 
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {group.actions.map((action) => (
-                                      <Badge
-                                        key={`${group.moduleKey}-${action}`}
-                                        variant="outline"
-                                        className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium capitalize ${getActionBadgeClasses(action)}`}
-                                      >
-                                        {formatActionLabel(action)}
-                                      </Badge>
-                                    ))}
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {group.actions.map((action) => (
+                                        <Badge
+                                          key={`${group.moduleKey}-${action}`}
+                                          variant="outline"
+                                          className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium capitalize ${getActionBadgeClasses(action)}`}
+                                        >
+                                          {formatActionLabel(action)}
+                                        </Badge>
+                                      ))}
+                                    </div>
                                   </div>
-                                </div>
-                              ))}
+                                ))}
+                              </div>
                             </div>
+                          ) : (
+                            <div className="flex min-h-24 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 text-sm text-slate-500">
+                              No permissions assigned
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <div className="flex justify-end gap-2">
+                            <Button variant="outline" size="sm" className="border-slate-200 bg-white" onClick={() => openEditModal(role)}>
+                              Edit
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-red-200 bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700"
+                              onClick={() => void handleDeleteRole(role)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
-                        ) : (
-                          <div className="flex min-h-24 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 text-sm text-slate-500">
-                            No permissions assigned
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="align-top">
-                        <div className="flex justify-end gap-2">
-                          <Button variant="outline" size="sm" className="border-slate-200 bg-white" onClick={() => openEditModal(role)}>
-                            Edit
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="border-red-200 bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700"
-                            onClick={() => void handleDeleteRole(role)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={4} className="py-10 text-center text-slate-500">
+                        No roles matched your search.
                       </TableCell>
                     </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={4} className="py-10 text-center text-slate-500">
-                      No roles matched your search.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                  )}
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>

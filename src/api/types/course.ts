@@ -18,6 +18,7 @@ export interface Course {
   minFinalSuccessPercentage?: number;
   totalFail?: boolean;
   programId: number;
+  programLevelId?: number;
   courseType: CourseType;
   prerequisites: CoursePrerequisite[];
 }
@@ -32,6 +33,7 @@ export interface CourseCreateInput {
   minFinalSuccessPercentage?: number;
   totalFail?: boolean;
   programId: number;
+  programLevelId: number;
   courseType: CourseType;
   prerequisiteIds?: number[];
 }

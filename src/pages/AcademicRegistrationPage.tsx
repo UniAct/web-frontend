@@ -234,6 +234,56 @@ function getFailedEnrollmentMessage(failedSessions: Array<{ courseCode?: string;
   return details || 'Registration could not be completed.';
 }
 
+function getScheduleCacheKey(programId: number, level: number, semesterId: number): string {
+  return `academic-registration:schedule:${programId}:${level}:${semesterId}`;
+}
+
+function readCachedScheduleSlots(programId: number, level: number, semesterId: number): ScheduleSlot[] {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(getScheduleCacheKey(programId, level, semesterId));
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as ScheduleSlot[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCachedScheduleSlots(
+  programId: number,
+  level: number,
+  semesterId: number,
+  scheduleSlots: ScheduleSlot[],
+): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(
+      getScheduleCacheKey(programId, level, semesterId),
+      JSON.stringify(scheduleSlots),
+    );
+  } catch {
+    // Ignore storage failures and keep the live fetch path unchanged.
+  }
+}
+
+function isKnownScheduleLoadSyncError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return error.message.includes('coursePrerequisitesFor') || error.message.includes('scheduleSlotContext.findMany()');
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps) {
   const [selectedLevel, setSelectedLevel] = useState(() =>
@@ -324,11 +374,27 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
 
         if (!isMounted) return;
 
+        saveCachedScheduleSlots(user.programId, Number(selectedLevel), user.currentSemesterId, scheduleSlots);
         setCourses(mapScheduleSlotsToCourses(scheduleSlots, Number(selectedLevel)));
       } catch (error) {
         if (!isMounted) return;
+
+        const cachedScheduleSlots = readCachedScheduleSlots(
+          user.programId,
+          Number(selectedLevel),
+          user.currentSemesterId,
+        );
+
+        if (cachedScheduleSlots.length > 0) {
+          setCourses(mapScheduleSlotsToCourses(cachedScheduleSlots, Number(selectedLevel)));
+          return;
+        }
+
         setCourses([]);
-        toast.error(error instanceof Error ? error.message : 'Failed to load student schedule');
+
+        if (!isKnownScheduleLoadSyncError(error)) {
+          toast.error(error instanceof Error ? error.message : 'Failed to load student schedule');
+        }
       } finally {
         if (isMounted) setIsLoadingCourses(false);
       }
@@ -432,10 +498,11 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
       const enrollmentData = {
         scheduleSlots: submittedSessions.map((session) => {
           const slot = session.rawSlot;
-          const slotId = slot.slotId ?? session.slotId ?? slot.id;
+            // slot.id is the ScheduleSlotContext ID (required by backend worker)
+            const contextId = slot.id;
 
           return {
-            id: slotId,
+              id: contextId,
             start_time: buildIsoDateTime(slot.startTime),
             end_time: buildIsoDateTime(slot.endTime, slot.endTime <= slot.startTime ? 1 : 0),
             type: slot.type,

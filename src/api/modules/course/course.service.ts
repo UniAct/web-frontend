@@ -13,6 +13,7 @@ interface RawCourse {
   totalFail?: boolean;
   programCourses?: Array<{
     programId: number;
+    programLevelId?: number;
     type: Course['courseType'];
   }>;
   coursePrerequisites?: Array<{
@@ -45,6 +46,7 @@ function mapCourse(raw: RawCourse): Course {
     minFinalSuccessPercentage: toNumber(raw.minFinalSuccessPercentage),
     totalFail: raw.totalFail,
     programId: firstProgram?.programId ?? 0,
+    programLevelId: firstProgram?.programLevelId,
     courseType: firstProgram?.type ?? 'Mandatory',
     prerequisites: (raw.coursePrerequisites ?? []).map((item) => ({
       courseId: item.courseId,

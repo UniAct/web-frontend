@@ -8,6 +8,7 @@ import type {
 } from '../../types';
 
 const programFacultyCache = new Map<number, number>();
+const programListFacultyCache = new Map<number, number>();
 
 function toPositiveInt(value: unknown): number | null {
   const parsed =
@@ -38,12 +39,28 @@ async function resolveFacultyId(programId: number, facultyId?: number): Promise<
   const program = await ProgramService.getById(programId);
   const resolvedFacultyId = toPositiveInt(program.facultyId);
 
-  if (resolvedFacultyId === null) {
+  if (resolvedFacultyId !== null) {
+    programFacultyCache.set(programId, resolvedFacultyId);
+    return resolvedFacultyId;
+  }
+
+  const cachedListFacultyId = programListFacultyCache.get(programId);
+  if (cachedListFacultyId) {
+    programFacultyCache.set(programId, cachedListFacultyId);
+    return cachedListFacultyId;
+  }
+
+  const programs = await ProgramService.getAll();
+  const programFromList = programs.find((item) => item.id === programId);
+  const listFacultyId = toPositiveInt(programFromList?.facultyId);
+
+  if (listFacultyId === null) {
     throw new Error('Unable to resolve faculty context for schedule request.');
   }
 
-  programFacultyCache.set(programId, resolvedFacultyId);
-  return resolvedFacultyId;
+  programFacultyCache.set(programId, listFacultyId);
+  programListFacultyCache.set(programId, listFacultyId);
+  return listFacultyId;
 }
 
 export const ScheduleService = {

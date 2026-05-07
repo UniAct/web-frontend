@@ -32,6 +32,7 @@ export interface ScheduleSlot {
   startTime: string; // "HH:mm"
   endTime: string;   // "HH:mm"
   type: SlotType;
+  allowedCapacity: number;
   enrolledSeats?: number;
 
   course: {
@@ -79,6 +80,9 @@ export interface TimetableSaveSessionInput {
   courseId: number;
   teacherId: number;
   classroomId: number;
+  allowedCapacity: number;
+  allowedCpacity?: number;
+  allowed_capacity?: number;
   learningGroupId: number | null;
   // Mandatory Helpers for Backend Conflict Reporting
   teacherName: string;
@@ -107,6 +111,7 @@ export interface TimetableSaveResult {
     startTime: string;
     endTime: string;
     type: SlotType;
+    allowedCapacity?: number;
     course: {
       id: number;
       code: string;

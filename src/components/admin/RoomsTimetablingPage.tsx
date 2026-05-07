@@ -80,6 +80,7 @@ export interface ScheduledClass {
   startTime: string;
   endTime: string;
   type: SlotType;
+  allowedCapacity: number;
 
   courseId: number;
   courseCode: string;
@@ -286,7 +287,13 @@ const makeDefaultForm = () => ({
   classType: "Lecture" as SlotType,
   teacherId: "",
   classroomId: "",
+  allowedCapacity: "",
 });
+
+const parseAllowedCapacity = (value: string) => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
 
 /** Returns which period a class belongs to — whichever period has the most overlap */
 function classifyPeriod(
@@ -335,6 +342,7 @@ function mapScheduleResponseToClasses(
     instructorName: slot.teacher.name,
     classroomId: slot.classroom.id,
     roomLabel: slot.classroom.label,
+    allowedCapacity: slot.allowedCapacity ?? slot.classroom.capacity ?? 1,
     learningGroupId: slot.learningGroup?.id || null,
   }));
 }
@@ -426,6 +434,9 @@ export function RoomsTimetablingPage({
             courseId: item.courseId,
             teacherId: item.instructorId,
             classroomId: item.classroomId,
+            allowedCapacity: item.allowedCapacity,
+            allowedCpacity: item.allowedCapacity,
+            allowed_capacity: item.allowedCapacity,
             learningGroupId: item.learningGroupId,
             teacherName: item.instructorName,
             classroomName: item.roomLabel,
@@ -458,6 +469,7 @@ export function RoomsTimetablingPage({
           instructorName: slot.teacher.name,
           classroomId: slot.classroom.id,
           roomLabel: slot.classroom.label,
+          allowedCapacity: slot.allowedCapacity ?? 1,
           learningGroupId: slot.learningGroup?.id || null,
         }),
       );
@@ -481,6 +493,7 @@ export function RoomsTimetablingPage({
   const [showModal, setShowModal] = useState(false);
   const [editingClass, setEditingClass] = useState<ScheduledClass | null>(null);
   const [formData, setFormData] = useState(makeDefaultForm());
+  const [allowedCapacityTouched, setAllowedCapacityTouched] = useState(false);
 
   // ── Export modal
   const [showExportModal, setShowExportModal] = useState(false);
@@ -502,7 +515,7 @@ export function RoomsTimetablingPage({
         setIsLoadingLookups(true);
         const facultyData = await FacultyService.getAll();
         setFaculties(facultyData);
-        
+
       } catch (error: any) {
         toast.error(error?.message || "Failed to load timetable lookups");
       } finally {
@@ -528,27 +541,27 @@ export function RoomsTimetablingPage({
   }, [selectedUniversity]);
 
   // ── Load Programs when Faculty changes
-useEffect(() => {
-  // If no faculty is selected, clear programs and return early
-  if (!selFacultyId) {
-    setPrograms([]);
-    return;
-  }
-
-  const loadPrograms = async () => {
-    try {
-      setIsLoadingLookups(true); // Re-use lookup loader or create a specific one
-      const programData = await FacultyService.getProgramsByFacultyId(Number(selFacultyId));
-      setPrograms(programData);
-    } catch (error: any) {
-      toast.error(error?.message || "Failed to load programs for this faculty");
-    } finally {
-      setIsLoadingLookups(false);
+  useEffect(() => {
+    // If no faculty is selected, clear programs and return early
+    if (!selFacultyId) {
+      setPrograms([]);
+      return;
     }
-  };
 
-  void loadPrograms();
-}, [selFacultyId]); // Triggered whenever the faculty selection changes
+    const loadPrograms = async () => {
+      try {
+        setIsLoadingLookups(true); // Re-use lookup loader or create a specific one
+        const programData = await FacultyService.getProgramsByFacultyId(Number(selFacultyId));
+        setPrograms(programData);
+      } catch (error: any) {
+        toast.error(error?.message || "Failed to load programs for this faculty");
+      } finally {
+        setIsLoadingLookups(false);
+      }
+    };
+
+    void loadPrograms();
+  }, [selFacultyId]); // Triggered whenever the faculty selection changes
 
   useEffect(() => {
     if (
@@ -592,9 +605,9 @@ useEffect(() => {
   //  DERIVED
   // ─────────────────────────────────────────────────────
 
-  const filteredPrograms = useMemo(()=> {
+  const filteredPrograms = useMemo(() => {
     return programs;
-  },[programs]);
+  }, [programs]);
 
   const selProgram = useMemo(
     () => programs.find((p) => p.id == Number(selProgramId)),
@@ -613,13 +626,13 @@ useEffect(() => {
 
   const courseOptions = useMemo(
     () =>
-      
+
       lookupCourses.map((course) => (
-      {
-        value: String(course.id),
-        label: `${course.code} - ${course.name}`,
-        description: `ID: ${course.id}`,
-      })),
+        {
+          value: String(course.id),
+          label: `${course.code} - ${course.name}`,
+          description: `ID: ${course.id}`,
+        })),
     [lookupCourses],
   );
 
@@ -646,6 +659,13 @@ useEffect(() => {
   const selFaculty = faculties.find((f) => f.id === Number(selFacultyId));
   const isAnyLoading =
     isLoadingLookups || isLoadingTimetable || isSavingTimetable;
+
+  const getClassroomCapacity = useCallback(
+    (classroomId: string) =>
+      lookupClassrooms.find((room) => room.id === Number(classroomId))?.capacity ??
+      null,
+    [lookupClassrooms],
+  );
 
   const activeDays = DAYS.filter((d) => dayRanges[d].enabled);
 
@@ -729,13 +749,20 @@ useEffect(() => {
       classType: item.type,
       teacherId: String(item.instructorId),
       classroomId: String(item.classroomId),
+      allowedCapacity: String(item.allowedCapacity),
     });
+    setAllowedCapacityTouched(false);
     setShowModal(true);
   };
 
   const handleSaveClass = () => {
     if (!formData.courseId || !formData.teacherId || !formData.classroomId) {
       toast.error("Please fill in all required fields");
+      return;
+    }
+    const allowedCapacity = parseAllowedCapacity(formData.allowedCapacity);
+    if (!allowedCapacity) {
+      toast.error("Allowed Capacity must be a positive integer");
       return;
     }
     if (timeToMinutes(formData.startTime) >= timeToMinutes(formData.endTime)) {
@@ -769,6 +796,7 @@ useEffect(() => {
       startTime: formData.startTime,
       endTime: formData.endTime,
       type: formData.classType as SlotType,
+      allowedCapacity,
       courseId: course.id,
       courseCode: course.code,
       courseName: course.name,
@@ -789,6 +817,7 @@ useEffect(() => {
     }
     setShowModal(false);
     setEditingClass(null);
+    setAllowedCapacityTouched(false);
   };
 
   const handleDeleteClass = (id: string) => {
@@ -1549,6 +1578,7 @@ useEffect(() => {
                 onClick={() => {
                   setEditingClass(null);
                   setFormData(makeDefaultForm());
+                  setAllowedCapacityTouched(false);
                   setShowModal(true);
                 }}
                 disabled={!selLevel || isAnyLoading}
@@ -2151,6 +2181,7 @@ useEffect(() => {
           if (!open) {
             setShowModal(false);
             setEditingClass(null);
+            setAllowedCapacityTouched(false);
           }
         }}
       >
@@ -2268,7 +2299,7 @@ useEffect(() => {
             </div>
 
             {/* Classroom / Instructor */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">
                   Classroom *
@@ -2279,18 +2310,39 @@ useEffect(() => {
                     const nextClassroom = lookupClassrooms.find(
                       (item) => item.id === Number(nextClassroomId),
                     );
+                    const nextClassroomCapacity = getClassroomCapacity(nextClassroomId);
                     setFormData({
                       ...formData,
                       classroomId: nextClassroomId,
                       classType: classroomToClassType(
                         nextClassroom?.type || "Hall",
                       ),
+                      allowedCapacity: allowedCapacityTouched
+                        ? formData.allowedCapacity
+                        : String(nextClassroomCapacity ?? ""),
                     });
                   }}
                   options={classroomOptions}
                   placeholder="Select a classroom..."
                   searchPlaceholder="Search room by building, number, or type..."
                   emptyMessage="No classroom found."
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                  Allowed Capacity *
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={formData.allowedCapacity}
+                  onChange={(e) => {
+                    setAllowedCapacityTouched(true);
+                    setFormData({ ...formData, allowedCapacity: e.target.value });
+                  }}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  placeholder="Defaults from classroom capacity"
                 />
               </div>
               <div>
@@ -2318,6 +2370,7 @@ useEffect(() => {
                 const timeInvalid =
                   timeToMinutes(formData.startTime) >=
                   timeToMinutes(formData.endTime);
+                const capacityInvalid = !parseAllowedCapacity(formData.allowedCapacity);
                 const conflictMsg = !timeInvalid
                   ? getConflictMessage(
                     formData.day,
@@ -2328,7 +2381,7 @@ useEffect(() => {
                     editingClass ? String(editingClass.id) : undefined,
                   )
                   : null;
-                const hasError = timeInvalid || !!conflictMsg;
+                const hasError = timeInvalid || capacityInvalid || !!conflictMsg;
                 return (
                   <div
                     className={`rounded-xl border p-3.5 text-sm transition-colors ${hasError ? "bg-red-50 border-red-200" : "bg-emerald-50 border-emerald-200"}`}
@@ -2342,6 +2395,11 @@ useEffect(() => {
                       <div className="flex items-start gap-2 text-red-600">
                         <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                         <span>{conflictMsg}</span>
+                      </div>
+                    ) : capacityInvalid ? (
+                      <div className="flex items-center gap-2 text-red-600">
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                        <span>Allowed Capacity must be a positive integer</span>
                       </div>
                     ) : (
                       <div className="flex flex-col gap-1.5">
@@ -2398,6 +2456,7 @@ useEffect(() => {
                   !formData.courseId ||
                   !formData.teacherId ||
                   !formData.classroomId ||
+                  !parseAllowedCapacity(formData.allowedCapacity) ||
                   timeToMinutes(formData.startTime) >=
                   timeToMinutes(formData.endTime) ||
                   hasConflict(
