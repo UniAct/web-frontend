@@ -422,6 +422,7 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
 
   const renderPage = () => {
     const commonProps = {
+      user,
       selectedUniversity,
       setSelectedUniversity: handleUniversityChange
     };

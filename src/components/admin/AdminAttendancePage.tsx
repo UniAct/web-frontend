@@ -1,9 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
 import { Input } from '../ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { SearchableSelect } from '../ui/searchable-select';
 import { Progress } from '../ui/progress';
 import {
@@ -11,50 +10,194 @@ import {
   Users,
   CheckCircle,
   Save,
-  Search
+  Search,
+  Loader
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
+import { AttendanceService } from '../../api/modules/attendance/attendance.service';
+import type { User as AppUser } from '../../App';
 
 interface AdminAttendancePageProps {
+  user: AppUser;
   selectedUniversity: string | null;
   setSelectedUniversity: (university: string | null) => void;
 }
 
 interface Student {
-  id: string;
+  id: number;
   name: string;
   rollNumber: string;
   isPresent: boolean;
+  studentId: number;
 }
 
-export function AdminAttendancePage({ selectedUniversity }: AdminAttendancePageProps) {
+interface CourseOption {
+  value: string;
+  contextId: number;
+  scheduleSlotId: number;
+  teacherId: number;
+  label: string;
+  description: string;
+}
+
+function formatCourseTime(value: string): string {
+  if (/^\d{2}:\d{2}$/.test(value)) {
+    return value;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendancePageProps) {
   const [selectedCourse, setSelectedCourse] = useState('');
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [students, setStudents] = useState<Student[]>([
-    { id: '1', name: 'John Doe', rollNumber: 'CS2021001', isPresent: false },
-    { id: '2', name: 'Sarah Ahmed', rollNumber: 'CS2021002', isPresent: false },
-    { id: '3', name: 'Mohamed Ali', rollNumber: 'CS2021003', isPresent: false },
-    { id: '4', name: 'Emma Wilson', rollNumber: 'CS2021004', isPresent: false },
-    { id: '5', name: 'David Chen', rollNumber: 'CS2021005', isPresent: false },
-    { id: '6', name: 'Lisa Brown', rollNumber: 'CS2021006', isPresent: false },
-    { id: '7', name: 'Ahmed Hassan', rollNumber: 'CS2021007', isPresent: false },
-    { id: '8', name: 'Fatima Khan', rollNumber: 'CS2021008', isPresent: false },
-  ]);
-
-  const [initialStudents, setInitialStudents] = useState<Student[]>(students);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [initialStudents, setInitialStudents] = useState<Student[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [courses, setCourses] = useState<CourseOption[]>([]);
+  const [attendanceSessionId, setAttendanceSessionId] = useState<number | null>(null);
+  const [activeSemesterId, setActiveSemesterId] = useState<number | null>(null);
 
-  // Mock courses data
-  const courses = [
-    { id: 'cs-301', name: 'CS-301 - Advanced Algorithms', students: 28, room: 'Room 101' },
-    { id: 'cs-201', name: 'CS-201 - Data Structures', students: 35, room: 'Room 205' },
-    { id: 'cs-101', name: 'CS-101 - Programming Basics', students: 45, room: 'Room 102' },
-    { id: 'math-201', name: 'MATH-201 - Calculus II', students: 32, room: 'Room 303' },
-    { id: 'phys-401', name: 'PHYS-401 - Quantum Physics', students: 20, room: 'Room 401' }
-  ];
+  const resolveActiveSemesterId = () => {
+    if (selectedUniversity) {
+      const raw = localStorage.getItem(`activeSemester:${selectedUniversity}`);
+      const parsed = raw ? Number(raw) : NaN;
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
 
-  const toggleStudentAttendance = (studentId: string) => {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key?.startsWith('activeSemester:')) continue;
+
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? Number(raw) : NaN;
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+
+    return user.currentSemesterId ?? null;
+  };
+
+  // Load active semester for admin view
+  useEffect(() => {
+    const loadContext = () => {
+      try {
+        setIsLoading(true);
+
+        const semesterId = resolveActiveSemesterId();
+        setActiveSemesterId(semesterId);
+      } catch (error) {
+        console.error('Failed to load attendance context:', error);
+        toast.error('Failed to load attendance context');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadContext();
+  }, [selectedUniversity, user.currentSemesterId]);
+
+  // Fetch actual scheduled classes for admin view once semester is available
+  useEffect(() => {
+    const fetchCourses = async () => {
+      try {
+        if (!activeSemesterId) {
+          setCourses([]);
+          return;
+        }
+
+        setIsLoading(true);
+
+        const courseOptions = await AttendanceService.getCourseOptions({
+          semesterId: activeSemesterId,
+        });
+
+        const nextCourses: CourseOption[] = courseOptions.map((item) => ({
+          value: String(item.id),
+          contextId: item.id,
+          scheduleSlotId: item.slot.id,
+          teacherId: item.slot.teacherId,
+          label: `${item.slot.course.code} - ${item.slot.course.name}`,
+          description: `${item.program.name} • Level ${item.academicLevel} • ${item.slot.type} • ${item.slot.dayOfWeek} ${formatCourseTime(item.slot.startTime)}-${formatCourseTime(item.slot.endTime)}`,
+        })).sort((left, right) => left.description.localeCompare(right.description) || left.label.localeCompare(right.label));
+
+        setCourses(nextCourses);
+      } catch (error) {
+        console.error('Failed to fetch schedule slots:', error);
+        toast.error('Failed to load schedule slots');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    void fetchCourses();
+  }, [activeSemesterId]);
+
+  // Fetch enrolled students when a course is selected
+  useEffect(() => {
+    const fetchStudents = async () => {
+      try {
+        if (!selectedCourse) {
+          setStudents([]);
+          setInitialStudents([]);
+          setAttendanceSessionId(null);
+          return;
+        }
+
+        setIsLoading(true);
+        const courseOption = courses.find((c) => c.value === selectedCourse);
+        if (!courseOption) return;
+
+        const [enrolled, existingSession] = await Promise.all([
+          AttendanceService.getEnrolled(courseOption.contextId),
+          AttendanceService.getSessionBySlotAndDate(courseOption.scheduleSlotId, selectedDate),
+        ]);
+
+        const attendanceByStudentId = new Map(
+          (existingSession?.attendance ?? []).map((record) => [
+            record.studentId,
+            record.status === 'Present' || record.status === 'Late',
+          ]),
+        );
+
+        const formattedStudents: Student[] = enrolled.map(e => ({
+          id: e.id,
+          studentId: e.studentId,
+          name: `${e.student.user.firstName || ''} ${e.student.user.lastName || ''}`.trim(),
+          rollNumber: e.student.user.email || 'N/A',
+          isPresent: attendanceByStudentId.get(e.studentId) ?? false,
+        }));
+
+        setStudents(formattedStudents);
+        setInitialStudents(formattedStudents);
+        setAttendanceSessionId(existingSession?.id ?? null);
+        setHasChanges(false);
+      } catch (error) {
+        console.error('Failed to fetch enrolled students:', error);
+        toast.error('Failed to load enrolled students');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    void fetchStudents();
+  }, [selectedCourse, selectedDate, courses]);
+
+  const toggleStudentAttendance = (studentId: number) => {
     setStudents(prev => {
       const updated = prev.map(student =>
         student.id === studentId
@@ -109,30 +252,70 @@ export function AdminAttendancePage({ selectedUniversity }: AdminAttendancePageP
     );
   }, [students, searchQuery]);
 
-  const handleSaveAttendance = () => {
+  const handleSaveAttendance = async () => {
     if (!selectedCourse) {
       toast.error('Please select a course first');
       return;
     }
 
-    // Get only modified records
-    const modifiedRecords = students.filter((student, index) =>
-      student.isPresent !== initialStudents[index].isPresent
-    );
+    try {
+      setIsLoading(true);
 
-    if (modifiedRecords.length === 0) {
-      toast.info('No changes to save');
-      return;
+      // Get modified records
+      const modifiedRecords = students
+        .map((student, index) => ({
+          studentId: student.studentId,
+          status: student.isPresent ? 'present' : 'absent',
+          changed: student.isPresent !== initialStudents[index]?.isPresent,
+        }))
+        .filter(r => r.changed);
+
+      if (modifiedRecords.length === 0) {
+        toast.info('No changes to save');
+        return;
+      }
+
+      // Create or reuse attendance session
+      let sessionId = attendanceSessionId;
+      if (!sessionId) {
+        const courseOption = courses.find((c) => c.value === selectedCourse);
+        if (!courseOption) return;
+
+        const now = new Date();
+        const sessionStart = new Date(`${selectedDate}T${now.toTimeString().slice(0, 8)}`);
+        const sessionEnd = new Date(sessionStart.getTime() + 60 * 60 * 1000);
+        const session = await AttendanceService.createSession({
+          scheduleSlotId: courseOption.scheduleSlotId,
+          facultyMemberId: courseOption.teacherId || Number(user.id),
+          sessionDate: `${selectedDate}T00:00:00.000Z`,
+          startTime: sessionStart.toISOString(),
+          endTime: sessionEnd.toISOString(),
+          attendanceMode: 'Manual',
+        });
+        sessionId = session.id;
+        setAttendanceSessionId(sessionId);
+      }
+
+      // Save attendances
+      await AttendanceService.saveAttendances(sessionId, {
+        attendanceSessionId: sessionId,
+        records: students.map((student) => ({
+          studentId: student.studentId,
+          status: (student.isPresent ? 'present' : 'absent') as 'present' | 'absent' | 'late',
+        })),
+      });
+
+      // Update initial state to current state
+      setInitialStudents([...students]);
+      setHasChanges(false);
+
+      toast.success(`Attendance saved successfully! ${modifiedRecords.length} record(s) updated.`);
+    } catch (error) {
+      console.error('Failed to save attendance:', error);
+      toast.error('Failed to save attendance');
+    } finally {
+      setIsLoading(false);
     }
-
-    // Save the modified records (in real app, this would be an API call)
-    console.log('Saving modified attendance records:', modifiedRecords);
-
-    // Update initial state to current state
-    setInitialStudents([...students]);
-    setHasChanges(false);
-
-    toast.success(`Attendance saved successfully! ${modifiedRecords.length} record(s) updated.`);
   };
 
   const handleExportAttendance = () => {
@@ -141,40 +324,50 @@ export function AdminAttendancePage({ selectedUniversity }: AdminAttendancePageP
       return;
     }
 
-    // Get the selected course name
-    const course = courses.find(c => c.id === selectedCourse);
-    if (!course) return;
+    if (students.length === 0) {
+      toast.error('No attendance data to export');
+      return;
+    }
 
-    // Prepare data for Excel export
-    const exportData = students.map(student => ({
-      ID: student.rollNumber,
-      Name: student.name,
-      Status: student.isPresent ? '' : 'X' // X = Absent, Empty = Present
-    }));
+    try {
+      // Get the selected course info
+      const courseOption = courses.find((c) => c.value === selectedCourse);
+      if (!courseOption) return;
 
-    // Create worksheet
-    const ws = XLSX.utils.json_to_sheet(exportData);
+      // Prepare data for Excel export
+      const exportData = students.map(student => ({
+        ID: student.rollNumber,
+        Name: student.name,
+        Status: student.isPresent ? 'Present' : 'Absent'
+      }));
 
-    // Set column widths
-    ws['!cols'] = [
-      { wch: 15 }, // ID column
-      { wch: 25 }, // Name column
-      { wch: 10 }  // Status column
-    ];
+      // Create worksheet
+      const ws = XLSX.utils.json_to_sheet(exportData);
 
-    // Create workbook
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 15 }, // ID column
+        { wch: 25 }, // Name column
+        { wch: 15 }  // Status column
+      ];
 
-    // Generate filename with course name and date
-    const today = new Date().toISOString().split('T')[0];
-    const courseName = course.name.split(' - ')[0].replace(/\s+/g, '_');
-    const filename = `${courseName}_Attendance_${today}.xlsx`;
+      // Create workbook
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
 
-    // Download the file
-    XLSX.writeFile(wb, filename);
+      // Generate filename with course name and date
+      const today = new Date().toISOString().split('T')[0];
+      const courseCode = courseOption.label.split(' - ')[0].replace(/\s+/g, '_');
+      const filename = `${courseCode}_Attendance_${today}.xlsx`;
 
-    toast.success('Attendance exported successfully!');
+      // Download the file
+      XLSX.writeFile(wb, filename);
+
+      toast.success('Attendance exported successfully!');
+    } catch (error) {
+      console.error('Failed to export attendance:', error);
+      toast.error('Failed to export attendance');
+    }
   };
 
   return (
@@ -195,23 +388,45 @@ export function AdminAttendancePage({ selectedUniversity }: AdminAttendancePageP
           <CardDescription>Choose a course to mark attendance</CardDescription>
         </CardHeader>
         <CardContent>
-          <Select value={selectedCourse} onValueChange={setSelectedCourse}>
-            <SelectTrigger>
-              <SelectValue placeholder="Choose a course" />
-            </SelectTrigger>
-            <SelectContent>
-              {courses.map((course) => (
-                <SelectItem key={course.id} value={course.id}>
-                  {course.name} - {course.students} students - {course.room}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {isLoading && courses.length === 0 ? (
+            <div className="flex items-center gap-2">
+              <Loader className="w-4 h-4 animate-spin" />
+              <span>Loading courses...</span>
+            </div>
+          ) : (
+            <SearchableSelect
+              value={selectedCourse}
+              onValueChange={setSelectedCourse}
+              options={courses.map((course) => ({
+                value: course.value,
+                label: course.label,
+                description: course.description,
+              }))}
+              placeholder="Choose a class"
+              searchPlaceholder="Search by course, program, type, or day..."
+              emptyMessage="No scheduled classes found."
+            />
+          )}
         </CardContent>
       </Card>
 
       {selectedCourse && (
         <>
+          <Card>
+            <CardHeader>
+              <CardTitle>Attendance Date</CardTitle>
+              <CardDescription>Attendance records are stored per course and date</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Input
+                type="date"
+                value={selectedDate}
+                onChange={(event) => setSelectedDate(event.target.value)}
+                max="9999-12-31"
+              />
+            </CardContent>
+          </Card>
+
           {/* Manual Entry Section */}
           <Card>
             <CardHeader>
@@ -243,22 +458,33 @@ export function AdminAttendancePage({ selectedUniversity }: AdminAttendancePageP
 
               {/* Student List */}
               <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                {filteredStudents.map((student) => (
-                  <div key={student.id} className="flex items-center space-x-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
-                    <Checkbox
-                      checked={student.isPresent}
-                      onCheckedChange={() => toggleStudentAttendance(student.id)}
-                      className="border-slate-300"
-                    />
-                    <div className="flex-1">
-                      <p className="text-slate-900">{student.name}</p>
-                      <p className="text-slate-500">{student.rollNumber}</p>
-                    </div>
-                    {student.isPresent && (
-                      <CheckCircle className="w-5 h-5 text-green-600" />
-                    )}
+                {isLoading ? (
+                  <div className="flex items-center justify-center p-4">
+                    <Loader className="w-5 h-5 animate-spin mr-2" />
+                    <span>Loading students...</span>
                   </div>
-                ))}
+                ) : filteredStudents.length === 0 ? (
+                  <div className="text-center p-4 text-muted-foreground">
+                    No students enrolled in this course
+                  </div>
+                ) : (
+                  filteredStudents.map((student) => (
+                    <div key={student.id} className="flex items-center space-x-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+                      <Checkbox
+                        checked={student.isPresent}
+                        onCheckedChange={() => toggleStudentAttendance(student.id)}
+                        className="border-slate-300"
+                      />
+                      <div className="flex-1">
+                        <p className="text-slate-900">{student.name}</p>
+                        <p className="text-slate-500">{student.rollNumber}</p>
+                      </div>
+                      {student.isPresent && (
+                        <CheckCircle className="w-5 h-5 text-green-600" />
+                      )}
+                    </div>
+                  ))
+                )}
               </div>
 
               {/* Attendance Summary */}
@@ -277,15 +503,25 @@ export function AdminAttendancePage({ selectedUniversity }: AdminAttendancePageP
                 <Button
                   className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
                   onClick={handleSaveAttendance}
-                  disabled={!hasChanges}
+                  disabled={!hasChanges || isLoading}
                 >
-                  <Save className="w-4 h-4 mr-2" />
-                  Save Attendance
+                  {isLoading ? (
+                    <>
+                      <Loader className="w-4 h-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      Save Attendance
+                    </>
+                  )}
                 </Button>
                 <Button
                   variant="outline"
                   onClick={handleExportAttendance}
                   className="gap-2"
+                  disabled={students.length === 0}
                 >
                   <Download className="w-4 h-4" />
                   Export Attendance
@@ -293,6 +529,7 @@ export function AdminAttendancePage({ selectedUniversity }: AdminAttendancePageP
               </div>
             </CardContent>
           </Card>
+
         </>
       )}
 

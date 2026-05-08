@@ -3,6 +3,7 @@ export type DayOfWeek =
   | 'Wednesday' | 'Thursday' | 'Friday';
 
 export type SlotType = 'Lecture' | 'Lab' | 'Tutorial';
+export type RegistrationStatus = 'Enrolled' | 'Withdrawn' | 'Completed' | 'Failed' | 'InProgress';
 
 export interface TimetableCourseLookup {
   id: number;
@@ -57,6 +58,8 @@ export interface ScheduleSlot {
     id: number;
     name: string;
   } | null;
+  registrationStatus?: RegistrationStatus | null;
+  isCurrentStudentEnrolled?: boolean;
 }
 
 export interface GetScheduleResponse {

@@ -24,6 +24,7 @@ interface CourseSession {
   room: string;
   availableSeats: number;
   rawSlot: ScheduleSlot;
+  isPersistedEnrollment?: boolean;
 }
 
 interface Course {
@@ -49,6 +50,7 @@ interface SelectedSession extends CourseSession {
   courseCode: string;
   creditHours: number;
   addedAt: Date;
+  isPersistedEnrollment?: boolean;
 }
 
 function format24HourTo12Hour(time24: string) {
@@ -115,6 +117,7 @@ function mapScheduleSlotsToCourses(slots: ScheduleSlot[], level: number): Course
       room: slot.classroom.label,
       availableSeats,
       rawSlot: slot,
+      isPersistedEnrollment: slot.isCurrentStudentEnrolled === true,
     };
 
     if (!courseMap.has(courseId)) {
@@ -135,6 +138,22 @@ function mapScheduleSlotsToCourses(slots: ScheduleSlot[], level: number): Course
   });
 
   return Array.from(courseMap.values());
+}
+
+function getPersistedSelectedSessions(courses: Course[]): SelectedSession[] {
+  return courses.flatMap((course) =>
+    course.sessions
+      .filter((session) => session.isPersistedEnrollment)
+      .map((session) => ({
+        ...session,
+        courseId: course.id,
+        courseName: course.name,
+        courseCode: course.code,
+        creditHours: course.creditHours,
+        addedAt: new Date(),
+        isPersistedEnrollment: true,
+      })),
+  );
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -375,7 +394,12 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
         if (!isMounted) return;
 
         saveCachedScheduleSlots(user.programId, Number(selectedLevel), user.currentSemesterId, scheduleSlots);
-        setCourses(mapScheduleSlotsToCourses(scheduleSlots, Number(selectedLevel)));
+        const mappedCourses = mapScheduleSlotsToCourses(scheduleSlots, Number(selectedLevel));
+        setCourses(mappedCourses);
+        setSelectedSessions((currentSessions) => {
+          const pendingSessions = currentSessions.filter((session) => !session.isPersistedEnrollment);
+          return [...getPersistedSelectedSessions(mappedCourses), ...pendingSessions];
+        });
       } catch (error) {
         if (!isMounted) return;
 
@@ -386,11 +410,17 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
         );
 
         if (cachedScheduleSlots.length > 0) {
-          setCourses(mapScheduleSlotsToCourses(cachedScheduleSlots, Number(selectedLevel)));
+          const mappedCourses = mapScheduleSlotsToCourses(cachedScheduleSlots, Number(selectedLevel));
+          setCourses(mappedCourses);
+          setSelectedSessions((currentSessions) => {
+            const pendingSessions = currentSessions.filter((session) => !session.isPersistedEnrollment);
+            return [...getPersistedSelectedSessions(mappedCourses), ...pendingSessions];
+          });
           return;
         }
 
         setCourses([]);
+        setSelectedSessions((currentSessions) => currentSessions.filter((session) => !session.isPersistedEnrollment));
 
         if (!isKnownScheduleLoadSyncError(error)) {
           toast.error(error instanceof Error ? error.message : 'Failed to load student schedule');
@@ -410,6 +440,8 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
   // ── Business logic (all preserved) ────────────────────────────────────────
   const isSessionAdded = (sessionId: string) =>
     selectedSessions.some(s => s.sessionId === sessionId);
+
+  const hasPendingSelectedSessions = selectedSessions.some((session) => !session.isPersistedEnrollment);
 
   const getAvailableSeats = (sessionId: string, def: number) =>
     sessionSeats[sessionId] ?? def;
@@ -479,6 +511,10 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
   const removeSession = (sessionId: string) => {
     const session = selectedSessions.find(s => s.sessionId === sessionId);
     if (!session) return;
+    if (session.isPersistedEnrollment) {
+      toast.info('This course is already enrolled and cannot be removed from this page.');
+      return;
+    }
     setSelectedSessions(prev => prev.filter(s => s.sessionId !== sessionId));
     if (sessionSeats[sessionId] !== undefined)
       setSessionSeats(prev => ({ ...prev, [sessionId]: prev[sessionId] + 1 }));
@@ -486,14 +522,16 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
   };
 
   const submitRegistration = async () => {
-    if (selectedSessions.length === 0) {
+    const pendingSessions = selectedSessions.filter((session) => !session.isPersistedEnrollment);
+
+    if (pendingSessions.length === 0) {
       toast.error('Please select at least one course session');
       return;
     }
 
     try {
       setIsSubmittingRegistration(true);
-      const submittedSessions = [...selectedSessions];
+      const submittedSessions = [...pendingSessions];
 
       const enrollmentData = {
         scheduleSlots: submittedSessions.map((session) => {
@@ -555,7 +593,11 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
 
       if (enrolledSlotIds.size > 0) {
         setSelectedSessions((currentSessions) =>
-          currentSessions.filter((session) => !enrolledSlotIds.has(getPhysicalSlotId(session)))
+          currentSessions.map((session) =>
+            enrolledSlotIds.has(getPhysicalSlotId(session))
+              ? { ...session, isPersistedEnrollment: true }
+              : session
+          )
         );
       }
 
@@ -728,12 +770,15 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
             ) : getCoursesForLevel(Number(selectedLevel)).map(course =>
               course.sessions.map((session, si) => {
                 const isAdded = isSessionAdded(session.sessionId);
+                const isPersisted = session.isPersistedEnrollment === true;
                 const seats = getAvailableSeats(session.sessionId, session.availableSeats);
                 const conflict = !isAdded && hasTimeConflict(session);
                 const noSeats = seats === 0;
                 const error = rowErrors[session.sessionId];
 
-                const rowBg = isAdded
+                const rowBg = isPersisted
+                  ? '#eff6ff'
+                  : isAdded
                   ? '#f0fdf4'
                   : si % 2 === 0 ? '#ffffff' : '#fafafa';
 
@@ -746,7 +791,7 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
                       transition: 'background 0.1s',
                     }}
                     onMouseEnter={e => {
-                      (e.currentTarget as HTMLElement).style.background = isAdded ? '#dcfce7' : '#eff6ff';
+                      (e.currentTarget as HTMLElement).style.background = isPersisted ? '#dbeafe' : isAdded ? '#dcfce7' : '#eff6ff';
                     }}
                     onMouseLeave={e => {
                       (e.currentTarget as HTMLElement).style.background = rowBg;
@@ -846,20 +891,36 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
                       position: 'sticky', right: 0, zIndex: 5,
                       padding: '6px 8px', width: 60,
                       textAlign: 'center',
-                      background: isAdded ? '#dcfce7' : rowBg,
+                      background: isPersisted ? '#dbeafe' : isAdded ? '#dcfce7' : rowBg,
                       borderLeft: '1px solid #e2e8f0',
                       boxShadow: '-4px 0 8px -4px rgba(0,0,0,0.08)',
                     }}>
                       <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {isAdded ? (
+                        {isPersisted ? (
                           <button
-                            onClick={() => removeSession(session.sessionId)}
+                            title="Already enrolled"
+                            style={{
+                              width: 28, height: 28, borderRadius: 6,
+                              background: '#dbeafe', border: '1px solid #93c5fd', color: '#2563eb',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              cursor: 'default', transition: 'all 0.15s',
+                            }}
+                          >
+                            <CheckCircle2 style={{ width: 14, height: 14 }} />
+                          </button>
+                        ) : isAdded ? (
+                          <button
+                            onClick={() => {
+                              if (!session.isPersistedEnrollment) {
+                                removeSession(session.sessionId);
+                              }
+                            }}
                             title="Added — click to remove"
                             style={{
                               width: 28, height: 28, borderRadius: 6,
                               background: '#dcfce7', border: '1px solid #86efac', color: '#16a34a',
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              cursor: 'pointer', transition: 'all 0.15s',
+                              cursor: session.isPersistedEnrollment ? 'default' : 'pointer', transition: 'all 0.15s',
                             }}
                           >
                             <Check style={{ width: 14, height: 14 }} />
@@ -927,7 +988,7 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
         }}>
           <CalendarDays style={{ width: 15, height: 15, color: 'rgba(255,255,255,0.75)' }} />
           <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Live Timetable</span>
-          <span style={{ marginLeft: 'auto', fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Click a block to remove</span>
+          <span style={{ marginLeft: 'auto', fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Draft blocks can be removed. Enrolled blocks stay visible.</span>
         </div>
 
         {!hasSessions ? (
@@ -1032,8 +1093,14 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
                         return (
                           <div
                             key={session.sessionId}
-                            onClick={() => removeSession(session.sessionId)}
-                            title={`${session.courseCode} • ${session.timeFrom}–${session.timeTo} • ${session.room}\nClick to remove`}
+                            onClick={() => {
+                              if (!session.isPersistedEnrollment) {
+                                removeSession(session.sessionId);
+                              }
+                            }}
+                            title={session.isPersistedEnrollment
+                              ? `${session.courseCode} - ${session.timeFrom}-${session.timeTo} - ${session.room}\nAlready enrolled`
+                              : `${session.courseCode} - ${session.timeFrom}-${session.timeTo} - ${session.room}\nClick to remove`}
                             style={{
                               position: 'absolute',
                               top: 5, bottom: 5,
@@ -1041,7 +1108,7 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
                               borderRadius: 8,
                               background: color,
                               color: '#fff',
-                              cursor: 'pointer',
+                              cursor: session.isPersistedEnrollment ? 'default' : 'pointer',
                               overflow: 'hidden',
                               boxShadow: conflict
                                 ? `0 0 0 2px #ef4444, 0 2px 6px rgba(0,0,0,0.15)`
@@ -1050,10 +1117,12 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
                               userSelect: 'none',
                             }}
                             onMouseEnter={e => {
+                              if (session.isPersistedEnrollment) return;
                               (e.currentTarget as HTMLElement).style.opacity = '0.85';
                               (e.currentTarget as HTMLElement).style.transform = 'scale(0.98)';
                             }}
                             onMouseLeave={e => {
+                              if (session.isPersistedEnrollment) return;
                               (e.currentTarget as HTMLElement).style.opacity = '1';
                               (e.currentTarget as HTMLElement).style.transform = 'scale(1)';
                             }}
@@ -1067,7 +1136,10 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
                                   {session.room}
                                 </p>
                               )}
-                              {conflict && (
+                              {session.isPersistedEnrollment && (
+                                <p style={{ fontSize: '10', fontWeight: 700, color: '#bfdbfe', margin: 0 }}>Enrolled</p>
+                              )}
+                              {conflict && !session.isPersistedEnrollment && (
                                 <p style={{ fontSize: 10, fontWeight: 700, color: '#fca5a5', margin: 0 }}>⚠ Conflict</p>
                               )}
                             </div>
@@ -1168,12 +1240,12 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
       )}
 
       {/* Submit button */}
-      <Button
-        onClick={submitRegistration}
-        disabled={selectedSessions.length === 0 || isSubmittingRegistration}
-        style={{ flexShrink: 0, marginLeft: isSplit ? 'auto' : 0 }}
-        className="bg-blue-500 hover:bg-blue-400 disabled:opacity-40 text-white border-0 gap-1.5 h-8 text-xs font-semibold shadow-lg"
-      >
+        <Button
+          onClick={submitRegistration}
+          disabled={!hasPendingSelectedSessions || isSubmittingRegistration}
+          style={{ flexShrink: 0, marginLeft: isSplit ? 'auto' : 0 }}
+          className="bg-blue-500 hover:bg-blue-400 disabled:opacity-40 text-white border-0 gap-1.5 h-8 text-xs font-semibold shadow-lg"
+        >
         <SendHorizonal style={{ width: 14, height: 14, opacity: isSubmittingRegistration ? 0.6 : 1 }} />
         <span>{isSubmittingRegistration ? 'Submitting...' : 'Submit Registration'}</span>
       </Button>
@@ -1231,7 +1303,7 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
               </span>
               <Button
                 onClick={submitRegistration}
-                disabled={isSubmittingRegistration}
+                disabled={!hasPendingSelectedSessions || isSubmittingRegistration}
                 className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs gap-1.5 h-8"
               >
                 <SendHorizonal style={{ width: 13, height: 13, opacity: isSubmittingRegistration ? 0.6 : 1 }} />
@@ -1244,3 +1316,4 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
     </div>
   );
 }
+

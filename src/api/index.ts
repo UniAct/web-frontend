@@ -4,6 +4,7 @@ export { SuperAdminService } from './modules/superadmin/superadmin.service';
 export { UserService } from './modules/user/user.service';
 export { CourseService } from './modules/course/course.service';
 export { ClassroomService } from './modules/classroom/classroom.service';
+export { AttendanceService } from './modules/attendance/attendance.service';
 export { FacultyService } from './modules/faculty/faculty.service';
 export { SemesterService } from './modules/semester/semester.service';
 export { ProgramService } from './modules/program/program.service';
