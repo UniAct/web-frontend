@@ -42,19 +42,21 @@ interface CourseOption {
 }
 
 function formatCourseTime(value: string): string {
-  if (/^\d{2}:\d{2}$/.test(value)) {
-    return value;
+  // Preserve wall-clock time from API payload and avoid timezone shifts.
+  const timeOnly = value.match(/^(\d{2}):(\d{2})(?::\d{2})?$/);
+  const dateTimeTime = value.match(/(?:T|\s)(\d{2}):(\d{2})(?::\d{2})?/);
+  const matched = timeOnly ?? dateTimeTime;
+  if (matched) {
+    const hours = Number(matched[1]);
+    const minutes = Number(matched[2]);
+    const d = new Date();
+    d.setHours(hours, minutes, 0, 0);
+    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   }
 
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  return parsed.toLocaleTimeString([], {
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
 export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendancePageProps) {
@@ -200,37 +202,35 @@ export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendanc
   const toggleStudentAttendance = (studentId: number) => {
     setStudents(prev => {
       const updated = prev.map(student =>
-        student.id === studentId
-          ? { ...student, isPresent: !student.isPresent }
-          : student
+        student.id === studentId ? { ...student, isPresent: !student.isPresent } : student
       );
 
-      // Check if there are changes
-      const hasChanged = updated.some((student, index) =>
-        student.isPresent !== initialStudents[index].isPresent
-      );
-      setHasChanges(hasChanged);
+      const initialMap = new Map<number, boolean>(initialStudents.map(s => [s.studentId, s.isPresent]));
+      const hasChangedNow = updated.some(s => (initialMap.get(s.studentId) ?? false) !== s.isPresent);
+      setHasChanges(hasChangedNow);
 
       return updated;
     });
   };
 
   const markAllPresent = () => {
-    const updated = students.map(student => ({ ...student, isPresent: true }));
-    setStudents(updated);
-    const hasChanged = updated.some((student, index) =>
-      student.isPresent !== initialStudents[index].isPresent
-    );
-    setHasChanges(hasChanged);
+    setStudents(prev => {
+      const updated = prev.map(student => ({ ...student, isPresent: true }));
+      const initialMap = new Map<number, boolean>(initialStudents.map(s => [s.studentId, s.isPresent]));
+      const hasChangedNow = updated.some(s => (initialMap.get(s.studentId) ?? false) !== s.isPresent);
+      setHasChanges(hasChangedNow);
+      return updated;
+    });
   };
 
   const markAllAbsent = () => {
-    const updated = students.map(student => ({ ...student, isPresent: false }));
-    setStudents(updated);
-    const hasChanged = updated.some((student, index) =>
-      student.isPresent !== initialStudents[index].isPresent
-    );
-    setHasChanges(hasChanged);
+    setStudents(prev => {
+      const updated = prev.map(student => ({ ...student, isPresent: false }));
+      const initialMap = new Map<number, boolean>(initialStudents.map(s => [s.studentId, s.isPresent]));
+      const hasChangedNow = updated.some(s => (initialMap.get(s.studentId) ?? false) !== s.isPresent);
+      setHasChanges(hasChangedNow);
+      return updated;
+    });
   };
 
   const getAttendanceStats = () => {
@@ -261,12 +261,13 @@ export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendanc
     try {
       setIsLoading(true);
 
-      // Get modified records
+      // Get modified records (compare by studentId to avoid relying on array indices)
+      const initialMap = new Map<number, boolean>(initialStudents.map(s => [s.studentId, s.isPresent]));
       const modifiedRecords = students
-        .map((student, index) => ({
+        .map((student) => ({
           studentId: student.studentId,
           status: student.isPresent ? 'present' : 'absent',
-          changed: student.isPresent !== initialStudents[index]?.isPresent,
+          changed: (initialMap.get(student.studentId) ?? false) !== student.isPresent,
         }))
         .filter(r => r.changed);
 
