@@ -11,6 +11,7 @@ import { AlumniHubPage } from './pages/AlumniHubPage';
 import { CareerBoardPage } from './pages/CareerBoardPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { SuperAdminPanel } from './pages/SuperAdminPanel';
+import { AdminGradesPage } from './components/admin/AdminGradesPage';
 import VerifyRootAccountPage from './pages/VerifyRootAccountPage';
 import VerifyStaffAccountPage from './pages/VerifyStaffAccountPage';
 import { AcademicRegistrationPage } from './pages/AcademicRegistrationPage';
@@ -22,6 +23,7 @@ import { toast } from 'sonner';
 import { BootstrapAnimation } from './components/bootstrap/BootstrapAnimation';
 import { TenantDetectionService } from './services/TenantDetectionService';
 import { apiClient, type LoginResponse } from './api';
+import { isJwtExpired } from './api/core/jwt';
 
 export type UserRole = 'student' | 'faculty' | 'admin' | 'alumni' | 'superadmin';
 const FRONTEND_ROLE_STORAGE_KEY = 'role';
@@ -106,7 +108,7 @@ function resolvePageFromQuery(page: string | null, role: UserRole): string {
 
   const allowedPages: Record<UserRole, string[]> = {
     student: ['dashboard', 'academic-registration', 'timetable', 'attendance', 'teams', 'groups', 'ai-assistant', 'alumni-hub', 'career-board', 'profile'],
-    faculty: ['dashboard', 'attendance', 'teams', 'groups', 'ai-assistant', 'profile'],
+    faculty: ['dashboard', 'attendance', 'grades', 'teams', 'groups', 'ai-assistant', 'profile'],
     admin: ['superadmin'],
     alumni: ['dashboard', 'alumni-hub', 'career-board', 'profile'],
     superadmin: ['superadmin'],
@@ -275,6 +277,14 @@ function readStoredSessionUser(): User | null {
     const userJson = localStorage.getItem('user');
 
     if (!token || !userJson) {
+      return null;
+    }
+
+    if (isJwtExpired(token)) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem(FRONTEND_ROLE_STORAGE_KEY);
+      localStorage.removeItem('tenantId');
       return null;
     }
 
@@ -626,6 +636,8 @@ export default function App() {
         return <TimetablePage user={effectiveUser} />;
       case 'attendance':
         return <AttendancePage user={effectiveUser} />;
+      case 'grades':
+        return <AdminGradesPage user={effectiveUser} selectedUniversity={null} setSelectedUniversity={() => undefined} />;
       case 'teams':
         return <TeamsPage user={effectiveUser} />;
       case 'groups':

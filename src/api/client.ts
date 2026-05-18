@@ -31,6 +31,7 @@ export const apiClient = {
   getTokenValue: () => httpClient.getTokenValue(),
   setTenantOverrideName: (tenantName: string) => httpClient.setTenantOverrideName(tenantName),
   clearTenantOverrideName: () => httpClient.clearTenantOverrideName(),
+  syncResolvedTenantFromSession: () => httpClient.syncResolvedTenantFromSession(),
 };
 
 export type {

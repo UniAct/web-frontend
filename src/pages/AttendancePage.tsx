@@ -17,9 +17,9 @@ import {
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { AttendanceService } from '../api/modules/attendance/attendance.service';
-import { SemesterService } from '../api/modules/semester/semester.service';
-import type { Semester } from '../api/types';
 import type { User as AppUser } from '../App';
+import type { AttendanceCourseSummary } from '../api/types';
+import { useResolvedSemester } from '../hooks/useResolvedSemester';
 
 interface AttendancePageProps {
   user: AppUser;
@@ -43,6 +43,13 @@ interface Student {
 }
 
 interface CourseOption {
+  value: string;
+  courseId: number;
+  label: string;
+  description: string;
+}
+
+interface SectionOption {
   value: string;
   contextId: number;
   scheduleSlotId: number;
@@ -69,8 +76,20 @@ function formatCourseTime(value: string): string {
   return parsed.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+function buildCourseOptions(options: AttendanceCourseSummary[]): CourseOption[] {
+  return options
+    .map((item) => ({
+      value: String(item.courseId),
+      courseId: item.courseId,
+      label: `${item.course.code} - ${item.course.name}`,
+      description: item.course.description?.trim() || `${item.course.credits} credit hours`,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
+
 export function AttendancePage({ user }: AttendancePageProps) {
   const [selectedCourse, setSelectedCourse] = useState('');
+  const [selectedSection, setSelectedSection] = useState('');
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [searchQuery, setSearchQuery] = useState('');
   const [students, setStudents] = useState<Student[]>([]);
@@ -78,102 +97,126 @@ export function AttendancePage({ user }: AttendancePageProps) {
   const [hasChanges, setHasChanges] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [courses, setCourses] = useState<CourseOption[]>([]);
+  const [sections, setSections] = useState<SectionOption[]>([]);
   const [attendanceSessionId, setAttendanceSessionId] = useState<number | null>(null);
-  const [resolvedSemesterId, setResolvedSemesterId] = useState<number | null>(user.currentSemesterId ?? null);
-  const [availableSemesters, setAvailableSemesters] = useState<Semester[]>([]);
+  const {
+    semesterId: activeSemesterId,
+    isLoading: isResolvingSemester,
+  } = useResolvedSemester({ fallbackSemesterId: user.currentSemesterId ?? null });
+  const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);
+  const [studentAttendanceLoading, setStudentAttendanceLoading] = useState(false);
 
-  const resolveActiveSemesterId = () => {
-    if (user.currentSemesterId) {
-      return user.currentSemesterId;
-    }
+  useEffect(() => {
+    if (user.role !== 'student') return;
 
-    for (let index = 0; index < localStorage.length; index += 1) {
-      const key = localStorage.key(index);
-      if (!key?.startsWith('activeSemester:')) continue;
-
-      const raw = localStorage.getItem(key);
-      const parsed = raw ? Number(raw) : NaN;
-      if (Number.isFinite(parsed)) {
-        return parsed;
+    const fetchStudentAttendance = async () => {
+      try {
+        setStudentAttendanceLoading(true);
+        const semesterId = activeSemesterId ?? undefined;
+        const data = await AttendanceService.getStudentAttendanceStatus(semesterId);
+        setAttendanceHistory(
+          data.timeline.map((item) => ({
+            id: String(item.id),
+            course: `${item.attendanceSession.scheduleSlot.course.code} - ${item.attendanceSession.scheduleSlot.course.name}`,
+            date: item.attendanceSession.sessionDate.slice(0, 10),
+            time: new Date(item.recordedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+            status: item.status === 'Late' ? 'late' : item.status === 'Absent' ? 'absent' : 'present',
+          })),
+        );
+      } catch (error) {
+        console.error('Failed to load student attendance:', error);
+        toast.error('Failed to load attendance history');
+      } finally {
+        setStudentAttendanceLoading(false);
       }
-    }
+    };
 
-    return null;
-  };
+    void fetchStudentAttendance();
+  }, [user.role, activeSemesterId]);
 
-  const resolveFallbackSemesterId = async (): Promise<number | null> => {
-    const semesters = await SemesterService.getAll();
-    setAvailableSemesters(semesters);
-
-    const sorted = [...semesters].sort((left, right) => (right.year - left.year) || (right.term - left.term));
-    return sorted[0]?.id ?? null;
-  };
-
-  const attendanceHistory: AttendanceRecord[] = [
-    { id: '1', course: 'CS 301 - Advanced Algorithms', date: '2024-03-15', time: '10:00 AM', status: 'present', location: 'Room 101' },
-    { id: '2', course: 'CS 201 - Data Structures', date: '2024-03-14', time: '2:00 PM', status: 'present', location: 'Room 205' },
-    { id: '3', course: 'CS 301 - Advanced Algorithms', date: '2024-03-13', time: '10:00 AM', status: 'late', location: 'Room 101' },
-    { id: '4', course: 'CS 101 - Programming Basics', date: '2024-03-12', time: '9:00 AM', status: 'absent' },
-    { id: '5', course: 'CS 201 - Data Structures', date: '2024-03-12', time: '2:00 PM', status: 'present', location: 'Room 205' },
-  ];
-
-  // Fetch schedule slots for faculty view (only courses taught by this faculty)
+  // Fetch accessible courses for faculty view.
   useEffect(() => {
     if (user.role !== 'faculty') return;
 
-    setResolvedSemesterId(resolveActiveSemesterId());
-
     const fetchCourses = async () => {
       try {
+        if (isResolvingSemester) return;
+
         setIsLoading(true);
 
-        let semesterId = resolveActiveSemesterId();
-        if (!semesterId) {
-          semesterId = await resolveFallbackSemesterId();
-        }
-
-        if (!semesterId) {
+        if (!activeSemesterId) {
           toast.error('No semester available for this university');
           return;
         }
 
-        setResolvedSemesterId(semesterId);
-
-        const courseOptions = await AttendanceService.getCourseOptions({
-          semesterId,
-          teacherId: Number(user.id),
-        });
-
-        const nextCourses: CourseOption[] = courseOptions.map((item) => ({
-          value: String(item.id),
-          contextId: item.id,
-          scheduleSlotId: item.slot.id,
-          teacherId: item.slot.teacherId,
-          label: `${item.slot.course.code} - ${item.slot.course.name}`,
-          description: `${item.program.name} • Level ${item.academicLevel} • ${item.slot.type} • ${item.slot.dayOfWeek} ${formatCourseTime(item.slot.startTime)}-${formatCourseTime(item.slot.endTime)}`,
-        })).sort((left, right) => left.description.localeCompare(right.description) || left.label.localeCompare(right.label));
+        const nextCourses = buildCourseOptions(
+          await AttendanceService.getCourseSummaries({ semesterId: activeSemesterId }),
+        );
 
         setCourses(nextCourses);
+        setSections([]);
+        setSelectedSection('');
 
         if (nextCourses.length === 0) {
-          toast.error('No attendance-enabled timetable slots were found for this staff member');
+          toast.error('No attendance-enabled courses were found for this staff member');
         }
       } catch (error) {
-        console.error('Failed to fetch schedule slots:', error);
-        toast.error('Failed to load schedule slots');
+        console.error('Failed to fetch attendance courses:', error);
+        toast.error('Failed to load courses');
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchCourses();
-  }, [user]);
+    void fetchCourses();
+  }, [user.id, user.role, activeSemesterId, isResolvingSemester]);
 
-  // Fetch enrolled students when a course is selected
+  useEffect(() => {
+    if (user.role !== 'faculty') return;
+
+    const fetchSections = async () => {
+      try {
+        if (!selectedCourse || !activeSemesterId) {
+          setSections([]);
+          setSelectedSection('');
+          return;
+        }
+
+        setIsLoading(true);
+        const slotOptions = await AttendanceService.getCourseOptions({
+          semesterId: activeSemesterId,
+          courseId: Number(selectedCourse),
+        });
+
+        const nextSections: SectionOption[] = slotOptions.map((item) => ({
+          value: String(item.id),
+          contextId: item.id,
+          scheduleSlotId: item.slot.id,
+          teacherId: item.slot.teacherId,
+          label: `${item.program.name} • Level ${item.academicLevel}`,
+          description: `${item.slot.type} • ${item.slot.dayOfWeek} ${formatCourseTime(item.slot.startTime)}-${formatCourseTime(item.slot.endTime)}`,
+        })).sort((left, right) => left.label.localeCompare(right.label) || left.description.localeCompare(right.description));
+
+        setSections(nextSections);
+        setSelectedSection((current) =>
+          nextSections.some((item) => item.value === current) ? current : (nextSections[0]?.value ?? '')
+        );
+      } catch (error) {
+        console.error('Failed to fetch course sections:', error);
+        toast.error('Failed to load class sections');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    void fetchSections();
+  }, [user.role, selectedCourse, activeSemesterId]);
+
+  // Fetch enrolled students when a section is selected
   useEffect(() => {
     const fetchStudents = async () => {
       try {
-        if (!selectedCourse) {
+        if (!selectedSection) {
           setStudents([]);
           setInitialStudents([]);
           setAttendanceSessionId(null);
@@ -181,12 +224,12 @@ export function AttendancePage({ user }: AttendancePageProps) {
         }
 
         setIsLoading(true);
-        const courseOption = courses.find((c) => c.value === selectedCourse);
-        if (!courseOption) return;
+        const sectionOption = sections.find((section) => section.value === selectedSection);
+        if (!sectionOption) return;
 
         const [enrolled, existingSession] = await Promise.all([
-          AttendanceService.getEnrolled(courseOption.contextId),
-          AttendanceService.getSessionBySlotAndDate(courseOption.scheduleSlotId, selectedDate),
+          AttendanceService.getEnrolled(sectionOption.contextId),
+          AttendanceService.getSessionBySlotAndDate(sectionOption.scheduleSlotId, selectedDate),
         ]);
 
         const attendanceByStudentId = new Map(
@@ -217,7 +260,7 @@ export function AttendancePage({ user }: AttendancePageProps) {
     };
 
     void fetchStudents();
-  }, [selectedCourse, selectedDate, courses]);
+  }, [selectedSection, selectedDate, sections]);
 
   const toggleStudentAttendance = (studentId: number) => {
     setStudents(prev => {
@@ -290,15 +333,15 @@ export function AttendancePage({ user }: AttendancePageProps) {
       // Create or reuse attendance session
       let sessionId = attendanceSessionId;
       if (!sessionId) {
-        const courseOption = courses.find((c) => c.value === selectedCourse);
-        if (!courseOption) return;
+        const sectionOption = sections.find((section) => section.value === selectedSection);
+        if (!sectionOption) return;
 
         const now = new Date();
         const sessionStart = new Date(`${selectedDate}T${now.toTimeString().slice(0, 8)}`);
         const sessionEnd = new Date(sessionStart.getTime() + 60 * 60 * 1000);
         const session = await AttendanceService.createSession({
-          scheduleSlotId: courseOption.scheduleSlotId,
-          facultyMemberId: courseOption.teacherId || Number(user.id),
+          scheduleSlotId: sectionOption.scheduleSlotId,
+          facultyMemberId: sectionOption.teacherId || Number(user.id),
           sessionDate: `${selectedDate}T00:00:00.000Z`,
           startTime: sessionStart.toISOString(),
           endTime: sessionEnd.toISOString(),
@@ -331,6 +374,10 @@ export function AttendancePage({ user }: AttendancePageProps) {
   };
 
   const stats = getAttendanceStats();
+  const studentPresentCount = attendanceHistory.filter((record) => record.status === 'present' || record.status === 'late').length;
+  const studentAttendancePercentage = attendanceHistory.length > 0
+    ? Math.round((studentPresentCount / attendanceHistory.length) * 100)
+    : 0;
 
   // Filter students based on search
   const filteredStudents = useMemo(() => {
@@ -355,8 +402,8 @@ export function AttendancePage({ user }: AttendancePageProps) {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-muted-foreground text-sm">This Week</p>
-                <p className="text-2xl text-green-600">92%</p>
+                <p className="text-muted-foreground text-sm">Attendance Rate</p>
+                <p className="text-2xl text-green-600">{studentAttendancePercentage}%</p>
               </div>
               <CheckCircle className="w-8 h-8 text-green-500" />
             </div>
@@ -367,8 +414,8 @@ export function AttendancePage({ user }: AttendancePageProps) {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-muted-foreground text-sm">This Month</p>
-                <p className="text-2xl text-blue-600">88%</p>
+                <p className="text-muted-foreground text-sm">Attended</p>
+                <p className="text-2xl text-blue-600">{studentPresentCount}</p>
               </div>
               <Calendar className="w-8 h-8 text-blue-500" />
             </div>
@@ -379,8 +426,8 @@ export function AttendancePage({ user }: AttendancePageProps) {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-muted-foreground text-sm">Overall</p>
-                <p className="text-2xl text-purple-600">85%</p>
+                <p className="text-muted-foreground text-sm">Total Records</p>
+                <p className="text-2xl text-purple-600">{attendanceHistory.length}</p>
               </div>
               <Users className="w-8 h-8 text-purple-500" />
             </div>
@@ -396,7 +443,16 @@ export function AttendancePage({ user }: AttendancePageProps) {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {attendanceHistory.map((record) => (
+            {studentAttendanceLoading ? (
+              <div className="flex items-center justify-center p-4 text-muted-foreground">
+                <Loader className="w-4 h-4 mr-2 animate-spin" />
+                Loading attendance history...
+              </div>
+            ) : attendanceHistory.length === 0 ? (
+              <div className="p-4 text-center text-muted-foreground">
+                No attendance records found for the active semester.
+              </div>
+            ) : attendanceHistory.map((record) => (
               <div key={record.id} className="flex items-center justify-between p-3 border rounded-lg">
                 <div>
                   <p className="text-sm">{record.course}</p>
@@ -435,10 +491,10 @@ export function AttendancePage({ user }: AttendancePageProps) {
           <CardTitle>Select Course</CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading && courses.length === 0 ? (
+          {(isLoading || isResolvingSemester) && courses.length === 0 ? (
             <div className="flex items-center gap-2">
               <Loader className="w-4 h-4 animate-spin" />
-              <span>Loading courses...</span>
+              <span>{isResolvingSemester ? 'Resolving semester...' : 'Loading courses...'}</span>
             </div>
           ) : (
             <SearchableSelect
@@ -449,6 +505,7 @@ export function AttendancePage({ user }: AttendancePageProps) {
                 label: course.label,
                 description: course.description,
               }))}
+              className="max-w-2xl"
               placeholder="Choose a class"
               searchPlaceholder="Search by course, program, type, or day..."
               emptyMessage="No scheduled classes found."
@@ -461,26 +518,57 @@ export function AttendancePage({ user }: AttendancePageProps) {
         <>
           <Card>
             <CardHeader>
-              <CardTitle>Attendance Date</CardTitle>
-              <CardDescription>Attendance records are stored per class date</CardDescription>
+              <CardTitle>Class Section</CardTitle>
+              <CardDescription>Choose the specific timetable entry for attendance</CardDescription>
             </CardHeader>
             <CardContent>
-              <Input
-                type="date"
-                value={selectedDate}
-                onChange={(event) => setSelectedDate(event.target.value)}
-                max="9999-12-31"
-              />
+              {isLoading && sections.length === 0 ? (
+                <div className="flex items-center gap-2">
+                  <Loader className="w-4 h-4 animate-spin" />
+                  <span>Loading sections...</span>
+                </div>
+              ) : (
+                <SearchableSelect
+                  value={selectedSection}
+                  onValueChange={setSelectedSection}
+                  options={sections.map((section) => ({
+                    value: section.value,
+                    label: section.label,
+                    description: section.description,
+                  }))}
+                  className="max-w-2xl"
+                  placeholder="Choose a class section"
+                  searchPlaceholder="Search by section, day, or time..."
+                  emptyMessage="No class sections found for this course."
+                />
+              )}
             </CardContent>
           </Card>
 
-          {/* Manual Entry Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Manual Entry</CardTitle>
-              <CardDescription>Mark students as present or absent manually</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          {selectedSection && (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Attendance Date</CardTitle>
+                  <CardDescription>Attendance records are stored per class date</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(event) => setSelectedDate(event.target.value)}
+                    max="9999-12-31"
+                  />
+                </CardContent>
+              </Card>
+
+              {/* Manual Entry Section */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Manual Entry</CardTitle>
+                  <CardDescription>Mark students as present or absent manually</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
               {/* Search and Action Buttons */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="relative flex-1 w-full">
@@ -561,8 +649,10 @@ export function AttendancePage({ user }: AttendancePageProps) {
                   Export
                 </Button>
               </div>
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            </>
+          )}
         </>
       )}
 

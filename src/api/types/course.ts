@@ -39,3 +39,52 @@ export interface CourseCreateInput {
 }
 
 export interface CourseUpdateInput extends CourseCreateInput {}
+
+export type CourseAssessmentType = 'Quiz' | 'Assignment' | 'Midterm' | 'Final' | 'Project';
+
+export interface CourseAssessment {
+  assessmentId: number;
+  label: string;
+  assessmentType: CourseAssessmentType;
+  maxMarks: number;
+}
+
+export interface CourseStudentGrade {
+  gradeId: number;
+  label: string;
+  maxMarks: number;
+  obtainedMarks: number;
+}
+
+export interface CourseStudentGrades {
+  studentName: string;
+  universityStudentId: string;
+  grades: CourseStudentGrade[];
+}
+
+export interface AssignCourseAssessmentInput {
+  assessments: Array<{
+    label: string;
+    assessmentType: CourseAssessmentType;
+    marks: number;
+  }>;
+}
+
+export interface UpdateCourseAssessmentInput {
+  assessments: Array<{
+    assessmentId: number;
+    label: string;
+    assessmentType?: CourseAssessmentType;
+    marks: number;
+  }>;
+}
+
+export interface CreateCourseAssessmentInput {
+  label: string;
+  assessmentType: CourseAssessmentType;
+  marks: number;
+}
+
+export interface UpdateStudentGradeInput {
+  marks: number;
+}

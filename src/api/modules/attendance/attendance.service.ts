@@ -1,5 +1,12 @@
 import { attendanceApi } from './attendance.api';
-import type { AttendanceCourseOption, AttendanceSession, CreateAttendanceSessionDto, UpsertAttendancesDto } from '../../types/attendance';
+import type {
+  AttendanceCourseOption,
+  AttendanceCourseSummary,
+  AttendanceSession,
+  CreateAttendanceSessionDto,
+  StudentAttendanceStatus,
+  UpsertAttendancesDto,
+} from '../../types/attendance';
 import type { EnrolledStudent } from '../../types/attendance';
 
 export const AttendanceService = {
@@ -8,10 +15,17 @@ export const AttendanceService = {
     teacherId?: number;
     programId?: number;
     academicLevel?: number;
+    courseId?: number;
   }): Promise<AttendanceCourseOption[]> {
     const res = await attendanceApi.getCourseOptions(params);
     if (!res.data) return [];
     return res.data as AttendanceCourseOption[];
+  },
+
+  async getCourseSummaries(params: { semesterId: number }): Promise<AttendanceCourseSummary[]> {
+    const res = await attendanceApi.getCourseSummaries(params);
+    if (!res.data) return [];
+    return res.data as AttendanceCourseSummary[];
   },
 
   async createSession(data: CreateAttendanceSessionDto): Promise<any> {
@@ -48,5 +62,11 @@ export const AttendanceService = {
     const res = await attendanceApi.saveAttendances(sessionId, data as any);
     if (res.status !== 'success') throw new Error(res.message || 'Failed to save attendances');
     return res.data;
+  },
+
+  async getStudentAttendanceStatus(semesterId?: number): Promise<StudentAttendanceStatus> {
+    const res = await attendanceApi.getStudentAttendanceStatus(semesterId);
+    if (!res.data) throw new Error(res.message || 'Failed to fetch attendance status');
+    return res.data as StudentAttendanceStatus;
   }
 };

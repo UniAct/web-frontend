@@ -17,6 +17,8 @@ import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { AttendanceService } from '../../api/modules/attendance/attendance.service';
 import type { User as AppUser } from '../../App';
+import type { AttendanceCourseSummary } from '../../api/types';
+import { useResolvedSemester } from '../../hooks/useResolvedSemester';
 
 interface AdminAttendancePageProps {
   user: AppUser;
@@ -33,6 +35,13 @@ interface Student {
 }
 
 interface CourseOption {
+  value: string;
+  courseId: number;
+  label: string;
+  description: string;
+}
+
+interface SectionOption {
   value: string;
   contextId: number;
   scheduleSlotId: number;
@@ -59,8 +68,20 @@ function formatCourseTime(value: string): string {
   return parsed.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+function buildCourseOptions(options: AttendanceCourseSummary[]): CourseOption[] {
+  return options
+    .map((item) => ({
+      value: String(item.courseId),
+      courseId: item.courseId,
+      label: `${item.course.code} - ${item.course.name}`,
+      description: item.course.description?.trim() || `${item.course.credits} credit hours`,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
+
 export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendancePageProps) {
   const [selectedCourse, setSelectedCourse] = useState('');
+  const [selectedSection, setSelectedSection] = useState('');
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [searchQuery, setSearchQuery] = useState('');
   const [students, setStudents] = useState<Student[]>([]);
@@ -68,92 +89,94 @@ export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendanc
   const [hasChanges, setHasChanges] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [courses, setCourses] = useState<CourseOption[]>([]);
+  const [sections, setSections] = useState<SectionOption[]>([]);
   const [attendanceSessionId, setAttendanceSessionId] = useState<number | null>(null);
-  const [activeSemesterId, setActiveSemesterId] = useState<number | null>(null);
+  const {
+    semesterId: activeSemesterId,
+    isLoading: isResolvingSemester,
+  } = useResolvedSemester({
+    universityId: selectedUniversity,
+    fallbackSemesterId: user.currentSemesterId ?? null,
+  });
 
-  const resolveActiveSemesterId = () => {
-    if (selectedUniversity) {
-      const raw = localStorage.getItem(`activeSemester:${selectedUniversity}`);
-      const parsed = raw ? Number(raw) : NaN;
-      if (Number.isFinite(parsed)) {
-        return parsed;
-      }
-    }
-
-    for (let index = 0; index < localStorage.length; index += 1) {
-      const key = localStorage.key(index);
-      if (!key?.startsWith('activeSemester:')) continue;
-
-      const raw = localStorage.getItem(key);
-      const parsed = raw ? Number(raw) : NaN;
-      if (Number.isFinite(parsed)) {
-        return parsed;
-      }
-    }
-
-    return user.currentSemesterId ?? null;
-  };
-
-  // Load active semester for admin view
-  useEffect(() => {
-    const loadContext = () => {
-      try {
-        setIsLoading(true);
-
-        const semesterId = resolveActiveSemesterId();
-        setActiveSemesterId(semesterId);
-      } catch (error) {
-        console.error('Failed to load attendance context:', error);
-        toast.error('Failed to load attendance context');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadContext();
-  }, [selectedUniversity, user.currentSemesterId]);
-
-  // Fetch actual scheduled classes for admin view once semester is available
+  // Fetch accessible courses for admin/staff attendance view.
   useEffect(() => {
     const fetchCourses = async () => {
       try {
+        if (isResolvingSemester) return;
+
         if (!activeSemesterId) {
           setCourses([]);
+          setSelectedCourse('');
+          setStudents([]);
+          setInitialStudents([]);
           return;
         }
 
         setIsLoading(true);
 
-        const courseOptions = await AttendanceService.getCourseOptions({
-          semesterId: activeSemesterId,
-        });
-
-        const nextCourses: CourseOption[] = courseOptions.map((item) => ({
-          value: String(item.id),
-          contextId: item.id,
-          scheduleSlotId: item.slot.id,
-          teacherId: item.slot.teacherId,
-          label: `${item.slot.course.code} - ${item.slot.course.name}`,
-          description: `${item.program.name} • Level ${item.academicLevel} • ${item.slot.type} • ${item.slot.dayOfWeek} ${formatCourseTime(item.slot.startTime)}-${formatCourseTime(item.slot.endTime)}`,
-        })).sort((left, right) => left.description.localeCompare(right.description) || left.label.localeCompare(right.label));
+        const nextCourses = buildCourseOptions(
+          await AttendanceService.getCourseSummaries({ semesterId: activeSemesterId }),
+        );
 
         setCourses(nextCourses);
+        setSections([]);
+        setSelectedSection('');
       } catch (error) {
-        console.error('Failed to fetch schedule slots:', error);
-        toast.error('Failed to load schedule slots');
+        console.error('Failed to fetch attendance courses:', error);
+        toast.error('Failed to load courses');
       } finally {
         setIsLoading(false);
       }
     };
 
     void fetchCourses();
-  }, [activeSemesterId]);
+  }, [activeSemesterId, isResolvingSemester]);
 
-  // Fetch enrolled students when a course is selected
+  useEffect(() => {
+    const fetchSections = async () => {
+      try {
+        if (!selectedCourse || !activeSemesterId) {
+          setSections([]);
+          setSelectedSection('');
+          return;
+        }
+
+        setIsLoading(true);
+        const slotOptions = await AttendanceService.getCourseOptions({
+          semesterId: activeSemesterId,
+          courseId: Number(selectedCourse),
+        });
+
+        const nextSections: SectionOption[] = slotOptions.map((item) => ({
+          value: String(item.id),
+          contextId: item.id,
+          scheduleSlotId: item.slot.id,
+          teacherId: item.slot.teacherId,
+          label: `${item.program.name} • Level ${item.academicLevel}`,
+          description: `${item.slot.type} • ${item.slot.dayOfWeek} ${formatCourseTime(item.slot.startTime)}-${formatCourseTime(item.slot.endTime)}`,
+        })).sort((left, right) => left.label.localeCompare(right.label) || left.description.localeCompare(right.description));
+
+        setSections(nextSections);
+        setSelectedSection((current) =>
+          nextSections.some((item) => item.value === current) ? current : (nextSections[0]?.value ?? '')
+        );
+      } catch (error) {
+        console.error('Failed to fetch course sections:', error);
+        toast.error('Failed to load class sections');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    void fetchSections();
+  }, [selectedCourse, activeSemesterId]);
+
+  // Fetch enrolled students when a section is selected
   useEffect(() => {
     const fetchStudents = async () => {
       try {
-        if (!selectedCourse) {
+        if (!selectedSection) {
           setStudents([]);
           setInitialStudents([]);
           setAttendanceSessionId(null);
@@ -161,12 +184,12 @@ export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendanc
         }
 
         setIsLoading(true);
-        const courseOption = courses.find((c) => c.value === selectedCourse);
-        if (!courseOption) return;
+        const sectionOption = sections.find((section) => section.value === selectedSection);
+        if (!sectionOption) return;
 
         const [enrolled, existingSession] = await Promise.all([
-          AttendanceService.getEnrolled(courseOption.contextId),
-          AttendanceService.getSessionBySlotAndDate(courseOption.scheduleSlotId, selectedDate),
+          AttendanceService.getEnrolled(sectionOption.contextId),
+          AttendanceService.getSessionBySlotAndDate(sectionOption.scheduleSlotId, selectedDate),
         ]);
 
         const attendanceByStudentId = new Map(
@@ -197,7 +220,7 @@ export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendanc
     };
 
     void fetchStudents();
-  }, [selectedCourse, selectedDate, courses]);
+  }, [selectedSection, selectedDate, sections]);
 
   const toggleStudentAttendance = (studentId: number) => {
     setStudents(prev => {
@@ -279,15 +302,15 @@ export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendanc
       // Create or reuse attendance session
       let sessionId = attendanceSessionId;
       if (!sessionId) {
-        const courseOption = courses.find((c) => c.value === selectedCourse);
-        if (!courseOption) return;
+        const sectionOption = sections.find((section) => section.value === selectedSection);
+        if (!sectionOption) return;
 
         const now = new Date();
         const sessionStart = new Date(`${selectedDate}T${now.toTimeString().slice(0, 8)}`);
         const sessionEnd = new Date(sessionStart.getTime() + 60 * 60 * 1000);
         const session = await AttendanceService.createSession({
-          scheduleSlotId: courseOption.scheduleSlotId,
-          facultyMemberId: courseOption.teacherId || Number(user.id),
+          scheduleSlotId: sectionOption.scheduleSlotId,
+          facultyMemberId: sectionOption.teacherId || Number(user.id),
           sessionDate: `${selectedDate}T00:00:00.000Z`,
           startTime: sessionStart.toISOString(),
           endTime: sessionEnd.toISOString(),
@@ -389,10 +412,10 @@ export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendanc
           <CardDescription>Choose a course to mark attendance</CardDescription>
         </CardHeader>
         <CardContent>
-          {isLoading && courses.length === 0 ? (
+          {(isLoading || isResolvingSemester) && courses.length === 0 ? (
             <div className="flex items-center gap-2">
               <Loader className="w-4 h-4 animate-spin" />
-              <span>Loading courses...</span>
+              <span>{isResolvingSemester ? 'Resolving semester...' : 'Loading courses...'}</span>
             </div>
           ) : (
             <SearchableSelect
@@ -403,6 +426,7 @@ export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendanc
                 label: course.label,
                 description: course.description,
               }))}
+              className="max-w-2xl"
               placeholder="Choose a class"
               searchPlaceholder="Search by course, program, type, or day..."
               emptyMessage="No scheduled classes found."
@@ -415,26 +439,57 @@ export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendanc
         <>
           <Card>
             <CardHeader>
-              <CardTitle>Attendance Date</CardTitle>
-              <CardDescription>Attendance records are stored per course and date</CardDescription>
+              <CardTitle>Class Section</CardTitle>
+              <CardDescription>Choose the specific timetable entry for attendance</CardDescription>
             </CardHeader>
             <CardContent>
-              <Input
-                type="date"
-                value={selectedDate}
-                onChange={(event) => setSelectedDate(event.target.value)}
-                max="9999-12-31"
-              />
+              {isLoading && sections.length === 0 ? (
+                <div className="flex items-center gap-2">
+                  <Loader className="w-4 h-4 animate-spin" />
+                  <span>Loading sections...</span>
+                </div>
+              ) : (
+                <SearchableSelect
+                  value={selectedSection}
+                  onValueChange={setSelectedSection}
+                  options={sections.map((section) => ({
+                    value: section.value,
+                    label: section.label,
+                    description: section.description,
+                  }))}
+                  className="max-w-2xl"
+                  placeholder="Choose a class section"
+                  searchPlaceholder="Search by section, day, or time..."
+                  emptyMessage="No class sections found for this course."
+                />
+              )}
             </CardContent>
           </Card>
 
-          {/* Manual Entry Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Manual Entry</CardTitle>
-              <CardDescription>Mark students as present or absent manually</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          {selectedSection && (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Attendance Date</CardTitle>
+                  <CardDescription>Attendance records are stored per course and date</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(event) => setSelectedDate(event.target.value)}
+                    max="9999-12-31"
+                  />
+                </CardContent>
+              </Card>
+
+              {/* Manual Entry Section */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Manual Entry</CardTitle>
+                  <CardDescription>Mark students as present or absent manually</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
               {/* Search and Action Buttons */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="relative flex-1 w-full">
@@ -528,8 +583,10 @@ export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendanc
                   Export Attendance
                 </Button>
               </div>
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            </>
+          )}
 
         </>
       )}

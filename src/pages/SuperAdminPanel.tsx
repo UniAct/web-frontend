@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -57,8 +57,8 @@ import { AdminAttendancePage } from '../components/admin/AdminAttendancePage';
 import { AdminGradesPage } from '../components/admin/AdminGradesPage';
 import { apiClient, UniversityService } from '../api';
 import { SemesterService } from '../api';
-import { TenantDetectionService } from '../services/TenantDetectionService';
 import type { Semester } from '../api';
+import { ACTIVE_SEMESTER_EVENT, writeActiveSemesterId } from '../contexts/SemesterContext';
 
 interface SuperAdminPanelProps {
   user: AppUser;
@@ -129,6 +129,14 @@ function resolveAdminPageFromQuery(raw: string | null, isSuperAdmin: boolean, is
 export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
   const isSuperAdmin = user.role === 'superadmin';
   const isAdmin = user.role === 'admin';
+  const tenantContext = useMemo(() => apiClient.getTenantContext(), []);
+  const isTenantAdmin = isAdmin && !tenantContext.isSuperAdmin;
+  const tenantScopeId = isTenantAdmin ? `tenant:${tenantContext.subdomain ?? 'current'}` : null;
+  const tenantDisplayName =
+    user.facultyName ||
+    tenantContext.displayName ||
+    tenantContext.subdomain?.toUpperCase() ||
+    'Current University';
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const currentPage = resolveAdminPageFromQuery(new URLSearchParams(location.search).get('adminPage'), isSuperAdmin, isAdmin);
@@ -140,52 +148,72 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
     setSearchParams(next, { replace: true });
   };
 
-  // Set initial university based on role
-  // Admin users are locked to Alexandria National University
-  const [selectedUniversity, setSelectedUniversity] = useState<string | null>(
-    isAdmin ? '1' : null
+  const [selectedUniversity, setSelectedUniversity] = useState<string | null>(tenantScopeId);
+  const [universities, setUniversities] = useState<Array<{ id: string; name: string }>>(
+    tenantScopeId ? [{ id: tenantScopeId, name: tenantDisplayName }] : [],
   );
-  const [universities, setUniversities] = useState<Array<{ id: string; name: string }>>([]);
+  const [tenantBootstrapStatus, setTenantBootstrapStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>(
+    isSuperAdmin ? 'ready' : tenantScopeId ? 'ready' : 'idle',
+  );
+  const tenantBootstrapStartedRef = useRef(false);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
   useEffect(() => {
-    const syncUniversities = async () => {
-      try {
-        const list = await UniversityService.getAll();
-        setUniversities(list.map((item) => ({ id: String(item.id), name: item.name })));
-      } catch (error) {
-        console.warn('Failed to load universities for admin shell:', error);
-      }
-    };
+    if (tenantBootstrapStartedRef.current) return;
+    tenantBootstrapStartedRef.current = true;
 
-    void syncUniversities();
-  }, []);
+    let isMounted = true;
 
-  useEffect(() => {
-    const syncAdminTenantSelection = async () => {
-      if (!isAdmin) return;
+    const syncTenantSelection = async () => {
+      setTenantBootstrapStatus('loading');
 
       try {
-        const tenantContext = TenantDetectionService.detectTenant();
-        if (tenantContext.isSuperAdmin || !tenantContext.subdomain) return;
+        if (isSuperAdmin) {
+          const list = await UniversityService.getAll();
+          if (!isMounted) return;
 
-        const profile = await UniversityService.getPublicTenantProfile(tenantContext.subdomain);
-        setSelectedUniversity(String(profile.id));
+          setUniversities(list.map((item) => ({ id: String(item.id), name: item.name })));
+          setTenantBootstrapStatus('ready');
+          return;
+        }
+
+        if (!isTenantAdmin) {
+          setTenantBootstrapStatus('ready');
+          return;
+        }
+
+        const profile = await apiClient.getCurrentPublicTenantProfile();
+        if (!isMounted) return;
+
+        setUniversities([{ id: tenantScopeId ?? `tenant:${profile.db_schema}`, name: profile.name }]);
+        setSelectedUniversity((current) => current ?? tenantScopeId ?? `tenant:${profile.db_schema}`);
         apiClient.setTenantOverrideName(profile.name);
+        setTenantBootstrapStatus('ready');
       } catch (error) {
-        console.warn('Failed to resolve current admin tenant:', error);
+        if (!isMounted) return;
+        console.warn('Failed to initialize tenant selection for admin shell:', error);
+        if (isTenantAdmin) {
+          setUniversities((current) => current.length > 0 ? current : [{ id: tenantScopeId ?? 'tenant:current', name: tenantDisplayName }]);
+          setSelectedUniversity((current) => current ?? tenantScopeId ?? 'tenant:current');
+          apiClient.syncResolvedTenantFromSession();
+          setTenantBootstrapStatus('ready');
+        } else {
+          setTenantBootstrapStatus('error');
+        }
       }
     };
 
-    void syncAdminTenantSelection();
-  }, [isAdmin]);
+    void syncTenantSelection();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isSuperAdmin, isTenantAdmin, tenantDisplayName, tenantScopeId]);
 
   useEffect(() => {
     if (!selectedUniversity) {
-      if (isSuperAdmin) {
-        apiClient.clearTenantOverrideName();
-      }
+      if (isSuperAdmin) apiClient.clearTenantOverrideName();
       return;
     }
 
@@ -200,6 +228,7 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
   const [semesters, setSemesters] = useState<Semester[]>([]);
   const [activeSemesterId, setActiveSemesterId] = useState<number | null>(null);
   const [semesterLoading, setSemesterLoading] = useState(false);
+  const [semesterLoadStatus, setSemesterLoadStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [semesterSubmitting, setSemesterSubmitting] = useState(false);
   const [semesterError, setSemesterError] = useState<string | null>(null);
   const [semesterForm, setSemesterForm] = useState({
@@ -237,20 +266,70 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
     { value: '3', label: '3 - Summer' },
   ];
 
-  const loadSemesters = async () => {
+  const selectedUniversityName = useMemo(() => {
+    if (!selectedUniversity) return undefined;
+    return universities.find((item) => item.id === selectedUniversity)?.name;
+  }, [selectedUniversity, universities]);
+
+  const semesterCacheKey = selectedUniversity ? `semesterCache:${selectedUniversity}` : null;
+
+  const readSemesterCache = useCallback((): Semester[] => {
+    if (!semesterCacheKey) return [];
+    try {
+      const raw = localStorage.getItem(semesterCacheKey);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed as Semester[] : [];
+    } catch {
+      return [];
+    }
+  }, [semesterCacheKey]);
+
+  const writeSemesterCache = useCallback((items: Semester[]) => {
+    if (!semesterCacheKey) return;
+    localStorage.setItem(semesterCacheKey, JSON.stringify(items));
+  }, [semesterCacheKey]);
+
+  const resolveSemesterTenant = useCallback((): boolean => {
     if (!selectedUniversity && isSuperAdmin) {
       setSemesterError('Select a university before managing semesters.');
-      setSemesters([]);
+      setSemesterLoadStatus('idle');
+      return false;
+    }
+
+    if (selectedUniversityName) {
+      apiClient.setTenantOverrideName(selectedUniversityName);
+      return true;
+    }
+
+    if (isTenantAdmin) {
+      apiClient.syncResolvedTenantFromSession();
+      return true;
+    }
+
+    setSemesterLoadStatus('loading');
+    return false;
+  }, [isSuperAdmin, isTenantAdmin, selectedUniversity, selectedUniversityName]);
+
+  const loadSemesters = useCallback(async (options?: { preserveExisting?: boolean }) => {
+    if (!resolveSemesterTenant()) {
+      const cached = readSemesterCache();
+      if (cached.length > 0) {
+        setSemesters(cached);
+      }
       return;
     }
 
     setSemesterLoading(true);
+    setSemesterLoadStatus('loading');
     setSemesterError(null);
 
     try {
       const items = await SemesterService.getAll();
       const sortedSemesters = items.sort((left, right) => (right.year - left.year) || (right.term - left.term));
       setSemesters(sortedSemesters);
+      writeSemesterCache(sortedSemesters);
+      setSemesterLoadStatus('success');
 
       setActiveSemesterId((current) => {
         if (current && sortedSemesters.some((item) => item.id === current)) {
@@ -268,26 +347,41 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
         return sortedSemesters[0]?.id ?? null;
       });
     } catch (error) {
+      const cached = readSemesterCache();
+      if (cached.length > 0) {
+        setSemesters(cached);
+      } else if (!options?.preserveExisting) {
+        setSemesters((current) => current);
+      }
+      setSemesterLoadStatus('error');
       setSemesterError(error instanceof Error ? error.message : 'Failed to load semesters');
     } finally {
       setSemesterLoading(false);
     }
-  };
+  }, [readSemesterCache, resolveSemesterTenant, selectedUniversity, writeSemesterCache]);
 
   useEffect(() => {
     if (!selectedUniversity) {
-      setSemesters([]);
+      if (!isAdmin) {
+        setSemesters([]);
+      }
       setActiveSemesterId(null);
+      setSemesterLoadStatus('idle');
       return;
     }
 
-    void loadSemesters();
-  }, [selectedUniversity, isSuperAdmin]);
+    const cached = readSemesterCache();
+    if (cached.length > 0) {
+      setSemesters(cached);
+    }
+
+    void loadSemesters({ preserveExisting: true });
+  }, [selectedUniversity, selectedUniversityName, isSuperAdmin, isAdmin, loadSemesters, readSemesterCache]);
 
   useEffect(() => {
     if (!educationDialogOpen || !selectedUniversity) return;
-    void loadSemesters();
-  }, [educationDialogOpen, selectedUniversity]);
+    void loadSemesters({ preserveExisting: true });
+  }, [educationDialogOpen, selectedUniversity, loadSemesters]);
 
   useEffect(() => {
     if (!selectedUniversity) {
@@ -299,7 +393,9 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
     const syncActiveSemester = () => {
       const stored = localStorage.getItem(key);
       const parsed = stored ? Number(stored) : NaN;
-      setActiveSemesterId(Number.isFinite(parsed) ? parsed : null);
+      if (Number.isFinite(parsed)) {
+        setActiveSemesterId(parsed);
+      }
     };
 
     const onStorage = (event: StorageEvent) => {
@@ -315,22 +411,17 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
 
     syncActiveSemester();
     window.addEventListener('storage', onStorage);
-    window.addEventListener('active-semester-updated', onActiveSemesterChanged as EventListener);
+    window.addEventListener(ACTIVE_SEMESTER_EVENT, onActiveSemesterChanged as EventListener);
 
     return () => {
       window.removeEventListener('storage', onStorage);
-      window.removeEventListener('active-semester-updated', onActiveSemesterChanged as EventListener);
+      window.removeEventListener(ACTIVE_SEMESTER_EVENT, onActiveSemesterChanged as EventListener);
     };
   }, [selectedUniversity]);
 
   useEffect(() => {
     if (!selectedUniversity || !activeSemesterId) return;
-    localStorage.setItem(`activeSemester:${selectedUniversity}`, String(activeSemesterId));
-    window.dispatchEvent(
-      new CustomEvent('active-semester-updated', {
-        detail: { universityId: selectedUniversity, semesterId: activeSemesterId },
-      }),
-    );
+    writeActiveSemesterId(selectedUniversity, activeSemesterId);
   }, [selectedUniversity, activeSemesterId]);
 
   const handleCreateSemester = async () => {
@@ -392,11 +483,15 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
 
   const activeSemester = semesters.find((item) => item.id === activeSemesterId) ?? semesters[0];
 
-  const currentSemesterLabel = semesterLoading
+  const currentSemesterLabel = tenantBootstrapStatus === 'loading'
+    ? 'Preparing tenant...'
+    : semesterLoading
     ? 'Loading semesters...'
     : activeSemester
       ? `${activeSemester.year} | Semester ${activeSemester.term}`
-      : 'No semesters yet';
+      : semesterLoadStatus === 'success'
+        ? 'No semesters yet'
+        : 'Preparing semesters...';
 
   // Filter navigation items based on role
   const filteredNavigationItems = navigationItems.filter(item => {
@@ -431,6 +526,8 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
     const requiresUniversity = currentPage !== 'universities';
 
     if (requiresUniversity && !selectedUniversity) {
+      const isTenantPreparing = isTenantAdmin && tenantBootstrapStatus !== 'error';
+
       return (
         <div className="flex items-center justify-center min-h-[500px]">
           <Card className="max-w-md">
@@ -438,16 +535,22 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
               <div className="w-16 h-16 mx-auto mb-4 bg-amber-100 rounded-full flex items-center justify-center">
                 <AlertCircle className="w-8 h-8 text-amber-600" />
               </div>
-              <h3 className="text-xl text-slate-900 mb-2">No University Selected</h3>
+              <h3 className="text-xl text-slate-900 mb-2">
+                {isTenantPreparing ? 'Preparing Tenant Data' : 'No University Selected'}
+              </h3>
               <p className="text-slate-600 mb-6">
-                Please select a university to manage its data and settings.
+                {isTenantPreparing
+                  ? 'Your university context is being resolved before loading this page.'
+                  : 'Please select a university to manage its data and settings.'}
               </p>
-              <Button
-                onClick={() => setCurrentPage('universities')}
-              >
-                <Building2 className="w-4 h-4 mr-2" />
-                Go to Universities
-              </Button>
+              {!isAdmin && (
+                <Button
+                  onClick={() => setCurrentPage('universities')}
+                >
+                  <Building2 className="w-4 h-4 mr-2" />
+                  Go to Universities
+                </Button>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -769,9 +872,22 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
                               <CardDescription>Loaded from the tenant database.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-3">
-                              {semesterLoading ? (
+                              {semesterLoading && semesters.length > 0 && (
+                                <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-700">
+                                  Refreshing semesters...
+                                </div>
+                              )}
+                              {semesterLoading && semesters.length === 0 ? (
                                 <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500">
                                   Loading semesters...
+                                </div>
+                              ) : semesterLoadStatus === 'error' && semesters.length === 0 ? (
+                                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                                  Semester data is not ready yet. Check the selected university, then retry.
+                                </div>
+                              ) : semesterLoadStatus !== 'success' && semesters.length === 0 ? (
+                                <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500">
+                                  Preparing tenant semester data...
                                 </div>
                               ) : semesters.length === 0 ? (
                                 <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500">

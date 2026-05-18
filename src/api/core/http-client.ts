@@ -1,6 +1,6 @@
 import { TenantDetectionService, type TenantContext } from '../../services/TenantDetectionService';
 import { API_PREFIX, TENANT_HEADER, TENANT_OVERRIDE_STORAGE_KEY } from './constants';
-import { decodeJwtPayload } from './jwt';
+import { decodeJwtPayload, isJwtExpired } from './jwt';
 import { clearStoredSession, getStoredToken, getStoredUser } from './session-storage';
 import {
   buildTenantSlug,
@@ -35,6 +35,7 @@ class HttpClient {
   private resolvedTenantName?: string;
   private tenantProfileRequest?: Promise<PublicTenantProfile>;
   private tenantProfileFailureAt = 0;
+  private authRedirectInProgress = false;
   private static readonly TENANT_PROFILE_RETRY_COOLDOWN_MS = 5000;
 
   private static readonly DEFAULT_AUTH_ERROR_MESSAGE = 'You are not authorized to access this page.';
@@ -110,6 +111,9 @@ class HttpClient {
   }
 
   private redirectToHomeForAuthFailure(message: string): void {
+    if (this.authRedirectInProgress) return;
+    this.authRedirectInProgress = true;
+
     clearStoredSession();
     this.clearResolvedTenant();
 
@@ -255,6 +259,11 @@ class HttpClient {
 
     const token = getStoredToken();
     if (token) {
+      if (isJwtExpired(token)) {
+        this.redirectToHomeForAuthFailure('Your session has expired. Please sign in again.');
+        throw new HttpRequestError('Your session has expired. Please sign in again.', 401);
+      }
+
       headers.Authorization = `Bearer ${token}`;
     }
 
@@ -347,6 +356,7 @@ class HttpClient {
           'GET',
           `/university/public/${encodeURIComponent(this.tenantContext.subdomain)}`,
         ),
+        2,
       );
 
       if (!response.data) {

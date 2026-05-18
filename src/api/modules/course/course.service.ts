@@ -1,5 +1,16 @@
 import { courseApi } from './course.api';
-import type { Course, CourseCreateInput, CourseUpdateInput } from '../../types';
+import type {
+  AssignCourseAssessmentInput,
+  Course,
+  CourseAssessment,
+  CreateCourseAssessmentInput,
+  CourseCreateInput,
+  CourseStudentGrade,
+  CourseStudentGrades,
+  CourseUpdateInput,
+  UpdateCourseAssessmentInput,
+  UpdateStudentGradeInput,
+} from '../../types';
 
 interface RawCourse {
   id: number;
@@ -84,5 +95,47 @@ export const CourseService = {
 
   async delete(id: number): Promise<void> {
     await courseApi.deleteCourse(id);
+  },
+
+  async getAssessments(courseId: number): Promise<CourseAssessment[]> {
+    const res = await courseApi.getCourseAssessments(courseId);
+    if (!res.data) return [];
+    return res.data;
+  },
+
+  async assignAssessments(courseId: number, data: AssignCourseAssessmentInput): Promise<CourseAssessment[]> {
+    const res = await courseApi.assignCourseAssessments(courseId, data);
+    if (!res.data) throw new Error(res.message || 'Failed to assign assessments');
+    return res.data;
+  },
+
+  async createAssessment(courseId: number, data: CreateCourseAssessmentInput): Promise<CourseAssessment> {
+    const res = await courseApi.createCourseAssessment(courseId, data);
+    if (!res.data) throw new Error(res.message || 'Failed to create assessment');
+    return res.data;
+  },
+
+  async updateAssessments(courseId: number, data: UpdateCourseAssessmentInput): Promise<CourseAssessment[]> {
+    const res = await courseApi.updateCourseAssessments(courseId, data);
+    if (!res.data) throw new Error(res.message || 'Failed to update assessments');
+    return res.data;
+  },
+
+  async getStudents(courseId: number): Promise<CourseStudentGrades[]> {
+    const res = await courseApi.getCourseStudents(courseId);
+    if (!res.data) return [];
+    return res.data;
+  },
+
+  async updateStudentGrade(gradeId: number, data: UpdateStudentGradeInput): Promise<CourseStudentGrade> {
+    const res = await courseApi.updateStudentGrade(gradeId, data);
+    if (!res.data) throw new Error(res.message || 'Failed to update grade');
+    return res.data;
+  },
+
+  async deleteAssessment(assessmentId: number): Promise<CourseAssessment> {
+    const res = await courseApi.deleteCourseAssessment(assessmentId);
+    if (!res.data) throw new Error(res.message || 'Failed to delete assessment');
+    return res.data;
   },
 };

@@ -8,6 +8,7 @@ export const attendanceApi = {
     teacherId?: number;
     programId?: number;
     academicLevel?: number;
+    courseId?: number;
   }) {
     const query = new URLSearchParams({
       semesterId: String(params.semesterId),
@@ -16,8 +17,19 @@ export const attendanceApi = {
     if (params.teacherId) query.set('teacherId', String(params.teacherId));
     if (params.programId) query.set('programId', String(params.programId));
     if (params.academicLevel) query.set('academicLevel', String(params.academicLevel));
+    if (params.courseId) query.set('courseId', String(params.courseId));
 
     return httpClient.request('GET', `/attendance/courses?${query.toString()}`, undefined, { requireResolvedTenant: true });
+  },
+
+  getCourseSummaries(params: { semesterId: number }) {
+    const query = new URLSearchParams({
+      semesterId: String(params.semesterId),
+    });
+
+    return httpClient.request('GET', `/attendance/course-summaries?${query.toString()}`, undefined, {
+      requireResolvedTenant: true,
+    });
   },
 
   createSession(data: CreateAttendanceSessionDto) {
@@ -44,5 +56,10 @@ export const attendanceApi = {
 
   saveAttendances(sessionId: number, data: UpsertAttendancesDto) {
     return httpClient.request('POST', `/attendance/session/${sessionId}/attendances`, data, { requireResolvedTenant: true });
+  },
+
+  getStudentAttendanceStatus(semesterId?: number) {
+    const query = semesterId ? `?semesterId=${semesterId}` : '';
+    return httpClient.request('GET', `/attendance/mobile/student/my-status${query}`, undefined, { requireResolvedTenant: true });
   }
 };

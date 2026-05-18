@@ -14,6 +14,12 @@ export const semesterApi = {
     });
   },
 
+  getCurrentSemester(): Promise<ApiResponse<Semester>> {
+    return httpClient.request<Semester>('GET', '/semester/current', undefined, {
+      requireResolvedTenant: true,
+    });
+  },
+
   getSemesterById(id: number): Promise<ApiResponse<Semester>> {
     return httpClient.request<Semester>('GET', `/semester/${id}`, undefined, {
       requireResolvedTenant: true,

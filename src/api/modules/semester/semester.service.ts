@@ -8,6 +8,12 @@ export const SemesterService = {
     return res.data;
   },
 
+  async getCurrent(): Promise<Semester> {
+    const res = await semesterApi.getCurrentSemester();
+    if (!res.data) throw new Error(res.message || 'No current semester found');
+    return res.data;
+  },
+
   async getById(id: number): Promise<Semester> {
     const res = await semesterApi.getSemesterById(id);
     if (!res.data) throw new Error(res.message || 'Semester not found');

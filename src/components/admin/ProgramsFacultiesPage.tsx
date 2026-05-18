@@ -3,7 +3,6 @@ import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Checkbox } from '../ui/checkbox';
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '../ui/command';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import {
   Modal,
@@ -14,12 +13,12 @@ import {
 } from '../ui/modal';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import * as PopoverPrimitive from '@radix-ui/react-popover';
+import { MultiSelect } from '../ui/multi-select';
 import { SearchableSelect } from '../ui/searchable-select';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Textarea } from '../ui/textarea';
-import { Check, ChevronsUpDown, ChevronDown, ChevronRight, Edit, Loader2, Plus, RefreshCcw, Search, Trash2, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Edit, Loader2, Plus, RefreshCcw, Search, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   apiClient,
@@ -312,86 +311,6 @@ function courseToForm(course: Course): CourseFormState {
   };
 }
 
-interface MultiSearchableSelectProps {
-  values: number[];
-  onValuesChange: (values: number[]) => void;
-  options: { value: number; label: string; description?: string }[];
-  placeholder?: string;
-  searchPlaceholder?: string;
-  emptyMessage?: string;
-  className?: string;
-  disabled?: boolean;
-}
-
-function MultiSearchableSelect({
-  values,
-  onValuesChange,
-  options,
-  searchPlaceholder = 'Search...',
-  emptyMessage = 'No option found.',
-  disabled = false,
-}: MultiSearchableSelectProps) {
-  const [search, setSearch] = useState('');
-
-  const filtered = search.trim()
-    ? options.filter(
-      (o) =>
-        o.label.toLowerCase().includes(search.toLowerCase()) ||
-        (o.description ?? '').toLowerCase().includes(search.toLowerCase()),
-    )
-    : options;
-
-  const toggleValue = (value: number) => {
-    onValuesChange(
-      values.includes(value) ? values.filter((v) => v !== value) : [...values, value],
-    );
-  };
-
-  return (
-    <div className={`rounded-md border bg-white ${disabled ? 'pointer-events-none opacity-50' : ''}`}>
-      <div className="border-b px-3 py-2">
-        <div className="flex items-center gap-2 text-slate-400">
-          <Search className="h-4 w-4 shrink-0" />
-          <input
-            className="w-full bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
-            placeholder={searchPlaceholder}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            disabled={disabled}
-          />
-        </div>
-      </div>
-      <div className="max-h-56 overflow-y-auto">
-        {filtered.length === 0 ? (
-          <p className="px-3 py-4 text-center text-sm text-slate-400">{emptyMessage}</p>
-        ) : (
-          filtered.map((option) => {
-            const checked = values.includes(option.value);
-            return (
-              <label
-                key={option.value}
-                className="flex cursor-pointer items-start gap-3 border-b px-3 py-2.5 last:border-0 hover:bg-slate-50"
-              >
-                <Checkbox
-                  checked={checked}
-                  onCheckedChange={() => toggleValue(option.value)}
-                  className="mt-0.5 shrink-0"
-                />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium leading-snug text-slate-900">{option.label}</p>
-                  {option.description && (
-                    <p className="mt-0.5 text-xs leading-snug text-slate-500">{option.description}</p>
-                  )}
-                </div>
-              </label>
-            );
-          })
-        )}
-      </div>
-    </div>
-  );
-}
-
 function buildProgramPayload(form: ProgramFormState): any {
   // Helper to map fees while preserving their database ID
   const mapFee = (fee: ProgramFeeDraft) => ({
@@ -495,9 +414,15 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
     const tenantContext = apiClient.getTenantContext();
 
     if (!tenantContext.isSuperAdmin && tenantContext.subdomain) {
-      const profile = await UniversityService.getPublicTenantProfile(tenantContext.subdomain);
-      apiClient.setTenantOverrideName(profile.name);
-      setResolvedUniversityId(String(profile.id));
+      try {
+        const profile = await UniversityService.getPublicTenantProfile(tenantContext.subdomain);
+        apiClient.setTenantOverrideName(profile.name);
+        setResolvedUniversityId(String(profile.id));
+      } catch (error) {
+        console.warn('Failed to resolve tenant profile for academic management; using authenticated tenant context.', error);
+        apiClient.syncResolvedTenantFromSession();
+        setResolvedUniversityId(selectedUniversity);
+      }
       return;
     }
 
@@ -1166,11 +1091,11 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
                 <h3 className="font-medium">Prerequisites</h3>
                 <p className="text-sm text-slate-500">Choose one or more prerequisite courses from the same program.</p>
               </div>
-              <MultiSearchableSelect
-                values={selectedPrerequisites}
-                onValuesChange={setSelectedPrerequisites}
+              <MultiSelect
+                value={selectedPrerequisites.map(String)}
+                onValueChange={(values) => setSelectedPrerequisites(values.map(Number))}
                 options={prerequisiteCandidates.map((course) => ({
-                  value: course.id,
+                  value: String(course.id),
                   label: `${course.code} - ${course.name}`,
                   description: course.description || 'No description provided',
                 }))}

@@ -41,6 +41,18 @@ export interface AttendanceCourseOption {
   };
 }
 
+export interface AttendanceCourseSummary {
+  courseId: number;
+  teacherId: number;
+  course: {
+    id: number;
+    code: string;
+    name: string;
+    credits: number;
+    description?: string | null;
+  };
+}
+
 export interface AttendanceSessionRecord {
   id: number;
   studentId: number;
@@ -62,4 +74,29 @@ export interface AttendanceSession {
 export interface UpsertAttendancesDto {
   attendanceSessionId: number;
   records: Array<{ studentId: number; status: 'present'|'absent'|'late'; deviceIp?: string; deviceMac?: string; notes?: string }>;
+}
+
+export interface StudentAttendanceTimelineItem {
+  id: number;
+  status: 'Present' | 'Absent' | 'Late' | 'Excused' | 'Medical';
+  recordedAt: string;
+  attendanceSession: {
+    id: number;
+    sessionDate: string;
+    attendanceMode: AttendanceMode;
+    scheduleSlot: {
+      id: number;
+      course: {
+        id: number;
+        code: string;
+        name: string;
+      };
+    };
+  };
+}
+
+export interface StudentAttendanceStatus {
+  semesterId: number;
+  timeline: StudentAttendanceTimelineItem[];
+  qrPayload: string;
 }

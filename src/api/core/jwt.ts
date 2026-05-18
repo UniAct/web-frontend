@@ -12,3 +12,12 @@ export function decodeJwtPayload(token: string): Record<string, unknown> | null 
     return null;
   }
 }
+
+export function isJwtExpired(token: string, skewSeconds = 30): boolean {
+  const payload = decodeJwtPayload(token);
+  const exp = typeof payload?.exp === 'number' ? payload.exp : undefined;
+
+  if (!exp) return false;
+
+  return exp <= Math.floor(Date.now() / 1000) + skewSeconds;
+}

@@ -17,12 +17,13 @@ import {
   FileUp,
   UserCog,
   Menu,
-  X
+  X,
+  Award
 } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { Avatar, AvatarFallback } from '../ui/avatar';
 import { Button } from '../ui/button';
-import type { User } from '../../App';
+import type { User as AppUser } from '../../App';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface NavigationProps {
@@ -76,6 +77,7 @@ export function Navigation({ user, currentPage, onNavigate, onLogout }: Navigati
         ...baseItems,
         { id: 'courses', label: 'My Courses', icon: BookOpen },
         { id: 'attendance', label: 'Attendance', icon: UserCheck },
+        { id: 'grades', label: 'Grades', icon: Award },
         { id: 'teams', label: 'Manage Teams', icon: Users },
         { id: 'groups', label: 'Groups & Rooms', icon: Network },
         { id: 'ai-assistant', label: 'AI Assistant', icon: Bot },

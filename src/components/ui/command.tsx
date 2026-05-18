@@ -53,17 +53,15 @@ function CommandDialog({
   );
 }
 
-function CommandInput({
-  className,
-  ...props
-}: React.ComponentProps<typeof CommandPrimitive.Input>) {
+const CommandInput = React.forwardRef<
+  HTMLInputElement,
+  React.ComponentProps<typeof CommandPrimitive.Input>
+>(({ className, ...props }, ref) => {
   return (
-    <div
-      data-slot="command-input-wrapper"
-      className="flex h-9 items-center gap-2 border-b px-3"
-    >
+    <div data-slot="command-input-wrapper" className="flex h-9 items-center gap-2 border-b px-3">
       <SearchIcon className="size-4 shrink-0 opacity-50" />
       <CommandPrimitive.Input
+        ref={ref}
         data-slot="command-input"
         className={cn(
           "placeholder:text-muted-foreground flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50",
@@ -73,17 +71,15 @@ function CommandInput({
       />
     </div>
   );
-}
+});
+CommandInput.displayName = "CommandInput";
 
-function CommandList({
-  className,
-  ...props
-}: React.ComponentProps<typeof CommandPrimitive.List>) {
+function CommandList({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.List>) {
   return (
     <CommandPrimitive.List
       data-slot="command-list"
       className={cn(
-        "max-h-[300px] scroll-py-1 overflow-x-hidden overflow-y-auto",
+        "max-h-[300px] scroll-py-2 overflow-x-hidden overflow-y-auto",
         className,
       )}
       {...props}
@@ -132,21 +128,42 @@ function CommandSeparator({
   );
 }
 
-function CommandItem({
-  className,
-  ...props
-}: React.ComponentProps<typeof CommandPrimitive.Item>) {
+const CommandItem = React.forwardRef<
+  HTMLDivElement,
+  React.ComponentProps<typeof CommandPrimitive.Item>
+>(({ className, onFocus, onMouseEnter, ...props }, ref) => {
+  const localRef = React.useRef<HTMLElement | null>(null);
+  const mergedRef = (el: HTMLElement | null) => {
+    // @ts-ignore
+    localRef.current = el;
+    // forward
+    // @ts-ignore
+    if (typeof ref === 'function') ref(el);
+    // @ts-ignore
+    else if (ref) ref.current = el;
+  };
+
+  const handleFocus: React.FocusEventHandler = (e) => {
+    // ensure focused/keyboard-highlighted item scrolls into view
+    localRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (onFocus) onFocus(e as any);
+  };
+
   return (
+    // Note: cmdk will manage selection/highlight. We provide visual styles
     <CommandPrimitive.Item
+      ref={mergedRef as any}
       data-slot="command-item"
+      onFocus={handleFocus}
       className={cn(
-        "data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground [&_svg:not([class*='text-'])]:text-muted-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative flex cursor-default items-start gap-3 px-3 py-2.5 text-sm rounded-lg transition-colors duration-150 select-none outline-hidden data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 hover:bg-slate-50 focus:bg-slate-50 data-[selected=true]:bg-slate-100 data-[selected=true]:text-slate-900",
         className,
       )}
       {...props}
     />
   );
-}
+});
+CommandItem.displayName = 'CommandItem';
 
 function CommandShortcut({
   className,

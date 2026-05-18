@@ -27,7 +27,21 @@ export type {
   AcademicLoadGPA,
   AcademicLoadGPAInput,
 } from './program';
-export type { Course, CourseCreateInput, CourseUpdateInput, CourseType, CoursePrerequisite } from './course';
+export type {
+  AssignCourseAssessmentInput,
+  Course,
+  CourseAssessment,
+  CourseAssessmentType,
+  CreateCourseAssessmentInput,
+  CourseCreateInput,
+  CourseStudentGrade,
+  CourseStudentGrades,
+  CourseUpdateInput,
+  CourseType,
+  CoursePrerequisite,
+  UpdateCourseAssessmentInput,
+  UpdateStudentGradeInput,
+} from './course';
 export type {
   Classroom,
   ClassroomCreateInput,
@@ -47,6 +61,17 @@ export type {
   TimetableSaveResult,
 } from './schedule';
 export type { Semester, SemesterCreateInput, SemesterUpdateInput } from './semester';
+export type {
+  AttendanceCourseOption,
+  AttendanceCourseSummary,
+  AttendanceSession,
+  AttendanceSessionRecord,
+  CreateAttendanceSessionDto,
+  EnrolledStudent,
+  StudentAttendanceStatus,
+  StudentAttendanceTimelineItem,
+  UpsertAttendancesDto,
+} from './attendance';
 export type { Role, RoleCreateInput, Permission } from './rbac';
 export type {
   StudentStatus,
