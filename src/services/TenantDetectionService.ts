@@ -2,30 +2,30 @@
  * TENANT DETECTION SERVICE
  * 
  * Detects current tenant from browser hostname and configures API accordingly.
- * Supports multi-tenant architecture:
+ * Supports multi-tenant architecture via subdomain-based routing:
  * 
  * SUPERADMIN (no tenant):
  *   - http://localhost:5173 → SuperAdmin dashboard
  *   - http://127.0.0.1:5173 → SuperAdmin dashboard
- *   - http://uniact.local:5173 → SuperAdmin dashboard
+ *   - https://public.uniact.website → SuperAdmin dashboard
  * 
  * TENANT-SPECIFIC:
- *   - http://anu:5173 → ANU tenant (reads from anu schema)
- *   - http://auc:5173 → AUC tenant (reads from auc schema)
- *   - http://anu.uniact.edu.eg → ANU production (reads from anu schema)
+ *   - https://anu.uniact.website → ANU tenant (reads from anu schema)
+ *   - https://auc.uniact.website → AUC tenant (reads from auc schema)
+ *   - http://anu:5173 (dev) → ANU tenant (reads from anu schema)
  * 
- * IMPORTANT: All requests to backend automatically include Host header
+ * IMPORTANT: All requests to backend automatically include university-name header
  * which backend uses to:
- * 1. Detect which tenant is accessing (if any)
+ * 1. Resolve subdomain to university name
  * 2. Switch to appropriate database schema
  * 3. Authorize based on tenant + user role
  */
 
 export interface TenantContext {
-  isSuperAdmin: boolean;
   subdomain?: string;
+  isSuperAdmin: boolean;
   apiBaseUrl: string;
-  displayName: string;
+  displayName?: string;
 }
 
 export class TenantDetectionService {
@@ -33,48 +33,27 @@ export class TenantDetectionService {
 
   /**
    * Detects current tenant from window.location.hostname
+   * Uses pure subdomain-based detection via *.uniact.website or local dev hosts
    * Returns configuration for API calls and UI routing
    */
   static detectTenant(): TenantContext {
-    const hostname = window.location.pathname.toLowerCase();
-    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
-    const isMainDomain =
-      hostname === 'public' ||
-      hostname === 'uniact.local' ||
-      hostname === 'uniact.edu.eg';
+    const hostname = window.location.hostname.toLowerCase();
+    
+    // Extract the first part (subdomain) from hostname
+    const tenantSlug = hostname.split('.')[0];
+    
+    // SuperAdmin if running on localhost/127.0.0.1 or public subdomain
+    const isSuperAdmin = hostname === 'localhost' || hostname === '127.0.0.1' || tenantSlug === 'public';
 
     console.log(`[TenantDetectionService] Hostname: ${hostname}`);
-
-    // SUPERADMIN ACCESS: No tenant
-    if (isLocalhost || isMainDomain) {
-      console.log(`[TenantDetectionService] ✓ SuperAdmin access detected`);
-      return {
-        isSuperAdmin: true,
-        apiBaseUrl: `${window.location.protocol}//${window.location.pathname}:3000`,
-        displayName: 'System Administrator',
-      };
-    }
-
-    // TENANT-SPECIFIC ACCESS: Extract subdomain
-    const subdomain = this.extractSubdomain(hostname);
-
-    if (!subdomain) {
-      console.warn(`[TenantDetectionService] Could not extract subdomain from ${hostname}, defaulting to localhost`);
-      return {
-        isSuperAdmin: true,
-        apiBaseUrl: `${window.location.protocol}//localhost:3000`,
-        displayName: 'System Administrator',
-      };
-    }
-
-    const displayName = subdomain.toUpperCase();
-    console.log(`[TenantDetectionService] ✓ Tenant access: ${subdomain}`);
+    console.log(`[TenantDetectionService] Tenant slug: ${tenantSlug}`);
+    console.log(`[TenantDetectionService] IsSuperAdmin: ${isSuperAdmin}`);
 
     return {
-      isSuperAdmin: false,
-      subdomain,
-      apiBaseUrl: `${window.location.protocol}//${hostname}:3000`,
-      displayName,
+      subdomain: tenantSlug,
+      isSuperAdmin,
+      apiBaseUrl: import.meta.env.VITE_API_BASE,
+      displayName: isSuperAdmin ? 'System Administrator' : tenantSlug.toUpperCase(),
     };
   }
 
@@ -158,19 +137,16 @@ export class TenantDetectionService {
   static buildTenantUrl(tenantKey: string): string {
     const normalizedKey = this.buildTenantKey(tenantKey);
     const protocol = window.location.protocol;
-    const port = window.location.port ? `:${window.location.port}` : '';
-    const hostname = window.location.pathname.toLowerCase();
-
-    const rootDomain =
-      hostname === 'uniact.edu.eg' || hostname.endsWith('.uniact.edu.eg')
-        ? 'uniact.edu.eg'
-        : null;
-
-    if (rootDomain) {
-      return `${protocol}//${normalizedKey}.${rootDomain}${port}/`;
+    const hostname = window.location.hostname.toLowerCase();
+    
+    // Development: use localhost with port
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      const port = window.location.port ? `:${window.location.port}` : '';
+      return `${protocol}//${normalizedKey}${port}/`;
     }
-
-    return `${protocol}//${normalizedKey}${port}/`;
+    
+    // Production: use subdomain on uniact.website
+    return `${protocol}//${normalizedKey}.uniact.website/`;
   }
 
   /**
@@ -182,19 +158,21 @@ export class TenantDetectionService {
   }
 
   /**
-   * Navigates to superadmin (localhost)
+   * Navigates to superadmin (public subdomain or localhost)
    */
   static navigateToSuperAdmin(): void {
-    const port = window.location.port ? `:${window.location.port}` : '';
-    const hostname = window.location.pathname.toLowerCase();
-    const targetHost =
-      hostname === 'public'
-        ? 'public'
-        : hostname === 'uniact.edu.eg' || hostname.endsWith('.uniact.edu.eg')
-          ? 'uniact.edu.eg'
-          : 'localhost';
-    const targetUrl = `${window.location.protocol}//${targetHost}${port}/`;
-    window.location.href = targetUrl;
+    const hostname = window.location.hostname.toLowerCase();
+    const protocol = window.location.protocol;
+    
+    // Development: use localhost
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      const port = window.location.port ? `:${window.location.port}` : '';
+      window.location.href = `${protocol}//public${port}/`;
+      return;
+    }
+    
+    // Production: use public subdomain on uniact.website
+    window.location.href = `${protocol}//public.uniact.website/`;
   }
 
   /**

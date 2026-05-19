@@ -1,4 +1,4 @@
-export const API_PREFIX = '/api';
+export const API_PREFIX = `${import.meta.env.VITE_API_BASE}/api`;
 export const TENANT_HEADER = 'university-name';
 export const TOKEN_STORAGE_KEY = 'token';
 export const USER_STORAGE_KEY = 'user';
