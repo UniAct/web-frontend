@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { GpaTranscriptsTab } from './GpaTranscriptsTab';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
@@ -270,8 +271,9 @@ export function LevelYearTablePage({ selectedUniversity }: LevelYearTablePagePro
 
       {/* Tabs */}
       <Tabs value={selectedTab} onValueChange={setSelectedTab}>
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+        <TabsList className="grid w-full max-w-2xl grid-cols-3">
           <TabsTrigger value="programs">Academic Programs & Levels</TabsTrigger>
+          <TabsTrigger value="gpa-transcripts">GPA & Transcripts</TabsTrigger>
           <TabsTrigger value="move-levels">Move Levels</TabsTrigger>
         </TabsList>
 
@@ -361,7 +363,12 @@ export function LevelYearTablePage({ selectedUniversity }: LevelYearTablePagePro
           </Card>
         </TabsContent>
 
-        {/* Tab 2: Move Levels */}
+        {/* Tab 2: GPA Calculation & Transcripts */}
+        <TabsContent value="gpa-transcripts" className="mt-6">
+          <GpaTranscriptsTab />
+        </TabsContent>
+
+        {/* Tab 3: Move Levels */}
         <TabsContent value="move-levels" className="mt-6 space-y-6">
           <Card>
             <CardHeader>

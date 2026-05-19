@@ -36,13 +36,13 @@ export class TenantDetectionService {
    * Returns configuration for API calls and UI routing
    */
   static detectTenant(): TenantContext {
-    const hostname = window.location.hostname.toLowerCase();
+    const hostname = window.location.pathname.toLowerCase();
     const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
     const isMainDomain =
       hostname === 'public' ||
       hostname === 'uniact.local' ||
       hostname === 'uniact.edu.eg';
-    
+
     console.log(`[TenantDetectionService] Hostname: ${hostname}`);
 
     // SUPERADMIN ACCESS: No tenant
@@ -50,14 +50,14 @@ export class TenantDetectionService {
       console.log(`[TenantDetectionService] ✓ SuperAdmin access detected`);
       return {
         isSuperAdmin: true,
-        apiBaseUrl: `${window.location.protocol}//${window.location.hostname}:3000`,
+        apiBaseUrl: `${window.location.protocol}//${window.location.pathname}:3000`,
         displayName: 'System Administrator',
       };
     }
 
     // TENANT-SPECIFIC ACCESS: Extract subdomain
     const subdomain = this.extractSubdomain(hostname);
-    
+
     if (!subdomain) {
       console.warn(`[TenantDetectionService] Could not extract subdomain from ${hostname}, defaulting to localhost`);
       return {
@@ -159,7 +159,7 @@ export class TenantDetectionService {
     const normalizedKey = this.buildTenantKey(tenantKey);
     const protocol = window.location.protocol;
     const port = window.location.port ? `:${window.location.port}` : '';
-    const hostname = window.location.hostname.toLowerCase();
+    const hostname = window.location.pathname.toLowerCase();
 
     const rootDomain =
       hostname === 'uniact.edu.eg' || hostname.endsWith('.uniact.edu.eg')
@@ -186,7 +186,7 @@ export class TenantDetectionService {
    */
   static navigateToSuperAdmin(): void {
     const port = window.location.port ? `:${window.location.port}` : '';
-    const hostname = window.location.hostname.toLowerCase();
+    const hostname = window.location.pathname.toLowerCase();
     const targetHost =
       hostname === 'public'
         ? 'public'

@@ -134,7 +134,7 @@ export function SearchableSelect({
           key={option.value}
           value={option.searchText ?? `${option.label} ${option.description ?? ''}`}
           disabled={option.disabled}
-          className="items-start gap-3 rounded-lg px-3 py-2.5 text-left data-[selected=true]:bg-slate-100 data-[selected=true]:text-slate-950"
+          className="items-start gap-3 text-left"
           keywords={option.searchText ? option.searchText.split(/\s+/).filter(Boolean) : undefined}
           onSelect={() => {
             if (option.disabled) {

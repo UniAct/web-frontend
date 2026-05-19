@@ -107,7 +107,7 @@ function CommandGroup({
     <CommandPrimitive.Group
       data-slot="command-group"
       className={cn(
-        "text-foreground [&_[cmdk-group-heading]]:text-muted-foreground overflow-hidden p-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium",
+        "text-foreground overflow-hidden p-1 [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-items]]:space-y-1",
         className,
       )}
       {...props}
@@ -156,7 +156,7 @@ const CommandItem = React.forwardRef<
       data-slot="command-item"
       onFocus={handleFocus}
       className={cn(
-        "relative flex cursor-default items-start gap-3 px-3 py-2.5 text-sm rounded-lg transition-colors duration-150 select-none outline-hidden data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 hover:bg-slate-50 focus:bg-slate-50 data-[selected=true]:bg-slate-100 data-[selected=true]:text-slate-900",
+        "relative mb-1 last:mb-0 flex min-h-10 cursor-default items-start gap-3 rounded-lg border border-transparent px-3 py-2.5 text-sm leading-5 transition-all duration-150 select-none outline-hidden data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 hover:border-slate-200/80 hover:bg-slate-50 focus:border-slate-200/80 focus:bg-slate-50 data-[selected=true]:border-slate-200 data-[selected=true]:bg-slate-100 data-[selected=true]:text-slate-900",
         className,
       )}
       {...props}
