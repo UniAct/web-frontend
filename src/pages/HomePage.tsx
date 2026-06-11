@@ -36,13 +36,14 @@ import {
   Loader2
 } from 'lucide-react';
 import { motion, useInView } from 'framer-motion';
-import { AuthService, UniversityService } from '../api';
+import { AnnouncementService, AuthService, FacultyService, UniversityService } from '../api';
 import { TenantDetectionService } from '../services/TenantDetectionService';
 import { homeEvents, homeFaculties, homeHeroImages } from '../features/home';
 import type { PublicTenantProfile } from '../api';
 import type { UserRole } from '../App';
 import type { LoginResponse } from '../api';
 import type { Faculty, HomeEvent } from '../features/home';
+import type { Announcement } from '../api';
 
 interface HomePageProps {
   onLogin: (email: string, role: UserRole, session?: LoginResponse) => void;
@@ -67,6 +68,11 @@ export function HomePage({ onLogin }: HomePageProps) {
   const [loginError, setLoginError] = useState<string>('');
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [tenantProfile, setTenantProfile] = useState<PublicTenantProfile | null>(null);
+  const [realStats, setRealStats] = useState<{ students: number; staff: number; programs: number } | null>(null);
+  const [realFaculties, setRealFaculties] = useState<Faculty[]>([]);
+  const [realAnnouncements, setRealAnnouncements] = useState<HomeEvent[]>([]);
+  const [facultiesLoaded, setFacultiesLoaded] = useState(false);
+  const [announcementsLoaded, setAnnouncementsLoaded] = useState(false);
 
   // Counter animation states
   const [studentsCount, setStudentsCount] = useState(0);
@@ -87,6 +93,8 @@ export function HomePage({ onLogin }: HomePageProps) {
     setIsSuperAdmin(tenantContext.isSuperAdmin);
 
     if (tenantContext.isSuperAdmin || !tenantContext.subdomain) {
+      setFacultiesLoaded(true);
+      setAnnouncementsLoaded(true);
       return;
     }
 
@@ -102,6 +110,66 @@ export function HomePage({ onLogin }: HomePageProps) {
         console.warn('[HomePage] Failed to load public tenant profile:', error);
       });
 
+    UniversityService.getPublicStats(tenantContext.subdomain)
+      .then((stats) => {
+        if (isMounted) setRealStats(stats);
+      })
+      .catch(() => undefined);
+
+    FacultyService.getPublicFaculties(tenantContext.subdomain)
+      .then((items) => {
+        if (!isMounted) return;
+
+        const icons = [FlaskConical, Microscope, Briefcase, Palette, Building2];
+        const colors = [
+          'from-blue-500 to-cyan-500',
+          'from-green-500 to-emerald-500',
+          'from-purple-500 to-violet-500',
+          'from-orange-500 to-amber-500',
+          'from-slate-500 to-blue-500',
+        ];
+
+        setRealFaculties(items.map((item, index) => ({
+          id: item.id,
+          name: item.name,
+          description: item.description || 'Academic programs and student services.',
+          fullDescription: item.description || `${item.name} offers academic programs supported by UniAct services.`,
+          programs: item.programs.length > 0 ? item.programs : ['Programs coming soon'],
+          students: item.students,
+          icon: icons[index % icons.length],
+          color: colors[index % colors.length],
+          type: 'Academic Faculty',
+          years: item.years || 4,
+        })));
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (isMounted) setFacultiesLoaded(true);
+      });
+
+    AnnouncementService.getPublic(tenantContext.subdomain)
+      .then((items: Announcement[]) => {
+        if (!isMounted) return;
+
+        setRealAnnouncements(items.map((item) => ({
+          id: item.id,
+          title: item.title,
+          date: item.event_date ? item.event_date.slice(0, 10) : item.created_at.slice(0, 10),
+          time: item.event_date
+            ? new Date(item.event_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : 'All day',
+          location: item.event_location || 'Campus',
+          type: item.type === 'EVENT' ? 'Event' : 'Announcement',
+          description: item.content,
+          icon: item.type === 'EVENT' ? PartyPopper : Megaphone,
+          attendees: 0,
+        })));
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (isMounted) setAnnouncementsLoaded(true);
+      });
+
     return () => {
       isMounted = false;
     };
@@ -109,9 +177,42 @@ export function HomePage({ onLogin }: HomePageProps) {
 
   const universityName = tenantProfile?.name ?? 'UniAct';
   const universityContactName = tenantProfile?.name ?? 'our university';
-  const heroImages = homeHeroImages;
-  const faculties = homeFaculties;
-  const events = homeEvents;
+  const logoUrl = tenantProfile?.settings?.logo_url ?? '/favicon.png';
+  const tenantContext = TenantDetectionService.detectTenant();
+  const isRealTenant = Boolean(tenantContext.subdomain && !tenantContext.isSuperAdmin && !tenantContext.isBranding);
+  const heroImages = tenantProfile?.settings?.hero_images?.length
+    ? tenantProfile.settings.hero_images
+    : homeHeroImages;
+  const faculties = isRealTenant ? realFaculties : homeFaculties;
+  const events = isRealTenant ? realAnnouncements : homeEvents;
+
+  useEffect(() => {
+    if (!tenantProfile) return;
+
+    const settings = tenantProfile.settings;
+    if (settings?.tab_name) document.title = settings.tab_name;
+    if (settings?.primary_color) document.documentElement.style.setProperty('--primary', settings.primary_color);
+    if (settings?.secondary_color) document.documentElement.style.setProperty('--secondary', settings.secondary_color);
+    if (settings?.logo_url) {
+      const link =
+        document.querySelector<HTMLLinkElement>("link[rel~='icon']") ??
+        document.createElement('link');
+      link.rel = 'icon';
+      link.href = settings.logo_url;
+      document.head.appendChild(link);
+    }
+  }, [tenantProfile]);
+
+  useEffect(() => {
+    if (!realStats) return;
+    setHasAnimated(false);
+  }, [realStats]);
+
+  useEffect(() => {
+    if (heroImageIndex >= heroImages.length) {
+      setHeroImageIndex(0);
+    }
+  }, [heroImageIndex, heroImages.length]);
 
   // Animated counter effect with easing for smooth animation
   useEffect(() => {
@@ -147,26 +248,30 @@ export function HomePage({ onLogin }: HomePageProps) {
       };
 
       // Animate all counters with slightly different durations for a staggered effect
-      animateCounter(15000, setStudentsCount, 2000);
-      animateCounter(800, setFacultyCount, 2200);
-      animateCounter(50, setProgramsCount, 1800);
+      animateCounter(realStats?.students ?? 0, setStudentsCount, 2000);
+      animateCounter(realStats?.staff ?? 0, setFacultyCount, 2200);
+      animateCounter(realStats?.programs ?? 0, setProgramsCount, 1800);
     }
-  }, [isStatsInView, hasAnimated]);
+  }, [isStatsInView, hasAnimated, realStats]);
 
   // Auto-advance hero carousel
   useEffect(() => {
+    if (heroImages.length === 0) return;
+
     const interval = setInterval(() => {
       setHeroImageIndex((prev) => (prev + 1) % heroImages.length);
     }, 5000); // Change image every 5 seconds
 
     return () => clearInterval(interval);
-  }, []);
+  }, [heroImages.length]);
 
   const nextHeroImage = () => {
+    if (heroImages.length === 0) return;
     setHeroImageIndex((prev) => (prev + 1) % heroImages.length);
   };
 
   const prevHeroImage = () => {
+    if (heroImages.length === 0) return;
     setHeroImageIndex((prev) => (prev - 1 + heroImages.length) % heroImages.length);
   };
 
@@ -288,6 +393,30 @@ export function HomePage({ onLogin }: HomePageProps) {
     return facultyNameMatch || programsMatch;
   });
 
+  const EmptyState = ({
+    icon: Icon,
+    title,
+    description,
+  }: {
+    icon: typeof Megaphone;
+    title: string;
+    description: string;
+  }) => (
+    <motion.div
+      initial={{ opacity: 0, y: 18 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-80px" }}
+      transition={{ duration: 0.45 }}
+      className="mx-auto max-w-xl rounded-3xl border border-blue-100 bg-white/85 p-10 text-center shadow-sm"
+    >
+      <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-50 to-purple-50 text-blue-600 ring-1 ring-blue-100">
+        <Icon className="h-8 w-8" />
+      </div>
+      <h3 className="text-xl font-semibold text-gray-900">{title}</h3>
+      <p className="mt-3 text-sm leading-relaxed text-gray-600">{description}</p>
+    </motion.div>
+  );
+
   return (
     <div className="min-h-screen bg-background">
       {/* Navigation */}
@@ -305,8 +434,8 @@ export function HomePage({ onLogin }: HomePageProps) {
               whileHover={{ scale: 1.02 }}
               transition={{ duration: 0.2 }}
             >
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl flex items-center justify-center shadow-md">
-                <GraduationCap className="w-6 h-6 text-white" />
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-md border border-blue-100 bg-white overflow-hidden">
+                <img src={isSuperAdmin ? '/favicon.png' : logoUrl} alt={universityName} className="w-full h-full object-contain p-1" />
               </div>
               <div>
                 <h1 className="text-xl text-blue-900">{isSuperAdmin ? 'UniAct' : universityName}</h1>
@@ -562,62 +691,76 @@ export function HomePage({ onLogin }: HomePageProps) {
             </p>
           </motion.div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-            {filteredFaculties.map((faculty, index) => {
-              const Icon = faculty.icon;
-              return (
-                <motion.div
-                  key={faculty.id}
-                  initial={{ opacity: 0, y: 30 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, margin: "-100px" }}
-                  transition={{ duration: 0.5, delay: index * 0.1 }}
-                  whileHover={{ scale: 1.05 }}
-                >
-                  <Card
-                    className="group hover:shadow-xl transition-all duration-300 cursor-pointer h-full"
-                    onClick={() => setSelectedFaculty(faculty)}
+          {!facultiesLoaded && isRealTenant ? (
+            <EmptyState
+              icon={Loader2}
+              title="Loading faculties and programs"
+              description="We're fetching the latest academic structure for this tenant."
+            />
+          ) : filteredFaculties.length === 0 ? (
+            <EmptyState
+              icon={Library}
+              title="No faculties published yet"
+              description="Academic faculties and programs will appear here as soon as the university publishes them."
+            />
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+              {filteredFaculties.map((faculty, index) => {
+                const Icon = faculty.icon;
+                return (
+                  <motion.div
+                    key={faculty.id}
+                    initial={{ opacity: 0, y: 30 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, margin: "-100px" }}
+                    transition={{ duration: 0.5, delay: index * 0.1 }}
+                    whileHover={{ scale: 1.05 }}
                   >
-                    <CardContent className="p-6">
-                      <div className={`w-16 h-16 bg-gradient-to-br ${faculty.color} rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform`}>
-                        <Icon className="w-8 h-8 text-white" />
-                      </div>
-                      <h3 className="text-lg mb-2 group-hover:text-blue-600 transition-colors">{faculty.name}</h3>
-                      <p className="text-sm text-gray-600 mb-4">{faculty.description}</p>
-
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2 text-sm text-gray-500">
-                          <Users className="w-4 h-4" />
-                          <span>{faculty.students.toLocaleString()} students</span>
+                    <Card
+                      className="group hover:shadow-xl transition-all duration-300 cursor-pointer h-full"
+                      onClick={() => setSelectedFaculty(faculty)}
+                    >
+                      <CardContent className="p-6">
+                        <div className={`w-16 h-16 bg-gradient-to-br ${faculty.color} rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform`}>
+                          <Icon className="w-8 h-8 text-white" />
                         </div>
+                        <h3 className="text-lg mb-2 group-hover:text-blue-600 transition-colors">{faculty.name}</h3>
+                        <p className="text-sm text-gray-600 mb-4">{faculty.description}</p>
 
-                        <div className="flex flex-wrap gap-1">
-                          {faculty.programs.slice(0, 3).map((program, index) => (
-                            <Badge key={index} variant="outline" className="text-xs">
-                              {program}
-                            </Badge>
-                          ))}
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 text-sm text-gray-500">
+                            <Users className="w-4 h-4" />
+                            <span>{faculty.students.toLocaleString()} students</span>
+                          </div>
+
+                          <div className="flex flex-wrap gap-1">
+                            {faculty.programs.slice(0, 3).map((program, index) => (
+                              <Badge key={index} variant="outline" className="text-xs">
+                                {program}
+                              </Badge>
+                            ))}
+                          </div>
+
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="w-full group-hover:text-blue-600 transition-all hover:bg-blue-50"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedFaculty(faculty);
+                            }}
+                          >
+                            Learn More
+                            <ChevronRight className="w-3 h-3 ml-1 group-hover:translate-x-1 transition-transform" />
+                          </Button>
                         </div>
-
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="w-full group-hover:text-blue-600 transition-all hover:bg-blue-50"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedFaculty(faculty);
-                          }}
-                        >
-                          Learn More
-                          <ChevronRight className="w-3 h-3 ml-1 group-hover:translate-x-1 transition-transform" />
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              );
-            })}
-          </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </section>
 
@@ -637,80 +780,90 @@ export function HomePage({ onLogin }: HomePageProps) {
             </p>
           </motion.div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {events.map((event, index) => {
-              const Icon = event.icon;
-              return (
-                <motion.div
-                  key={event.id}
-                  initial={{ opacity: 0, y: 30 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, margin: "-100px" }}
-                  transition={{ duration: 0.5, delay: index * 0.1 }}
-                  whileHover={{ scale: 1.05 }}
-                >
-                  <Card
-                    className="group hover:shadow-lg transition-all duration-300 cursor-pointer h-full"
-                    onClick={() => {
-                      setSelectedEvent(event);
-                      setCurrentImageIndex(0);
-                    }}
+          {!announcementsLoaded && isRealTenant ? (
+            <EmptyState
+              icon={Loader2}
+              title="Loading announcements"
+              description="We're checking for published events and announcements from this tenant."
+            />
+          ) : events.length === 0 ? (
+            <EmptyState
+              icon={Megaphone}
+              title="No announcements yet"
+              description="Published announcements and events will appear here when the university shares them."
+            />
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {events.map((event, index) => {
+                const Icon = event.icon;
+                return (
+                  <motion.div
+                    key={event.id}
+                    initial={{ opacity: 0, y: 30 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, margin: "-100px" }}
+                    transition={{ duration: 0.5, delay: index * 0.1 }}
+                    whileHover={{ scale: 1.05 }}
                   >
-                    <CardContent className="p-6">
-                      <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-purple-500 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                        <Icon className="w-7 h-7 text-white" />
-                      </div>
-
-                      <div className="space-y-3">
-                        <div>
-                          <Badge variant="outline" className="mb-2">
-                            {event.type}
-                          </Badge>
-                          <h3 className="text-lg group-hover:text-blue-600 transition-colors line-clamp-2">
-                            {event.title}
-                          </h3>
+                    <Card
+                      className="group hover:shadow-lg transition-all duration-300 cursor-pointer h-full"
+                      onClick={() => {
+                        setSelectedEvent(event);
+                        setCurrentImageIndex(0);
+                      }}
+                    >
+                      <CardContent className="p-6">
+                        <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-purple-500 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                          <Icon className="w-7 h-7 text-white" />
                         </div>
 
-                        <p className="text-sm text-gray-600 line-clamp-2">{event.description}</p>
+                        <div className="space-y-3">
+                          <div>
+                            <Badge variant="outline" className="mb-2">
+                              {event.type}
+                            </Badge>
+                            <h3 className="text-lg group-hover:text-blue-600 transition-colors line-clamp-2">
+                              {event.title}
+                            </h3>
+                          </div>
 
-                        <div className="space-y-2 text-sm text-gray-500">
-                          <div className="flex items-center gap-2">
-                            <Calendar className="w-4 h-4" />
-                            <span>{event.date}</span>
+                          <p className="text-sm text-gray-600 line-clamp-2">{event.description}</p>
+
+                          <div className="space-y-2 text-sm text-gray-500">
+                            <div className="flex items-center gap-2">
+                              <Calendar className="w-4 h-4" />
+                              <span>{event.date}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Clock className="w-4 h-4" />
+                              <span>{event.time}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <MapPin className="w-4 h-4" />
+                              <span>{event.location}</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Clock className="w-4 h-4" />
-                            <span>{event.time}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <MapPin className="w-4 h-4" />
-                            <span>{event.location}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Users className="w-4 h-4" />
-                            <span>{event.attendees} attendees</span>
-                          </div>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full transition-all hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedEvent(event);
+                              setCurrentImageIndex(0);
+                            }}
+                          >
+                            View Details
+                          </Button>
                         </div>
-
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full transition-all hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedEvent(event);
-                            setCurrentImageIndex(0);
-                          }}
-                        >
-                          View Details
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              );
-            })}
-          </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </section>
 
@@ -773,33 +926,41 @@ export function HomePage({ onLogin }: HomePageProps) {
           </div>
 
           <div className="border-t border-gray-800 mt-8 pt-8 text-center text-sm text-gray-400">
-            <p>&copy; 2024 {isSuperAdmin ? 'UniAct' : universityName}. All rights reserved.</p>
+            <p>&copy; 2026 {isSuperAdmin ? 'UniAct' : universityName}. All rights reserved.</p>
           </div>
         </div>
       </footer>
 
       {/* Login Modal */}
       <Modal open={showLoginModal} onOpenChange={setShowLoginModal}>
-        <ModalContent className="sm:max-w-md">
-          <ModalHeader>
-            <ModalTitle>
-              {isSuperAdmin ? 'SuperAdmin Sign In' : 'UniAct Sign In'}
+        <ModalContent className="w-[calc(100vw-2rem)] sm:max-w-md overflow-hidden p-0">
+          <ModalHeader className="bg-gradient-to-br from-blue-50 via-white to-purple-50 px-6 pb-5 pt-6 text-center">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.25 }}
+              className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-blue-100 bg-white shadow-sm"
+            >
+              <img src={isSuperAdmin ? '/favicon.png' : logoUrl} alt={universityName} className="h-10 w-10 object-contain" />
+            </motion.div>
+            <ModalTitle className="text-2xl text-gray-950">
+              {isSuperAdmin ? 'SuperAdmin Sign In' : `Sign in to ${universityName}`}
             </ModalTitle>
-            <ModalDescription>
-              {isSuperAdmin ? 'Manage all system tenants and settings' : 'Sign in to access your UniAct dashboard'}
+            <ModalDescription className="mx-auto max-w-sm text-sm leading-relaxed">
+              {isSuperAdmin ? 'Manage all system tenants and settings.' : 'Use your institutional account to access the UniAct dashboard.'}
             </ModalDescription>
           </ModalHeader>
 
-          <div className="w-full">
-            <div className="grid w-full grid-cols-2 bg-muted rounded-lg p-1 mb-6">
+          <div className="w-full px-6 pb-6 pt-5">
+            <div className="mb-6 grid w-full grid-cols-2 rounded-2xl border border-gray-200 bg-gray-50 p-1">
               <button
                 type="button"
                 onClick={() => handleTabNavigation('email')}
-                className={`text-center py-2 px-3 rounded-md text-sm transition-all ${loginStep === 'email'
-                  ? 'bg-background shadow-sm'
+                className={`rounded-xl px-3 py-2.5 text-center text-sm transition-all ${loginStep === 'email'
+                  ? 'bg-white text-blue-700 shadow-sm ring-1 ring-blue-100'
                   : canNavigateToStep('email')
-                    ? 'text-muted-foreground hover:bg-background/50 cursor-pointer'
-                    : 'text-muted-foreground cursor-not-allowed'
+                    ? 'text-gray-500 hover:bg-white/70 cursor-pointer'
+                    : 'text-gray-400 cursor-not-allowed'
                   }`}
                 disabled={!canNavigateToStep('email')}
               >
@@ -809,11 +970,11 @@ export function HomePage({ onLogin }: HomePageProps) {
               <button
                 type="button"
                 onClick={() => handleTabNavigation('password')}
-                className={`text-center py-2 px-3 rounded-md text-sm transition-all ${loginStep === 'password'
-                  ? 'bg-background shadow-sm'
+                className={`rounded-xl px-3 py-2.5 text-center text-sm transition-all ${loginStep === 'password'
+                  ? 'bg-white text-blue-700 shadow-sm ring-1 ring-blue-100'
                   : canNavigateToStep('password')
-                    ? 'text-muted-foreground hover:bg-background/50 cursor-pointer'
-                    : 'text-muted-foreground cursor-not-allowed'
+                    ? 'text-gray-500 hover:bg-white/70 cursor-pointer'
+                    : 'text-gray-400 cursor-not-allowed'
                   }`}
                 disabled={!canNavigateToStep('password')}
               >
@@ -831,7 +992,13 @@ export function HomePage({ onLogin }: HomePageProps) {
             )}
 
             {loginStep === 'email' && (
-              <div className="space-y-4">
+              <motion.div
+                key="email-step"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.22 }}
+                className="space-y-4"
+              >
                 <form onSubmit={handleEmailSubmit} className="space-y-4">
                   <div>
                     <Input
@@ -839,6 +1006,7 @@ export function HomePage({ onLogin }: HomePageProps) {
                       placeholder={isSuperAdmin ? "superadmin@gmail.com" : "your.email@example.com"}
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
+                      className="h-12 rounded-xl"
                       required
                       autoFocus
                     />
@@ -848,17 +1016,23 @@ export function HomePage({ onLogin }: HomePageProps) {
                   </div>
                   <Button
                     type="submit"
-                    className="w-full"
+                    className="h-11 w-full rounded-xl bg-blue-600 hover:bg-blue-700"
                     disabled={!email || isLoading}
                   >
                     Continue
                   </Button>
                 </form>
-              </div>
+              </motion.div>
             )}
 
             {loginStep === 'password' && (
-              <div className="space-y-4">
+              <motion.div
+                key="password-step"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.22 }}
+                className="space-y-4"
+              >
                 <form onSubmit={handlePasswordSubmit} className="space-y-4">
                   <div>
                     <Input
@@ -866,6 +1040,7 @@ export function HomePage({ onLogin }: HomePageProps) {
                       placeholder="Enter your password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
+                      className="h-12 rounded-xl"
                       required
                       disabled={isLoading}
                       autoFocus
@@ -874,7 +1049,7 @@ export function HomePage({ onLogin }: HomePageProps) {
 
                   <Button
                     type="submit"
-                    className="w-full"
+                    className="h-11 w-full rounded-xl bg-blue-600 hover:bg-blue-700"
                     disabled={!password || isLoading}
                   >
                     {isLoading ? (
@@ -887,7 +1062,7 @@ export function HomePage({ onLogin }: HomePageProps) {
                     )}
                   </Button>
                 </form>
-              </div>
+              </motion.div>
             )}
           </div>
         </ModalContent>
@@ -966,7 +1141,7 @@ export function HomePage({ onLogin }: HomePageProps) {
 
       {/* Event Details Dialog */}
       <Dialog open={!!selectedEvent} onOpenChange={() => setSelectedEvent(null)}>
-        <DialogContent className="sm:max-w-3xl">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-3xl sm:max-w-3xl max-h-[90vh] overflow-y-auto">
           {selectedEvent && (
             <>
               <DialogHeader>
@@ -1025,7 +1200,7 @@ export function HomePage({ onLogin }: HomePageProps) {
                 {selectedEvent.description}
               </DialogDescription>
 
-              <div className="grid grid-cols-2 gap-4 py-4">
+              <div className="grid grid-cols-1 gap-4 py-4 sm:grid-cols-3">
                 <Card>
                   <CardContent className="p-4">
                     <div className="flex items-center gap-3">
@@ -1059,25 +1234,11 @@ export function HomePage({ onLogin }: HomePageProps) {
                     </div>
                   </CardContent>
                 </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <Users className="w-5 h-5 text-orange-600" />
-                      <div>
-                        <p className="text-sm text-gray-600">Attendees</p>
-                        <p>{selectedEvent.attendees} registered</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
               </div>
 
               <DialogFooter>
                 <Button variant="outline" onClick={() => setSelectedEvent(null)}>
                   Close
-                </Button>
-                <Button className="bg-blue-600 hover:bg-blue-700">
-                  Register for Event
                 </Button>
               </DialogFooter>
             </>

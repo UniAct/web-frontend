@@ -22,8 +22,9 @@ import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
 import { BootstrapAnimation } from './components/bootstrap/BootstrapAnimation';
 import { TenantDetectionService } from './services/TenantDetectionService';
-import { apiClient, type LoginResponse } from './api';
+import { apiClient, UniversityService, type LoginResponse, type PublicTenantProfile } from './api';
 import { isJwtExpired } from './api/core/jwt';
+import { UniActBrandingPage } from './pages/UniActBrandingPage';
 
 export type UserRole = 'student' | 'faculty' | 'admin' | 'alumni' | 'superadmin';
 const FRONTEND_ROLE_STORAGE_KEY = 'role';
@@ -157,6 +158,28 @@ function parseOptionalString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function applyTenantDocumentBranding(profile: PublicTenantProfile | null): void {
+  const settings = profile?.settings;
+  const tabName = settings?.tab_name?.trim() || profile?.name?.trim() || 'UniAct';
+  const logoUrl = settings?.logo_url?.trim() || '/favicon.png';
+
+  document.title = tabName;
+
+  const icon =
+    document.querySelector<HTMLLinkElement>("link[rel~='icon']") ??
+    document.createElement('link');
+  icon.rel = 'icon';
+  icon.href = logoUrl;
+  document.head.appendChild(icon);
+
+  if (settings?.primary_color) {
+    document.documentElement.style.setProperty('--primary', settings.primary_color);
+  }
+  if (settings?.secondary_color) {
+    document.documentElement.style.setProperty('--secondary', settings.secondary_color);
+  }
 }
 
 function buildUserFromSession(parsed: any, role: UserRole): User {
@@ -307,6 +330,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(() => readStoredSessionUser());
   const [tenantNotFound, setTenantNotFound] = useState(false);
   const [tenantSubdomain, setTenantSubdomain] = useState<string>('');
+  const [tenantProfile, setTenantProfile] = useState<PublicTenantProfile | null>(null);
   const [isCheckingTenant, setIsCheckingTenant] = useState(true);
   const [shouldShowBootstrap, setShouldShowBootstrap] = useState(true);
   const ANIMATION_MIN_DURATION = 3000; // Minimum 3 seconds for animation visibility
@@ -336,6 +360,54 @@ export default function App() {
     const roleKey = (effectiveUser ?? readStoredSessionUser())?.role ?? 'guest';
     document.documentElement.setAttribute('data-user-role', roleKey);
   }, [effectiveUser]);
+
+  useEffect(() => {
+    const tenantContext = TenantDetectionService.detectTenant();
+
+    if (tenantContext.isBranding) {
+      return;
+    }
+
+    if (tenantContext.isSuperAdmin || !tenantContext.subdomain) {
+      setTenantProfile(null);
+      applyTenantDocumentBranding(null);
+      return;
+    }
+
+    let isMounted = true;
+
+    UniversityService.getPublicTenantProfile(tenantContext.subdomain)
+      .then((profile) => {
+        if (!isMounted) return;
+        setTenantProfile(profile);
+        applyTenantDocumentBranding(profile);
+      })
+      .catch((error) => {
+        console.warn('[App] Failed to load tenant branding:', error);
+        if (!isMounted) return;
+        setTenantProfile(null);
+        applyTenantDocumentBranding(null);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const tenantContext = TenantDetectionService.detectTenant();
+
+    if (tenantContext.isBranding) {
+      return;
+    }
+
+    if (tenantContext.isSuperAdmin || !tenantContext.subdomain) {
+      applyTenantDocumentBranding(null);
+      return;
+    }
+
+    applyTenantDocumentBranding(tenantProfile);
+  }, [tenantProfile, user]);
 
   useEffect(() => {
     if (user) return;
@@ -398,6 +470,12 @@ export default function App() {
         const tenantContext = TenantDetectionService.detectTenant();
 
         console.log('[App] Checking tenant context:', tenantContext);
+
+        if (tenantContext.isBranding) {
+          console.log('[App] Branding access detected, skipping tenant validation');
+          setIsCheckingTenant(false);
+          return;
+        }
 
         // SuperAdmin doesn't need tenant validation
         if (tenantContext.isSuperAdmin) {
@@ -479,6 +557,7 @@ export default function App() {
         const sessionUser = buildUserFromSession(parsed, finalRole);
         persistFrontendRole(finalRole);
         setUser(sessionUser);
+        applyTenantDocumentBranding(tenantProfile);
 
         // Route based on role and tenant context
         const tenantContext = TenantDetectionService.detectTenant();
@@ -516,6 +595,7 @@ export default function App() {
       };
       persistFrontendRole('superadmin');
       setUser(superAdminUser);
+      applyTenantDocumentBranding(tenantProfile);
       navigateToPage(resolvePageFromQuery(new URLSearchParams(location.search).get('page'), 'superadmin'));
       return;
     }
@@ -531,6 +611,7 @@ export default function App() {
       };
       persistFrontendRole('admin');
       setUser(adminUser);
+      applyTenantDocumentBranding(tenantProfile);
       navigateToPage(resolvePageFromQuery(new URLSearchParams(location.search).get('page'), 'admin'));
       return;
     }
@@ -546,6 +627,7 @@ export default function App() {
     };
     persistFrontendRole(role);
     setUser(mockUser);
+    applyTenantDocumentBranding(tenantProfile);
     navigateToPage(resolvePageFromQuery(new URLSearchParams(location.search).get('page'), role));
   };
 
@@ -568,6 +650,16 @@ export default function App() {
       )
     );
   };
+
+  const tenantCtx = TenantDetectionService.detectTenant();
+  if (tenantCtx.isBranding) {
+    return (
+      <>
+        <UniActBrandingPage />
+        <Toaster />
+      </>
+    );
+  }
 
   // Show bootstrapping animation while checking tenant (forced minimum duration)
   if (shouldShowBootstrap || isCheckingTenant) {
@@ -627,7 +719,7 @@ export default function App() {
   const renderPage = () => {
     switch (currentPage) {
       case 'superadmin':
-        return <SuperAdminPanel user={effectiveUser} onLogout={handleLogout} />;
+        return <SuperAdminPanel user={effectiveUser} onLogout={handleLogout} tenantProfile={tenantProfile} />;
       case 'dashboard':
         return <Dashboard user={effectiveUser} />;
       case 'academic-registration':
@@ -677,12 +769,13 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20">
-      <Navigation
-        user={effectiveUser}
-        currentPage={currentPage}
-        onNavigate={navigateToPage}
-        onLogout={handleLogout}
-      />
+        <Navigation
+          user={effectiveUser}
+          currentPage={currentPage}
+          onNavigate={navigateToPage}
+          onLogout={handleLogout}
+          tenantProfile={tenantProfile}
+        />
 
       {/* Main Content */}
       <div className="lg:ml-20 min-h-screen transition-all duration-300">

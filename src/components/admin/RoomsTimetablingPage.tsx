@@ -1476,9 +1476,9 @@ export function RoomsTimetablingPage({
       <Card className="shadow-sm overflow-hidden">
         {/* Card Header: title + legend + action buttons */}
         <CardHeader className="border-b border-slate-100 pb-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div>
-              <CardTitle className="flex items-center gap-2 text-base">
+          <div className="flex flex-col items-start justify-between gap-4 xl:flex-row xl:items-center">
+            <div className="min-w-0">
+              <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                 <Calendar className="w-5 h-5 text-blue-600" />
                 Weekly Timetable
                 {selLevel && (
@@ -1493,12 +1493,12 @@ export function RoomsTimetablingPage({
                   </Badge>
                 )}
               </CardTitle>
-              <CardDescription className="mt-1 text-xs">
-                <span className="inline-flex items-center gap-1 mr-3">
+              <CardDescription className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                <span className="inline-flex items-center gap-1">
                   <Plus className="w-3 h-3 text-blue-400" />
                   Click any cell to add a class
                 </span>
-                <span className="inline-flex items-center gap-1 mr-3">
+                <span className="inline-flex items-center gap-1">
                   <GripVertical className="w-3 h-3 text-slate-400" />
                   Drag a card to reschedule
                 </span>
@@ -1509,7 +1509,7 @@ export function RoomsTimetablingPage({
               </CardDescription>
             </div>
             {/* Action buttons — placed here next to the timetable */}
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto xl:shrink-0">
               {/* Type legend */}
               <div className="hidden lg:flex flex-wrap gap-1.5 mr-2">
                 {(["lecture", "lab", "tutorial", "seminar"] as const).map(
@@ -1563,7 +1563,7 @@ export function RoomsTimetablingPage({
                 size="sm"
                 onClick={() => setShowExportModal(true)}
                 disabled={hasChanges || isAnyLoading || !selLevel}
-                className="gap-2"
+                className="gap-2 flex-1 sm:flex-none"
                 title={
                   hasChanges
                     ? "Save the timetable first before exporting"
@@ -1582,7 +1582,7 @@ export function RoomsTimetablingPage({
                   setShowModal(true);
                 }}
                 disabled={!selLevel || isAnyLoading}
-                className="gap-2"
+                className="gap-2 flex-1 sm:flex-none"
               >
                 <Plus className="w-4 h-4" />
                 Schedule Class

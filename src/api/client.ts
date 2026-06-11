@@ -9,6 +9,7 @@ import { superAdminApi } from './modules/superadmin/superadmin.api';
 import { studentApi } from './modules/student/student.api';
 import { universityApi } from './modules/university/university.api';
 import { userApi } from './modules/user/user.api';
+import { announcementApi } from './modules/announcement/announcement.api';
 
 export const apiClient = {
   ...authApi,
@@ -21,6 +22,7 @@ export const apiClient = {
   ...facultyApi,
   ...programApi,
   ...rbacApi,
+  ...announcementApi,
   validateCurrentTenant: () => httpClient.validateCurrentTenant(),
   getCurrentPublicTenantProfile: () => httpClient.getCurrentTenantProfile(),
   isSuperAdmin: () => httpClient.isSuperAdmin(),
@@ -44,5 +46,8 @@ export type {
   PublicTenantProfile,
   StaffDirectoryEntry,
   University,
+  UniversitySettings,
+  Announcement,
+  AnnouncementInput,
   User,
 } from './types/index';

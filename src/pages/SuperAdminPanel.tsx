@@ -58,11 +58,13 @@ import { AdminGradesPage } from '../components/admin/AdminGradesPage';
 import { apiClient, UniversityService } from '../api';
 import { SemesterService } from '../api';
 import type { Semester } from '../api';
+import type { PublicTenantProfile } from '../api';
 import { ACTIVE_SEMESTER_EVENT, writeActiveSemesterId } from '../contexts/SemesterContext';
 
 interface SuperAdminPanelProps {
   user: AppUser;
   onLogout: () => void;
+  tenantProfile?: PublicTenantProfile | null;
 }
 
 type AdminPage =
@@ -126,7 +128,7 @@ function resolveAdminPageFromQuery(raw: string | null, isSuperAdmin: boolean, is
   return allowedPages.includes(raw as AdminPage) ? (raw as AdminPage) : (isAdmin ? 'statistics' : 'universities');
 }
 
-export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
+export function SuperAdminPanel({ user, onLogout, tenantProfile: tenantProfileProp }: SuperAdminPanelProps) {
   const isSuperAdmin = user.role === 'superadmin';
   const isAdmin = user.role === 'admin';
   const tenantContext = useMemo(() => apiClient.getTenantContext(), []);
@@ -158,6 +160,34 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
   const tenantBootstrapStartedRef = useRef(false);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [tenantProfile, setTenantProfile] = useState<PublicTenantProfile | null>(tenantProfileProp ?? null);
+  const shellLogoUrl = tenantProfile?.settings?.logo_url?.trim() || '/favicon.png';
+  const shellDisplayName =
+    tenantProfile?.settings?.tab_name?.trim() ||
+    tenantProfile?.name?.trim() ||
+    (isSuperAdmin ? 'UniAct' : tenantDisplayName);
+
+  useEffect(() => {
+    if (tenantProfileProp) {
+      setTenantProfile(tenantProfileProp);
+    }
+  }, [tenantProfileProp]);
+
+  useEffect(() => {
+    if (tenantProfile || isSuperAdmin) return;
+
+    let isMounted = true;
+    apiClient.getCurrentPublicTenantProfile()
+      .then((profile) => {
+        if (isMounted) setTenantProfile(profile);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isSuperAdmin, tenantProfile]);
 
   useEffect(() => {
     if (tenantBootstrapStartedRef.current) return;
@@ -483,6 +513,16 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
 
   const activeSemester = semesters.find((item) => item.id === activeSemesterId) ?? semesters[0];
 
+  const handleNavigation = (page: AdminPage) => {
+    setCurrentPage(page);
+    setMobileSidebarOpen(false);
+  };
+
+  const handleLogout = () => {
+    setMobileSidebarOpen(false);
+    onLogout();
+  };
+
   const currentSemesterLabel = tenantBootstrapStatus === 'loading'
     ? 'Preparing tenant...'
     : semesterLoading
@@ -620,38 +660,80 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
   const currentNavItem = filteredNavigationItems.find(item => item.id === currentPage);
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="flex h-screen">
+    <div className="admin-shell min-h-screen bg-slate-50">
+      <style>
+        {`
+          .admin-shell main table {
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            overflow-x: auto;
+            white-space: nowrap;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .admin-shell main table thead,
+          .admin-shell main table tbody,
+          .admin-shell main table tr {
+            width: max-content;
+            min-width: 100%;
+          }
+
+          .admin-shell main table th,
+          .admin-shell main table td {
+            vertical-align: top;
+          }
+
+          @media (max-width: 640px) {
+            .admin-shell main h1,
+            .admin-shell main h2,
+            .admin-shell main h3,
+            .admin-shell main [data-slot="card-title"] {
+              overflow-wrap: anywhere;
+            }
+
+            .admin-shell main button,
+            .admin-shell header button {
+              max-width: 100%;
+            }
+          }
+        `}
+      </style>
+      <div className="flex h-screen overflow-hidden">
         {/* Sidebar Navigation */}
         <div
-          className={`bg-white border-r border-slate-200 flex flex-col flex-shrink-0 transition-all duration-300 ${sidebarCollapsed ? 'w-16' : 'w-64'
+          className={`hidden md:flex h-full flex-col flex-shrink-0 overflow-hidden bg-white border-r border-slate-200 transition-[width] duration-300 ease-in-out ${sidebarCollapsed ? 'w-16' : 'w-64'
             }`}
         >
           {/* Logo & Toggle */}
           <div className="p-4 border-b border-slate-200 flex items-center justify-between">
-            {!sidebarCollapsed && (
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
-                  <Shield className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <h2 className="font-semibold text-slate-900">UniAct</h2>
+            <div className={`flex items-center gap-3 ${sidebarCollapsed ? 'sr-only' : ''}`}>
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-white border border-primary/20 shadow-sm overflow-hidden">
+                <img src={shellLogoUrl} alt={shellDisplayName} className="w-full h-full object-contain p-1" />
+              </div>
+              {!sidebarCollapsed && (
+                <div className="min-w-0">
+                  <h2 className="font-semibold text-slate-900 truncate max-w-40">{shellDisplayName}</h2>
                   <p className="text-xs text-slate-500">{isSuperAdmin ? 'Super Admin' : 'Administrator'}</p>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
               className={`p-2 ${sidebarCollapsed ? 'mx-auto' : ''}`}
             >
-              {sidebarCollapsed ? <Menu className="w-5 h-5" /> : <X className="w-5 h-5" />}
+              {sidebarCollapsed ? (
+                <img src={shellLogoUrl} alt={shellDisplayName} className="w-6 h-6 object-contain" />
+              ) : (
+                <X className="w-5 h-5" />
+              )}
             </Button>
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+          <nav className="flex-1 min-h-0 p-2 space-y-1 overflow-y-auto">
             {filteredNavigationItems.map((item) => {
               const Icon = item.icon;
               const isActive = currentPage === item.id;
@@ -659,9 +741,9 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setCurrentPage(item.id as AdminPage)}
+                  onClick={() => handleNavigation(item.id as AdminPage)}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all ${isActive
-                    ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-700 border border-blue-200'
+                    ? 'border border-primary/20 bg-primary/10 text-primary shadow-sm'
                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                     } ${sidebarCollapsed ? 'justify-center' : ''}`}
                   title={sidebarCollapsed ? item.label : undefined}
@@ -686,7 +768,7 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
                 <div className="flex items-center gap-3 mb-3">
                   <Avatar className="w-8 h-8">
                     <AvatarImage src="" />
-                    <AvatarFallback className="bg-gradient-to-r from-blue-100 to-purple-100 text-blue-700">SA</AvatarFallback>
+                    <AvatarFallback className="bg-primary/10 text-primary">SA</AvatarFallback>
                   </Avatar>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-slate-900 truncate">{user.name}</p>
@@ -696,7 +778,7 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={onLogout}
+                  onClick={handleLogout}
                   className="w-full justify-start gap-2 text-slate-600"
                 >
                   <LogOut className="w-4 h-4" />
@@ -707,7 +789,7 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={onLogout}
+                onClick={handleLogout}
                 className="w-full p-2"
                 title="Sign Out"
               >
@@ -718,20 +800,32 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
         </div>
 
         {/* Main Content */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex min-w-0 flex-1 flex-col transition-all duration-300 ease-in-out">
           {/* Header */}
-          <header className="bg-white border-b border-slate-200 px-6 py-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-xl font-semibold text-slate-900">
-                  {currentNavItem?.label}
-                </h1>
-                <p className="text-sm text-slate-500 mt-1">
-                  {currentNavItem?.description}
-                </p>
+          <header className="bg-white border-b border-slate-200 px-4 py-4 sm:px-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-start gap-3 min-w-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setMobileSidebarOpen(true)}
+                  className="md:hidden shrink-0 border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  aria-label="Open navigation menu"
+                >
+                  <Menu className="h-5 w-5" />
+                </Button>
+                <div className="min-w-0">
+                  <h1 className="text-xl font-semibold text-slate-900 break-words">
+                    {currentNavItem?.label}
+                  </h1>
+                  <p className="text-sm text-slate-500 mt-1 break-words">
+                    {currentNavItem?.description}
+                  </p>
+                </div>
               </div>
 
-              <div className="flex items-center justify-end gap-3 flex-wrap">
+              <div className="flex flex-col items-stretch justify-end gap-3 sm:flex-row sm:flex-wrap sm:items-center">
                 {/* Education Year Settings */}
                 <Dialog open={educationDialogOpen} onOpenChange={setEducationDialogOpen}>
                   <DialogTrigger asChild>
@@ -741,9 +835,9 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
                       disabled={isSuperAdmin && !selectedUniversity}
                     >
                       <CalendarDays className="w-4 h-4" />
-                      <div className="text-left">
+                      <div className="text-left flex flex-col leading-tight">
                         <div className="text-xs text-slate-500">Semester Management</div>
-                        <div className="text-sm font-medium hidden sm:block">{currentSemesterLabel}</div>
+                        <div className="text-sm font-medium text-slate-900">{currentSemesterLabel}</div>
                       </div>
                     </Button>
                   </DialogTrigger>
@@ -851,7 +945,7 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
                               <div className="flex items-center justify-end gap-2">
                                 <Button
                                   variant="outline"
-                                  onClick={loadSemesters}
+                                  onClick={() => void loadSemesters()}
                                   disabled={semesterLoading || semesterSubmitting}
                                 >
                                   Refresh
@@ -873,7 +967,7 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
                             </CardHeader>
                             <CardContent className="space-y-3">
                               {semesterLoading && semesters.length > 0 && (
-                                <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-700">
+                                <div className="rounded-lg border border-primary/20 bg-primary/10 p-3 text-sm text-primary">
                                   Refreshing semesters...
                                 </div>
                               )}
@@ -967,13 +1061,95 @@ export function SuperAdminPanel({ user, onLogout }: SuperAdminPanelProps) {
           </header>
 
           {/* Page Content */}
-          <main className="flex-1 overflow-auto p-6 bg-slate-50 min-w-0">
+          <main className="flex-1 overflow-auto bg-slate-50 p-3 min-w-0 sm:p-6">
             <div className="max-w-full">
               {renderPage()}
             </div>
           </main>
         </div>
       </div>
+
+      {mobileSidebarOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <button
+            type="button"
+            aria-label="Close navigation menu"
+            className="absolute inset-0 bg-slate-950/50 backdrop-blur-[1px]"
+            onClick={() => setMobileSidebarOpen(false)}
+          />
+          <aside className="absolute inset-y-0 left-0 flex h-full w-[min(18rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] flex-col overflow-hidden border-r border-slate-200 bg-white shadow-2xl">
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-white border border-primary/20 shadow-sm overflow-hidden">
+                    <img src={shellLogoUrl} alt={shellDisplayName} className="w-full h-full object-contain p-1" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="font-semibold text-slate-900 truncate max-w-40">{shellDisplayName}</h2>
+                    <p className="text-xs text-slate-500">{isSuperAdmin ? 'Super Admin' : 'Administrator'}</p>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setMobileSidebarOpen(false)}
+                  className="shrink-0"
+                  aria-label="Close navigation menu"
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+
+              <nav className="flex-1 min-h-0 p-2 space-y-1 overflow-y-auto">
+                {filteredNavigationItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = currentPage === item.id;
+
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => handleNavigation(item.id as AdminPage)}
+                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all ${isActive
+                        ? 'border border-primary/20 bg-primary/10 text-primary shadow-sm'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        }`}
+                    >
+                      <Icon className="w-4 h-4 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">{item.label}</div>
+                        <div className="text-xs opacity-75 truncate">{item.description}</div>
+                      </div>
+                      {isActive && <ChevronRight className="w-4 h-4 flex-shrink-0" />}
+                    </button>
+                  );
+                })}
+              </nav>
+
+              <div className="p-3 border-t border-slate-200">
+                <div className="flex items-center gap-3 mb-3">
+                  <Avatar className="w-8 h-8">
+                    <AvatarImage src="" />
+                    <AvatarFallback className="bg-primary/10 text-primary">SA</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-slate-900 truncate">{user.name}</p>
+                    <p className="text-xs text-slate-500 truncate">{user.email}</p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleLogout}
+                  className="w-full justify-start gap-2 text-slate-600"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sign Out
+                </Button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }

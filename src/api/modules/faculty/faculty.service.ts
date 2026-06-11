@@ -8,6 +8,18 @@ export const FacultyService = {
     return res.data;
   },
 
+  async getPublicFaculties(schema: string): Promise<Array<{
+    id: number;
+    name: string;
+    description?: string;
+    programs: string[];
+    students: number;
+    years: number;
+  }>> {
+    const res = await facultyApi.getPublicFaculties(schema);
+    return res.data ?? [];
+  },
+
   async getById(id: number): Promise<Faculty> {
     const res = await facultyApi.getFacultyById(id);
     if (!res.data) throw new Error(res.message || 'Faculty not found');

@@ -168,17 +168,17 @@ export function AuditLogsPage({ selectedUniversity }: AuditLogsPageProps) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold text-slate-900">Audit Logs</h2>
-          <p className="text-slate-600 mt-1">Monitor system activity, user actions, and security events</p>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-2xl font-semibold text-slate-900 break-words">Audit Logs</h2>
+          <p className="text-slate-600 mt-1 break-words">Monitor system activity, user actions, and security events</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" className="gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex">
+          <Button variant="outline" className="gap-2 w-full">
             <Filter className="w-4 h-4" />
             Advanced Filters
           </Button>
-          <Button className="gap-2">
+          <Button className="gap-2 w-full">
             <Download className="w-4 h-4" />
             Export Logs
           </Button>
@@ -188,7 +188,7 @@ export function AuditLogsPage({ selectedUniversity }: AuditLogsPageProps) {
       {/* Search and Filters */}
       <Card>
         <CardContent className="p-4">
-          <div className="flex gap-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
               <Input
@@ -199,10 +199,12 @@ export function AuditLogsPage({ selectedUniversity }: AuditLogsPageProps) {
                 className="pl-10"
               />
             </div>
-            <Button variant="outline">Filter by User</Button>
-            <Button variant="outline">Filter by Action</Button>
-            <Button variant="outline">Filter by Date</Button>
-            <Button variant="outline">Filter by Severity</Button>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:shrink-0">
+              <Button variant="outline" className="w-full">Filter by User</Button>
+              <Button variant="outline" className="w-full">Filter by Action</Button>
+              <Button variant="outline" className="w-full">Filter by Date</Button>
+              <Button variant="outline" className="w-full">Filter by Severity</Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -283,7 +285,7 @@ export function AuditLogsPage({ selectedUniversity }: AuditLogsPageProps) {
               const StatusIcon = getStatusIcon(log.status);
               return (
                 <div key={log.id} className="p-4 border border-slate-200 rounded-lg hover:shadow-sm transition-shadow">
-                  <div className="flex items-start gap-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                     <Avatar className="w-10 h-10">
                       <AvatarImage src="" />
                       <AvatarFallback className="bg-slate-100 text-slate-700 text-xs">
@@ -292,10 +294,10 @@ export function AuditLogsPage({ selectedUniversity }: AuditLogsPageProps) {
                     </Avatar>
                     
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between mb-2">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-medium text-slate-900">{log.user}</h4>
+                      <div className="flex flex-col gap-2 mb-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                            <h4 className="font-medium text-slate-900 break-words">{log.user}</h4>
                             <Badge variant={getActionColor(log.action)}>
                               {log.action}
                             </Badge>
@@ -305,7 +307,7 @@ export function AuditLogsPage({ selectedUniversity }: AuditLogsPageProps) {
                           </div>
                           <p className="text-sm text-slate-600">{log.userEmail}</p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <StatusIcon className={`w-4 h-4 ${
                             log.status === 'Success' ? 'text-green-600' : 
                             log.status === 'Failed' ? 'text-red-600' : 'text-orange-600'
@@ -328,23 +330,23 @@ export function AuditLogsPage({ selectedUniversity }: AuditLogsPageProps) {
                           <div>
                             <span className="font-medium">IP Address:</span> {log.ipAddress}
                           </div>
-                          <div>
+                          <div className="min-w-0">
                             <span className="font-medium">User Agent:</span> 
-                            <span className="truncate ml-1">{log.userAgent}</span>
+                            <span className="ml-1 inline-block max-w-full truncate align-bottom">{log.userAgent}</span>
                           </div>
                         </div>
                       </div>
 
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="outline" className="gap-1">
+                      <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
+                        <Button size="sm" variant="outline" className="gap-1 w-full sm:w-auto">
                           <Eye className="w-3 h-3" />
                           View Details
                         </Button>
-                        <Button size="sm" variant="outline">
+                        <Button size="sm" variant="outline" className="w-full sm:w-auto">
                           Related Events
                         </Button>
                         {log.status === 'Failed' && (
-                          <Button size="sm" variant="outline" className="text-orange-600 hover:text-orange-700">
+                          <Button size="sm" variant="outline" className="w-full text-orange-600 hover:text-orange-700 sm:w-auto">
                             Investigate
                           </Button>
                         )}
