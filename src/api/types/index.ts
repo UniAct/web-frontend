@@ -6,7 +6,8 @@ export type {
   SuperAdminCreateInput,
   AssignRootAccountInput,
 } from './superadmin';
-export type { University, UniversityCreateInput, PublicTenantProfile } from './university';
+export type { University, UniversityCreateInput, PublicTenantProfile, UniversitySettings } from './university';
+export type { Announcement, AnnouncementInput } from './announcement';
 export type { Faculty, FacultyCreateInput, FacultyUpdateInput } from './faculty';
 export type {
   Program,

@@ -1,5 +1,5 @@
 import { httpClient } from '../../core/http-client';
-import type { ApiResponse, PublicTenantProfile, University, UniversityCreateInput } from '../../types';
+import type { ApiResponse, PublicTenantProfile, University, UniversityCreateInput, UniversitySettings } from '../../types';
 
 export const universityApi = {
   createUniversity(data: UniversityCreateInput): Promise<ApiResponse<University>> {
@@ -14,6 +14,13 @@ export const universityApi = {
     return httpClient.request<PublicTenantProfile>(
       'GET',
       `/university/public/${encodeURIComponent(tenantKey)}`,
+    );
+  },
+
+  getPublicStats(tenantKey: string): Promise<ApiResponse<{ students: number; staff: number; programs: number }>> {
+    return httpClient.request<{ students: number; staff: number; programs: number }>(
+      'GET',
+      `/university/public/${encodeURIComponent(tenantKey)}/stats`,
     );
   },
 
@@ -39,5 +46,43 @@ export const universityApi = {
 
   deleteUniversity(id: number): Promise<ApiResponse<void>> {
     return httpClient.request<void>('DELETE', `/university/${id}`);
+  },
+
+  getSettings(): Promise<ApiResponse<UniversitySettings>> {
+    return httpClient.request<UniversitySettings>('GET', '/university/settings', undefined, {
+      requireResolvedTenant: true,
+    });
+  },
+
+  updateSettings(
+    data: Partial<Pick<UniversitySettings, 'primary_color' | 'secondary_color' | 'tab_name' | 'logo_url'>>,
+  ): Promise<ApiResponse<UniversitySettings>> {
+    return httpClient.request<UniversitySettings>('PATCH', '/university/settings', data, {
+      requireResolvedTenant: true,
+    });
+  },
+
+  uploadLogo(file: File): Promise<ApiResponse<{ logo_url: string }>> {
+    const form = new FormData();
+    form.append('image', file);
+    return httpClient.request<{ logo_url: string }>('POST', '/university/settings/logo', form, {
+      requireResolvedTenant: true,
+      includeJsonContentType: false,
+    });
+  },
+
+  uploadHeroImage(file: File): Promise<ApiResponse<{ hero_images: string[] }>> {
+    const form = new FormData();
+    form.append('image', file);
+    return httpClient.request<{ hero_images: string[] }>('POST', '/university/settings/hero', form, {
+      requireResolvedTenant: true,
+      includeJsonContentType: false,
+    });
+  },
+
+  deleteHeroImage(url: string): Promise<ApiResponse<{ hero_images: string[] }>> {
+    return httpClient.request<{ hero_images: string[] }>('DELETE', '/university/settings/hero', { url }, {
+      requireResolvedTenant: true,
+    });
   },
 };

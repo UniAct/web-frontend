@@ -267,21 +267,21 @@ export function RoomsPage({ selectedUniversity }: RoomsPageProps) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold text-slate-900">Rooms Management</h2>
-          <p className="text-slate-600 mt-1">Manage classrooms, capacity, and availability</p>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-2xl font-semibold text-slate-900 break-words">Rooms Management</h2>
+          <p className="text-slate-600 mt-1 break-words">Manage classrooms, capacity, and availability</p>
         </div>
-        <div className="flex gap-3">
-          <Button variant="outline" onClick={() => void loadRooms()} disabled={loading} className="gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:flex lg:gap-3">
+          <Button variant="outline" onClick={() => void loadRooms()} disabled={loading} className="gap-2 w-full">
             <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Button variant="outline" onClick={exportRoomsData} className="gap-2" disabled={loading}>
+          <Button variant="outline" onClick={exportRoomsData} className="gap-2 w-full" disabled={loading}>
             <Download className="w-4 h-4" />
             Export Data
           </Button>
-          <Button onClick={() => setShowAddModal(true)} className="gap-2" disabled={loading}>
+          <Button onClick={() => setShowAddModal(true)} className="gap-2 w-full" disabled={loading}>
             <Plus className="w-4 h-4" />
             Add Room
           </Button>

@@ -1663,10 +1663,10 @@ export function StudentsPage({
       {/* ── Student Directory Card ────────────────────────────── */}
       <Card className="border-slate-200 shadow-sm">
         <CardHeader className="border-b border-slate-100 pb-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-slate-900">Student Directory</CardTitle>
-              <CardDescription className="mt-0.5">
+          <div className="flex w-full max-w-full flex-col gap-3 overflow-hidden sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 max-w-full overflow-hidden">
+              <CardTitle className="max-w-full break-words text-slate-900">Student Directory</CardTitle>
+              <CardDescription className="mt-0.5 max-w-full whitespace-normal break-words">
                 Search, filter, edit, deactivate, and recover students without losing records.
               </CardDescription>
             </div>

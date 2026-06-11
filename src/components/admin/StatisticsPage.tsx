@@ -332,23 +332,25 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Calendar View */}
-              <div className="flex justify-center">
-                <Calendar
-                  mode="single"
-                  selected={selectedDate}
-                  onSelect={setSelectedDate}
-                  className="rounded-md border"
-                  modifiers={{
-                    hasEvent: (date) => hasEventsOnDate(date, activeEventTab as 'event' | 'announcement')
-                  }}
-                  modifiersStyles={{
-                    hasEvent: {
-                      fontWeight: 'bold',
-                      textDecoration: 'underline',
-                      color: activeEventTab === 'events' ? '#3b82f6' : '#8b5cf6'
-                    }
-                  }}
-                />
+              <div className="w-full overflow-x-auto">
+                <div className="mx-auto w-max max-w-full">
+                  <Calendar
+                    mode="single"
+                    selected={selectedDate}
+                    onSelect={setSelectedDate}
+                    className="rounded-md border"
+                    modifiers={{
+                      hasEvent: (date) => hasEventsOnDate(date, activeEventTab as 'event' | 'announcement')
+                    }}
+                    modifiersStyles={{
+                      hasEvent: {
+                        fontWeight: 'bold',
+                        textDecoration: 'underline',
+                        color: activeEventTab === 'events' ? '#3b82f6' : '#8b5cf6'
+                      }
+                    }}
+                  />
+                </div>
               </div>
 
               {/* Selected Date Items */}

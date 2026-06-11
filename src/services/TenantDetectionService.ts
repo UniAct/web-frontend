@@ -24,6 +24,7 @@
 export interface TenantContext {
   subdomain?: string;
   isSuperAdmin: boolean;
+  isBranding: boolean;
   apiBaseUrl: string;
   displayName?: string;
 }
@@ -43,17 +44,27 @@ export class TenantDetectionService {
 
     const tenantSlug = this.extractSubdomain(hostname);
 
-    const isSuperAdmin =
+    // Branding is the default local entry point; tenant dev uses named hosts, and superadmin dev uses public.uniact.local.
+    const isBranding =
+      hostname === 'uniact.website' ||
+      hostname === 'www.uniact.website' ||
+      hostname === 'uniact.local' ||
+      hostname === 'www.uniact.local' ||
       hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
+      hostname === '127.0.0.1';
+
+    const isSuperAdmin =
+      hostname === 'public.uniact.local' ||
       tenantSlug === 'public';
 
     console.log(`[TenantDetectionService] Tenant slug: ${tenantSlug}`);
     console.log(`[TenantDetectionService] IsSuperAdmin: ${isSuperAdmin}`);
+    console.log(`[TenantDetectionService] IsBranding: ${isBranding}`);
 
     return {
       subdomain: tenantSlug || undefined,
       isSuperAdmin,
+      isBranding,
       apiBaseUrl: import.meta.env.VITE_API_BASE,
       displayName: isSuperAdmin
         ? 'System Administrator'
@@ -71,14 +82,18 @@ export class TenantDetectionService {
   private static extractSubdomain(hostname: string): string | null {
     const parts = hostname.split('.');
 
-    // Localhost / 127.0.0.1 → superadmin
     if (
+      hostname === 'uniact.website' ||
+      hostname === 'www.uniact.website' ||
+      hostname === 'uniact.local' ||
+      hostname === 'www.uniact.local' ||
       hostname === 'localhost' ||
       hostname === '127.0.0.1'
     ) {
-      return 'public';
+      return null;
     }
 
+    // Localhost / 127.0.0.1 → superadmin
     // Simple local dev host:
     // http://anu:5173
     if (parts.length === 1) {

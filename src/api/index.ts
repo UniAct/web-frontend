@@ -12,6 +12,7 @@ export { RBACService } from './modules/rbac/rbac.service';
 export { StudentService } from './modules/student/student.service';
 export { ScheduleService } from './modules/Schedule/schedule.service';
 export { EnrollmentService } from './modules/enrollment/enrollment.service';
+export { AnnouncementService } from './modules/announcement/announcement.service';
 
 export { apiClient } from './client';
 
@@ -27,6 +28,9 @@ export type {
   University,
   UniversityCreateInput,
   PublicTenantProfile,
+  UniversitySettings,
+  Announcement,
+  AnnouncementInput,
   Faculty,
   FacultyCreateInput,
   FacultyUpdateInput,

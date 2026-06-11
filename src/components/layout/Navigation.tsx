@@ -25,19 +25,22 @@ import { Avatar, AvatarFallback } from '../ui/avatar';
 import { Button } from '../ui/button';
 import type { User as AppUser } from '../../App';
 import { motion, AnimatePresence } from 'framer-motion';
+import { apiClient, type PublicTenantProfile } from '../../api';
 
 interface NavigationProps {
   user: AppUser;
   currentPage: string;
   onNavigate: (page: string) => void;
   onLogout: () => void;
+  tenantProfile?: PublicTenantProfile | null;
 }
 
-export function Navigation({ user, currentPage, onNavigate, onLogout }: NavigationProps) {
+export function Navigation({ user, currentPage, onNavigate, onLogout, tenantProfile: tenantProfileProp }: NavigationProps) {
   const [isCollapsed, setIsCollapsed] = useState(true); // Default to collapsed on desktop
   const [isMobile, setIsMobile] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  const [tenantProfile, setTenantProfile] = useState<PublicTenantProfile | null>(tenantProfileProp ?? null);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -52,6 +55,19 @@ export function Navigation({ user, currentPage, onNavigate, onLogout }: Navigati
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  useEffect(() => {
+    if (tenantProfileProp) {
+      setTenantProfile(tenantProfileProp);
+      return;
+    }
+
+    if (apiClient.isSuperAdmin()) return;
+
+    apiClient.getCurrentPublicTenantProfile()
+      .then(setTenantProfile)
+      .catch(() => undefined);
+  }, [tenantProfileProp]);
 
   const getNavigationItems = () => {
     const baseItems = [
@@ -109,6 +125,8 @@ export function Navigation({ user, currentPage, onNavigate, onLogout }: Navigati
   };
 
   const navigationItems = getNavigationItems();
+  const logoUrl = tenantProfile?.settings?.logo_url ?? '/favicon.png';
+  const displayName = tenantProfile?.settings?.tab_name ?? tenantProfile?.name ?? 'UniAct';
 
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
@@ -139,12 +157,12 @@ export function Navigation({ user, currentPage, onNavigate, onLogout }: Navigati
         >
           <div className="flex items-center justify-between p-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25">
-                <GraduationCap className="w-6 h-6 text-white" />
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 bg-white border border-blue-100 overflow-hidden">
+                <img src={logoUrl} alt={displayName} className="w-full h-full object-contain p-1" />
               </div>
               <div>
                 <h1 className="text-lg font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  UniAct
+                  {displayName}
                 </h1>
                 <p className="text-xs text-gray-500">Digital Ecosystem</p>
               </div>
@@ -299,10 +317,10 @@ export function Navigation({ user, currentPage, onNavigate, onLogout }: Navigati
             <motion.div
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              className="w-12 h-12 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 cursor-pointer flex-shrink-0"
+              className="w-12 h-12 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 cursor-pointer flex-shrink-0 bg-white border border-blue-100 overflow-hidden"
               onClick={() => setIsCollapsed(!isCollapsed)}
             >
-              <GraduationCap className="w-7 h-7 text-white" />
+              <img src={logoUrl} alt={displayName} className="w-full h-full object-contain p-1.5" />
             </motion.div>
             <AnimatePresence>
               {(!isCollapsed || isHovered) && (
@@ -314,7 +332,7 @@ export function Navigation({ user, currentPage, onNavigate, onLogout }: Navigati
                   className="overflow-hidden whitespace-nowrap"
                 >
                   <h1 className="text-xl font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                    UniAct
+                    {displayName}
                   </h1>
                   <p className="text-sm text-gray-500">Digital Ecosystem</p>
                 </motion.div>

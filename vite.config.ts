@@ -23,6 +23,8 @@ export default defineConfig(({ mode }) => {
         'admin',
         'public',
         'uniact.local',
+        'www.uniact.local',
+        'public.uniact.local',
         // Allow any host (for development)
         '.local',
         'buc',

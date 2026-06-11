@@ -14,6 +14,24 @@ export const facultyApi = {
     });
   },
 
+  getPublicFaculties(schema: string): Promise<ApiResponse<Array<{
+    id: number;
+    name: string;
+    description?: string;
+    programs: string[];
+    students: number;
+    years: number;
+  }>>> {
+    return httpClient.request<Array<{
+      id: number;
+      name: string;
+      description?: string;
+      programs: string[];
+      students: number;
+      years: number;
+    }>>('GET', `/faculty/public/${encodeURIComponent(schema)}/faculties`);
+  },
+
   getFacultyById(id: number): Promise<ApiResponse<Faculty>> {
     return httpClient.request<Faculty>('GET', `/faculty/${id}`, undefined, {
       requireResolvedTenant: true,

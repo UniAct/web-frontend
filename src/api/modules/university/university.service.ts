@@ -1,6 +1,6 @@
 import { universityApi } from './university.api';
 import { httpClient } from '../../core/http-client';
-import type { PublicTenantProfile, University, UniversityCreateInput } from '../../types';
+import type { PublicTenantProfile, University, UniversityCreateInput, UniversitySettings } from '../../types';
 
 const publicTenantProfileRequests = new Map<string, Promise<PublicTenantProfile>>();
 const publicTenantProfileCache = new Map<string, PublicTenantProfile>();
@@ -65,6 +65,11 @@ export const UniversityService = {
     }
   },
 
+  async getPublicStats(tenantKey: string): Promise<{ students: number; staff: number; programs: number }> {
+    const res = await universityApi.getPublicStats(tenantKey.trim().toLowerCase());
+    return res.data ?? { students: 0, staff: 0, programs: 0 };
+  },
+
   async getById(id: number): Promise<University> {
     const res = await universityApi.getUniversityById(id);
     if (!res.data) throw new Error(res.message || 'University not found');
@@ -85,5 +90,36 @@ export const UniversityService = {
 
   async delete(id: number): Promise<void> {
     await universityApi.deleteUniversity(id);
+  },
+
+  async getSettings(): Promise<UniversitySettings> {
+    const res = await universityApi.getSettings();
+    if (!res.data) throw new Error(res.message || 'Failed to load settings');
+    return res.data;
+  },
+
+  async updateSettings(
+    data: Partial<Pick<UniversitySettings, 'primary_color' | 'secondary_color' | 'tab_name' | 'logo_url'>>,
+  ): Promise<UniversitySettings> {
+    const res = await universityApi.updateSettings(data);
+    if (!res.data) throw new Error(res.message || 'Failed to save settings');
+    return res.data;
+  },
+
+  async uploadLogo(file: File): Promise<string> {
+    const res = await universityApi.uploadLogo(file);
+    if (!res.data) throw new Error(res.message || 'Logo upload failed');
+    return res.data.logo_url;
+  },
+
+  async uploadHeroImage(file: File): Promise<string[]> {
+    const res = await universityApi.uploadHeroImage(file);
+    if (!res.data) throw new Error(res.message || 'Hero image upload failed');
+    return res.data.hero_images;
+  },
+
+  async deleteHeroImage(url: string): Promise<string[]> {
+    const res = await universityApi.deleteHeroImage(url);
+    return res.data?.hero_images ?? [];
   },
 };
