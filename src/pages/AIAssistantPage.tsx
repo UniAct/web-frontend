@@ -1,25 +1,18 @@
-import { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
-import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Badge } from '../components/ui/badge';
-import { ScrollArea } from '../components/ui/scroll-area';
-import {
-  Bot,
-  Send,
-  Upload,
-  FileText,
-  Book,
-  Lightbulb,
-  Clock,
-  MessageSquare,
-  Paperclip,
-  Sparkles,
-  BookOpen,
-  Calculator,
-  Brain
-} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Bot, Brain, CheckCircle2, FileText, Loader2, MessageSquare, RefreshCw, Search, Send, Sparkles, TriangleAlert } from 'lucide-react';
+import { toast } from 'sonner';
 import type { User as AppUser } from '../App';
+import { AiService, LearningGroupService } from '../api';
+import type { AiHistoryMessage, LearningGroupSummary } from '../api';
+import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Input } from '../components/ui/input';
+import { ScrollArea } from '../components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Switch } from '../components/ui/switch';
+import { Textarea } from '../components/ui/textarea';
+import { useResolvedSemester } from '../hooks/useResolvedSemester';
 
 interface AIAssistantPageProps {
   user: AppUser;
@@ -27,447 +20,474 @@ interface AIAssistantPageProps {
 
 interface ChatMessage {
   id: string;
-  type: 'user' | 'assistant';
+  role: 'user' | 'assistant';
   content: string;
-  timestamp: string;
-  attachments?: string[];
+  createdAt: string;
 }
 
-interface StudyRecommendation {
-  id: string;
-  title: string;
-  description: string;
-  type: 'topic' | 'practice' | 'reading';
-  priority: 'high' | 'medium' | 'low';
-  estimatedTime: string;
+function toChatMessage(message: AiHistoryMessage, index: number): ChatMessage {
+  return {
+    id: `${message.created_at}-${index}`,
+    role: message.role,
+    content: message.content,
+    createdAt: message.created_at,
+  };
+}
+
+function readableSize(size: number | null): string {
+  if (!size) return 'Unknown size';
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function extractStudentId(user: AppUser): number | undefined {
+  const candidates = [user.studentId, user.id];
+  for (const candidate of candidates) {
+    const parsed = Number(candidate);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
 }
 
 export function AIAssistantPage({ user }: AIAssistantPageProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: '1',
-      type: 'assistant',
-      content: `Hello ${user.name.split(' ')[0]}! I'm your AI study assistant. I can help you with:\n\n• Understanding course concepts\n• Solving practice problems\n• Study planning and scheduling\n• Exam preparation strategies\n• Assignment guidance\n\nWhat would you like to work on today?`,
-      timestamp: '2024-03-15 09:00',
+  const [groups, setGroups] = useState<LearningGroupSummary[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [sessionId, setSessionId] = useState<string | undefined>();
+  const [input, setInput] = useState('');
+  const [topic, setTopic] = useState('');
+  const [includeTranscript, setIncludeTranscript] = useState(user.role === 'student');
+  const [isLoadingGroups, setIsLoadingGroups] = useState(true);
+  const [isSending, setIsSending] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [materials, setMaterials] = useState<Array<{ asset_name: string; asset_size: number }>>([]);
+  const [chapters, setChapters] = useState<Array<{ file_id?: string; chapter_title?: string; title?: string }>>([]);
+  const [searchResults, setSearchResults] = useState<Array<{ text?: string; score?: number }>>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [generated, setGenerated] = useState<{ title: string; body: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const { semesterId: activeSemesterId, isLoading: isResolvingSemester } = useResolvedSemester({
+    fallbackSemesterId: user.currentSemesterId ?? null,
+  });
+
+  const selectedGroup = useMemo(
+    () => groups.find((group) => group.groupId === selectedGroupId) ?? null,
+    [groups, selectedGroupId],
+  );
+
+  const canUseTranscript = user.role === 'student' || user.role === 'faculty';
+
+  const loadGroups = useCallback(async () => {
+    setIsLoadingGroups(true);
+    setError(null);
+    try {
+      const nextGroups = await LearningGroupService.getMyGroups(activeSemesterId);
+      setGroups(nextGroups);
+      setSelectedGroupId((current) => current ?? nextGroups[0]?.groupId ?? null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load learning groups';
+      setError(message);
+    } finally {
+      setIsLoadingGroups(false);
     }
-  ]);
+  }, [activeSemesterId]);
 
-  const [currentMessage, setCurrentMessage] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
+  const loadGroupAiState = useCallback(async (groupId: number) => {
+    setSessionId(undefined);
+    setMessages([]);
+    setGenerated(null);
+    setMaterials([]);
+    setChapters([]);
+    setSearchResults([]);
 
-  const studyRecommendations: StudyRecommendation[] = [
-    {
-      id: '1',
-      title: 'Review Binary Tree Traversals',
-      description: 'Based on your recent quiz performance, reviewing tree traversal algorithms could help.',
-      type: 'topic',
-      priority: 'high',
-      estimatedTime: '45 min',
-    },
-    {
-      id: '2',
-      title: 'Practice Dynamic Programming',
-      description: 'Try solving 5 DP problems to strengthen your problem-solving skills.',
-      type: 'practice',
-      priority: 'medium',
-      estimatedTime: '2 hours',
-    },
-    {
-      id: '3',
-      title: 'Read Chapter 8 - Graph Algorithms',
-      description: 'Prepare for next week\'s lectures on graph theory and algorithms.',
-      type: 'reading',
-      priority: 'medium',
-      estimatedTime: '1 hour',
-    },
-    {
-      id: '4',
-      title: 'Algorithm Complexity Analysis',
-      description: 'Review Big O notation and time complexity analysis techniques.',
-      type: 'topic',
-      priority: 'low',
-      estimatedTime: '30 min',
-    },
-  ];
-
-  const quickQuestions = [
-    "Explain bubble sort algorithm",
-    "What is the difference between Stack and Queue?",
-    "Help me with recursion concepts",
-    "Binary search implementation",
-    "SQL JOIN types explained"
-  ];
-
-  const handleSendMessage = async () => {
-    if (!currentMessage.trim()) return;
-
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      type: 'user',
-      content: currentMessage,
-      timestamp: new Date().toLocaleString(),
-      attachments: uploadedFiles.length > 0 ? [...uploadedFiles] : undefined,
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    setCurrentMessage('');
-    setUploadedFiles([]);
-    setIsTyping(true);
-
-    // Simulate AI response
-    setTimeout(() => {
-      const aiResponse: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        type: 'assistant',
-        content: generateAIResponse(currentMessage),
-        timestamp: new Date().toLocaleString(),
-      };
-
-      setMessages(prev => [...prev, aiResponse]);
-      setIsTyping(false);
-    }, 1500);
-  };
-
-  const generateAIResponse = (question: string): string => {
-    const lowerQuestion = question.toLowerCase();
-
-    if (lowerQuestion.includes('bubble sort')) {
-      return `**Bubble Sort Algorithm**
-
-Bubble sort is a simple sorting algorithm that works by repeatedly stepping through the list, comparing adjacent elements and swapping them if they're in the wrong order.
-
-**Algorithm:**
-1. Compare adjacent elements
-2. Swap if they're in wrong order  
-3. Repeat until no swaps needed
-
-**Time Complexity:** O(n²)
-**Space Complexity:** O(1)
-
-**Python Implementation:**
-\`\`\`python
-def bubble_sort(arr):
-    n = len(arr)
-    for i in range(n):
-        for j in range(0, n-i-1):
-            if arr[j] > arr[j+1]:
-                arr[j], arr[j+1] = arr[j+1], arr[j]
-    return arr
-\`\`\`
-
-Would you like me to explain any specific part in more detail?`;
+    try {
+      const [sessions, files, nextChapters] = await Promise.all([
+        AiService.listSessions(groupId),
+        AiService.getFiles(groupId).catch(() => undefined),
+        AiService.getChapters(groupId).catch(() => undefined),
+      ]);
+      const latestSession = sessions[0];
+      if (latestSession?.session_id) {
+        setSessionId(latestSession.session_id);
+        const history = await AiService.getSessionHistory(latestSession.session_id);
+        setMessages(history.map(toChatMessage));
+      }
+      setMaterials(files?.assets ?? []);
+      setChapters(nextChapters ?? []);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'AI service is not ready for this group';
+      setError(message);
     }
+  }, []);
 
-    if (lowerQuestion.includes('stack') && lowerQuestion.includes('queue')) {
-      return `**Stack vs Queue - Key Differences**
+  useEffect(() => {
+    if (!isResolvingSemester) loadGroups();
+  }, [isResolvingSemester, loadGroups]);
 
-**Stack (LIFO - Last In, First Out):**
-• Elements added and removed from the same end (top)
-• Operations: push(), pop(), peek(), isEmpty()
-• Use cases: Function calls, undo operations, expression evaluation
-
-**Queue (FIFO - First In, First Out):**
-• Elements added at rear, removed from front
-• Operations: enqueue(), dequeue(), front(), isEmpty()
-• Use cases: Task scheduling, breadth-first search, print queues
-
-**Visual Representation:**
-Stack: [1][2][3] ← top (push/pop here)
-Queue: [1][2][3] ← rear (enqueue) | front (dequeue) →
-
-Need help with implementing either of these?`;
+  useEffect(() => {
+    if (selectedGroupId) {
+      loadGroupAiState(selectedGroupId);
     }
+  }, [loadGroupAiState, selectedGroupId]);
 
-    if (lowerQuestion.includes('recursion')) {
-      return `**Recursion Concepts**
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages, isSending]);
 
-Recursion is when a function calls itself to solve a smaller version of the same problem.
-
-**Key Components:**
-1. **Base Case:** Condition to stop recursion
-2. **Recursive Case:** Function calls itself with modified parameters
-
-**Example - Factorial:**
-\`\`\`python
-def factorial(n):
-    # Base case
-    if n <= 1:
-        return 1
-    # Recursive case
-    return n * factorial(n - 1)
-\`\`\`
-
-**Tips for Understanding:**
-• Trace through small examples step by step
-• Always identify base case first
-• Ensure progress toward base case
-• Practice with tree traversals, Fibonacci, etc.
-
-What specific recursion problem are you working on?`;
-    }
-
-    // Default response
-    return `I understand you're asking about "${question}". Let me help you with that!
-
-Based on your question, I can provide detailed explanations, code examples, or step-by-step solutions. Could you provide more specific details about what aspect you'd like me to focus on?
-
-**I can help with:**
-• Code implementation and debugging
-• Concept explanations with examples  
-• Problem-solving strategies
-• Study materials and resources
-
-Feel free to upload any relevant files or lecture notes for more personalized assistance!`;
-  };
-
-  const handleQuickQuestion = (question: string) => {
-    setCurrentMessage(question);
-  };
-
-  const handleFileUpload = () => {
-    // Simulate file upload
-    const fileName = `lecture_notes_${Date.now()}.pdf`;
-    setUploadedFiles(prev => [...prev, fileName]);
-  };
-
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'high': return 'bg-red-100 text-red-800';
-      case 'medium': return 'bg-yellow-100 text-yellow-800';
-      case 'low': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
+  const handleSync = async () => {
+    if (!selectedGroupId) return;
+    setIsSyncing(true);
+    setError(null);
+    try {
+      const result = await AiService.syncGroupMaterials(selectedGroupId);
+      toast.success(`AI materials synced: ${result.indexed} indexed, ${result.skipped} skipped`);
+      const [files, nextChapters] = await Promise.all([
+        AiService.getFiles(selectedGroupId).catch(() => undefined),
+        AiService.getChapters(selectedGroupId).catch(() => undefined),
+      ]);
+      setMaterials(files?.assets ?? []);
+      setChapters(nextChapters ?? []);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to sync materials';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'topic': return Brain;
-      case 'practice': return Calculator;
-      case 'reading': return BookOpen;
-      default: return Book;
+  const handleSend = async () => {
+    if (!selectedGroupId || !input.trim() || isSending) return;
+
+    const text = input.trim();
+    setInput('');
+    setIsSending(true);
+    setError(null);
+    setMessages((prev) => [
+      ...prev,
+      { id: `user-${Date.now()}`, role: 'user', content: text, createdAt: new Date().toISOString() },
+    ]);
+
+    try {
+      const response = await AiService.chat(selectedGroupId, {
+        text,
+        sessionId,
+        includeTranscript: includeTranscript && canUseTranscript,
+        studentId: includeTranscript ? extractStudentId(user) : undefined,
+        limit: 5,
+      });
+      setSessionId(response.sessionId);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          content: response.answer || 'No answer returned.',
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'AI request failed';
+      setError(message);
+      toast.error(message);
+      setMessages((prev) => prev.filter((messageItem) => messageItem.content !== text || messageItem.role !== 'user'));
+    } finally {
+      setIsSending(false);
     }
   };
+
+  const generateSummary = async () => {
+    if (!selectedGroupId || isGenerating) return;
+    setIsGenerating(true);
+    setError(null);
+    try {
+      const result = await AiService.summarize(selectedGroupId, topic.trim());
+      setGenerated({ title: 'Material Summary', body: result.summary });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to generate summary';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const generatePractice = async () => {
+    if (!selectedGroupId || isGenerating) return;
+    setIsGenerating(true);
+    setError(null);
+    try {
+      const result = await AiService.exam(selectedGroupId, {
+        content: topic.trim(),
+        difficulty: 'medium',
+        num_mcq: 5,
+        num_written: 2,
+      });
+      const mcq = result.exam.mcq_questions ?? [];
+      const written = result.exam.written_questions ?? [];
+      const body = [
+        ...mcq.map((q, index) => `${index + 1}. ${q.question}\n${q.choices.map((choice) => `   - ${choice}`).join('\n')}\nAnswer: ${q.correct_answer}${q.answer_explanation ? `\nWhy: ${q.answer_explanation}` : ''}`),
+        ...written.map((q, index) => `${mcq.length + index + 1}. ${q.question}\nSuggested answer: ${q.answer}`),
+      ].join('\n\n');
+      setGenerated({ title: 'Practice Set', body: body || 'No questions returned for the selected material.' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to generate practice questions';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const runSemanticSearch = async () => {
+    if (!selectedGroupId || isSearching) return;
+    const text = topic.trim() || input.trim();
+    if (!text) {
+      toast.error('Add a topic or question to search the indexed materials.');
+      return;
+    }
+
+    setIsSearching(true);
+    setError(null);
+    setGenerated(null);
+    try {
+      const results = await AiService.search(selectedGroupId, { text, limit: 5 });
+      setSearchResults(results ?? []);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to search indexed materials';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  if (isLoadingGroups || isResolvingSemester) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <Loader2 className="mr-2 h-5 w-5 animate-spin text-blue-600" />
+        <span className="text-sm text-slate-600">Loading your learning groups...</span>
+      </div>
+    );
+  }
+
+  if (groups.length === 0) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+          <Bot className="mb-3 h-10 w-10 text-slate-300" />
+          <h1 className="text-xl font-semibold text-slate-900">No learning groups yet</h1>
+          <p className="mt-2 max-w-md text-sm text-slate-500">
+            Join or create a learning group first. The assistant uses group materials and transcript context to answer useful course questions.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl mb-2">AI Course Assistant</h1>
-        <p className="text-muted-foreground">Get personalized help with your studies and coursework.</p>
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-950">AI Course Assistant</h1>
+          <p className="mt-1 text-sm text-slate-600">Ask against learning-group materials, generate study assets, and include transcript context when useful.</p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Select value={selectedGroupId ? String(selectedGroupId) : undefined} onValueChange={(value) => setSelectedGroupId(Number(value))}>
+            <SelectTrigger className="w-full sm:w-80">
+              <SelectValue placeholder="Select learning group" />
+            </SelectTrigger>
+            <SelectContent>
+              {groups.map((group) => (
+                <SelectItem key={group.groupId} value={String(group.groupId)}>
+                  {group.course.code} - {group.course.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button onClick={handleSync} disabled={!selectedGroupId || isSyncing} className="gap-2">
+            {isSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Sync materials
+          </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Chat Interface */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Bot className="w-5 h-5" />
-              AI Assistant Chat
-            </CardTitle>
-            <CardDescription>Ask questions, get explanations, and receive study guidance</CardDescription>
+      {error && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <Card className="min-h-[640px] overflow-hidden">
+          <CardHeader className="border-b bg-white">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <MessageSquare className="h-5 w-5 text-blue-600" />
+                {selectedGroup ? `${selectedGroup.course.code} Assistant` : 'Assistant'}
+              </CardTitle>
+              {canUseTranscript && (
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <Switch checked={includeTranscript} onCheckedChange={setIncludeTranscript} />
+                  Include transcript context
+                </label>
+              )}
+            </div>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Chat Messages */}
-            <ScrollArea className="h-96 w-full p-4 border rounded-lg">
+          <CardContent className="flex h-[590px] flex-col p-0">
+            <ScrollArea className="flex-1 px-4 py-5">
               <div className="space-y-4">
+                {messages.length === 0 && (
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-5 py-10 text-center">
+                    <Sparkles className="mx-auto mb-3 h-8 w-8 text-blue-500" />
+                    <p className="font-medium text-slate-900">Start with a course question</p>
+                    <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
+                      Try asking for an explanation, a worked example, or what to focus on before an exam.
+                    </p>
+                  </div>
+                )}
                 {messages.map((message) => (
-                  <div key={message.id} className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[80%] p-3 rounded-lg ${message.type === 'user'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-muted text-foreground'
-                      }`}>
-                      <div className="whitespace-pre-wrap text-sm">{message.content}</div>
-                      {message.attachments && (
-                        <div className="mt-2 space-y-1">
-                          {message.attachments.map((file, index) => (
-                            <div key={index} className="flex items-center gap-2 text-xs opacity-75">
-                              <FileText className="w-3 h-3" />
-                              <span>{file}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <div className="text-xs opacity-75 mt-2">{message.timestamp}</div>
+                  <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm shadow-sm ${message.role === 'user' ? 'bg-blue-600 text-white' : 'border border-slate-200 bg-white text-slate-800'}`}>
+                      <div className="whitespace-pre-wrap leading-relaxed">{message.content}</div>
                     </div>
                   </div>
                 ))}
-
-                {isTyping && (
+                {isSending && (
                   <div className="flex justify-start">
-                    <div className="bg-muted p-3 rounded-lg">
-                      <div className="flex items-center gap-1">
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100"></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200"></div>
-                      </div>
+                    <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Thinking...
                     </div>
                   </div>
                 )}
+                <div ref={bottomRef} />
               </div>
             </ScrollArea>
-
-            {/* File Upload Area */}
-            {uploadedFiles.length > 0 && (
-              <div className="p-3 bg-muted rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
-                  <Paperclip className="w-4 h-4" />
-                  <span className="text-sm">Attached files:</span>
-                </div>
-                <div className="space-y-1">
-                  {uploadedFiles.map((file, index) => (
-                    <div key={index} className="flex items-center gap-2 text-sm">
-                      <FileText className="w-3 h-3" />
-                      <span>{file}</span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setUploadedFiles(prev => prev.filter((_, i) => i !== index))}
-                      >
-                        ×
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Message Input */}
-            <div className="flex gap-2">
-              <Button variant="outline" size="icon" onClick={handleFileUpload}>
-                <Upload className="w-4 h-4" />
-              </Button>
-              <Input
-                placeholder="Ask me anything about your courses..."
-                value={currentMessage}
-                onChange={(e) => setCurrentMessage(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                className="flex-1"
-              />
-              <Button onClick={handleSendMessage} disabled={!currentMessage.trim()}>
-                <Send className="w-4 h-4" />
-              </Button>
-            </div>
-
-            {/* Quick Questions */}
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Quick questions:</p>
-              <div className="flex flex-wrap gap-2">
-                {quickQuestions.map((question, index) => (
-                  <Button
-                    key={index}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleQuickQuestion(question)}
-                  >
-                    {question}
-                  </Button>
-                ))}
+            <div className="border-t bg-white p-4">
+              <div className="flex gap-2">
+                <Input
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder="Ask about this group’s materials..."
+                  disabled={!selectedGroupId || isSending}
+                />
+                <Button onClick={handleSend} disabled={!input.trim() || isSending || !selectedGroupId} size="icon">
+                  <Send className="h-4 w-4" />
+                </Button>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Study Recommendations */}
-        <div className="space-y-6">
+        <div className="space-y-5">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Lightbulb className="w-5 h-5" />
-                Study Recommendations
+              <CardTitle className="flex items-center gap-2 text-base">
+                <FileText className="h-5 w-5 text-blue-600" />
+                Indexed Materials
               </CardTitle>
-              <CardDescription>Personalized suggestions based on your progress</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {studyRecommendations.map((rec) => {
-                  const IconComponent = getTypeIcon(rec.type);
-                  return (
-                    <div key={rec.id} className="p-3 border rounded-lg">
-                      <div className="flex items-start gap-2 mb-2">
-                        <IconComponent className="w-4 h-4 mt-0.5 text-blue-600" />
-                        <div className="flex-1">
-                          <h4 className="text-sm">{rec.title}</h4>
-                          <p className="text-xs text-muted-foreground">{rec.description}</p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between mt-3">
-                        <div className="flex items-center gap-2">
-                          <Badge className={getPriorityColor(rec.priority)}>
-                            {rec.priority}
-                          </Badge>
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Clock className="w-3 h-3" />
-                            <span>{rec.estimatedTime}</span>
-                          </div>
-                        </div>
-                        <Button size="sm" variant="ghost">
-                          Start
-                        </Button>
-                      </div>
+            <CardContent className="space-y-3">
+              {materials.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500">
+                  No indexed files found. Sync the group materials to make PDFs and text files available to AI.
+                </div>
+              ) : (
+                materials.slice(0, 5).map((file) => (
+                  <div key={file.asset_name} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-slate-800">{file.asset_name}</p>
+                      <p className="text-xs text-slate-500">{readableSize(file.asset_size)}</p>
                     </div>
-                  );
-                })}
-              </div>
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                  </div>
+                ))
+              )}
+              {materials.length > 5 && <p className="text-xs text-slate-500">+{materials.length - 5} more indexed files</p>}
+              {chapters.length > 0 && (
+                <div className="pt-2">
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Detected chapters</p>
+                  <div className="flex flex-wrap gap-2">
+                    {chapters.slice(0, 8).map((chapter, index) => (
+                      <Badge key={`${chapter.file_id ?? 'chapter'}-${chapter.chapter_title ?? chapter.title ?? index}`} variant="secondary" className="max-w-full truncate">
+                        {chapter.chapter_title ?? chapter.title ?? `Chapter ${index + 1}`}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
-          {/* Upload Materials */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="w-5 h-5" />
-                Upload Study Materials
-              </CardTitle>
-              <CardDescription>Upload notes or slides for AI analysis</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                <div className="border-2 border-dashed border-muted rounded-lg p-6 text-center">
-                  <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground mb-2">
-                    Drag files here or click to browse
-                  </p>
-                  <Button variant="outline" size="sm" onClick={handleFileUpload}>
-                    Select Files
-                  </Button>
-                </div>
-
-                <div className="text-xs text-muted-foreground">
-                  <p>Supported formats: PDF, DOCX, PPT, TXT</p>
-                  <p>Max size: 10MB per file</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* AI Features */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5" />
-                AI Features
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Brain className="h-5 w-5 text-blue-600" />
+                Generate Study Assets
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <Button variant="outline" size="sm" className="w-full justify-start">
-                  <Brain className="w-4 h-4 mr-2" />
-                  Generate Practice Questions
+            <CardContent className="space-y-3">
+              <Textarea
+                value={topic}
+                onChange={(event) => setTopic(event.target.value)}
+                placeholder="Optional topic or chapter focus..."
+                rows={3}
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="outline" onClick={generateSummary} disabled={!selectedGroupId || isGenerating} className="gap-2">
+                  {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  Summary
                 </Button>
-                <Button variant="outline" size="sm" className="w-full justify-start">
-                  <BookOpen className="w-4 h-4 mr-2" />
-                  Create Study Plan
+                <Button variant="outline" onClick={generatePractice} disabled={!selectedGroupId || isGenerating} className="gap-2">
+                  {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
+                  Practice
                 </Button>
-                <Button variant="outline" size="sm" className="w-full justify-start">
-                  <Calculator className="w-4 h-4 mr-2" />
-                  Solve Math Problems
-                </Button>
-                <Button variant="outline" size="sm" className="w-full justify-start">
-                  <MessageSquare className="w-4 h-4 mr-2" />
-                  Explain Concepts
+                <Button variant="outline" onClick={runSemanticSearch} disabled={!selectedGroupId || isSearching} className="col-span-2 gap-2">
+                  {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                  Search materials
                 </Button>
               </div>
+              {searchResults.length > 0 && (
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="font-medium text-slate-900">Relevant Passages</p>
+                    <Badge variant="outline">{searchResults.length}</Badge>
+                  </div>
+                  <ScrollArea className="max-h-72">
+                    <div className="space-y-3">
+                      {searchResults.map((result, index) => (
+                        <div key={`${result.score ?? 0}-${index}`} className="rounded-md bg-slate-50 p-3 text-sm text-slate-700">
+                          <p className="whitespace-pre-wrap leading-relaxed">{result.text || 'No text returned for this passage.'}</p>
+                          {typeof result.score === 'number' && (
+                            <p className="mt-2 text-xs text-slate-500">Score {(result.score * 100).toFixed(1)}%</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </div>
+              )}
+              {generated && (
+                <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="font-medium text-slate-900">{generated.title}</p>
+                    <Badge variant="outline">AI</Badge>
+                  </div>
+                  <ScrollArea className="max-h-80">
+                    <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-slate-700">{generated.body}</pre>
+                  </ScrollArea>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

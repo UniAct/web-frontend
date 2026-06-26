@@ -111,6 +111,18 @@ export default function VerifyRootAccountPage() {
     }
   };
 
+  useEffect(() => {
+    if (status !== 'success' || !universityData?.subdomain) return;
+
+    const timer = window.setTimeout(() => {
+      TenantDetectionService.navigateToTenant(universityData.subdomain);
+    }, 1800);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [status, universityData]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4">
       <Card className="w-full max-w-md shadow-lg">

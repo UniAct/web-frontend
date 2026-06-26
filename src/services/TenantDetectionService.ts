@@ -42,16 +42,20 @@ export class TenantDetectionService {
 
     console.log(`[TenantDetectionService] Hostname: ${hostname}`);
 
-    const tenantSlug = this.extractSubdomain(hostname);
+    const localTenantSlug = this.extractLocalTenantOverride(hostname);
+    const tenantSlug = localTenantSlug || this.extractSubdomain(hostname);
 
     // Branding is the default local entry point; tenant dev uses named hosts, and superadmin dev uses public.uniact.local.
     const isBranding =
-      hostname === 'uniact.website' ||
-      hostname === 'www.uniact.website' ||
-      hostname === 'uniact.local' ||
-      hostname === 'www.uniact.local' ||
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1';
+      !localTenantSlug &&
+      (
+        hostname === 'uniact.website' ||
+        hostname === 'www.uniact.website' ||
+        hostname === 'uniact.local' ||
+        hostname === 'www.uniact.local' ||
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1'
+      );
 
     const isSuperAdmin =
       hostname === 'public.uniact.local' ||
@@ -113,6 +117,17 @@ export class TenantDetectionService {
     }
 
     return null;
+  }
+
+  private static extractLocalTenantOverride(hostname: string): string | null {
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      return null;
+    }
+
+    const tenantParam = new URLSearchParams(window.location.search).get('tenant');
+    if (!tenantParam) return null;
+
+    return this.buildTenantKey(tenantParam) || null;
   }
 
   static buildTenantKey(identifier: string): string {
@@ -225,7 +240,11 @@ export class TenantDetectionService {
       hostname === 'localhost' ||
       hostname === '127.0.0.1'
     ) {
-      return `${protocol}//${normalizedKey}${port}/`;
+      return `${protocol}//${hostname}${port}/?tenant=${encodeURIComponent(normalizedKey)}`;
+    }
+
+    if (hostname === 'uniact.local' || hostname.endsWith('.uniact.local')) {
+      return `${protocol}//${normalizedKey}.uniact.local${port}/`;
     }
 
     // Production

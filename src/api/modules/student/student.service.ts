@@ -13,13 +13,73 @@ import type {
 } from '../../types';
 
 interface StudentListApiData {
-  students?: StudentRecord[];
+  students?: unknown[];
   pagination?: StudentListResponse['pagination'];
+}
+
+function toNumberOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toNumberOrZero(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toStringValue(value: unknown, fallback = ''): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    return String(value);
+  }
+
+  return fallback;
+}
+
+function normalizeStudentRecord(raw: unknown): StudentRecord {
+  const record = (raw ?? {}) as Record<string, unknown>;
+  const firstName = toStringValue(record.firstName).trim();
+  const lastName = toStringValue(record.lastName).trim();
+  const combinedName = [firstName, lastName].filter(Boolean).join(' ').trim();
+  const fullName = toStringValue(record.fullName).trim() || combinedName || toStringValue(record.username, 'Unknown Student');
+
+  return {
+    id: toNumberOrZero(record.id),
+    username: toStringValue(record.username),
+    firstName,
+    lastName,
+    fullName,
+    email: toStringValue(record.email),
+    phone: toStringValue(record.phone),
+    city: toStringValue(record.city),
+    country: toStringValue(record.country),
+    nationalId: toStringValue(record.nationalId),
+    isVerified: Boolean(record.isVerified),
+    isBlocked: Boolean(record.isBlocked),
+    universityStudentId: toNumberOrZero(record.universityStudentId),
+    status: (toStringValue(record.status, 'New') as StudentRecord['status']),
+    gender: (toStringValue(record.gender, 'M') as StudentRecord['gender']),
+    religion: (toStringValue(record.religion, 'M') as StudentRecord['religion']),
+    cgpa: toNumberOrNull(record.cgpa),
+    enrollmentDate: toStringValue(record.enrollmentDate),
+    programId: toNumberOrZero(record.programId),
+    programName: toStringValue(record.programName),
+    programType: toStringValue(record.programType),
+    programLevelId: toNumberOrZero(record.programLevelId),
+    programLevelName: toStringValue(record.programLevelName, 'Unknown Level'),
+  };
 }
 
 function normalizeListResponse(data?: StudentListApiData): StudentListResponse {
   return {
-    students: data?.students ?? [],
+    students: (data?.students ?? []).map(normalizeStudentRecord),
     pagination: data?.pagination ?? {
       totalCount: 0,
       pageNumber: 1,
