@@ -651,6 +651,25 @@ export default function App() {
     );
   };
 
+  // Routes that don't require authentication
+  if (location.pathname.startsWith('/verify-root-account')) {
+    return (
+      <>
+        <VerifyRootAccountPage />
+        <Toaster />
+      </>
+    );
+  }
+
+  if (location.pathname.startsWith('/verify-staff-account')) {
+    return (
+      <>
+        <VerifyStaffAccountPage />
+        <Toaster />
+      </>
+    );
+  }
+
   const tenantCtx = TenantDetectionService.detectTenant();
   if (tenantCtx.isBranding) {
     return (
@@ -672,25 +691,6 @@ export default function App() {
           console.log('[App] Bootstrap animation sequence complete');
         }}
       />
-    );
-  }
-
-  // Routes that don't require authentication
-  if (location.pathname.startsWith('/verify-root-account')) {
-    return (
-      <>
-        <VerifyRootAccountPage />
-        <Toaster />
-      </>
-    );
-  }
-
-  if (location.pathname.startsWith('/verify-staff-account')) {
-    return (
-      <>
-        <VerifyStaffAccountPage />
-        <Toaster />
-      </>
     );
   }
 

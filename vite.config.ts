@@ -28,7 +28,8 @@ export default defineConfig(({ mode }) => {
         // Allow any host (for development)
         '.local',
         'buc',
-        'cairo_modern'
+        'cairo_modern',
+        'alexu'
       ],
       // Proxy API requests to backend
       proxy: {

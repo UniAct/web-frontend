@@ -1,4 +1,4 @@
-export type { ApiResponse, JSendStatus } from './common';
+export type { ApiResponse, JSendStatus, PaginatedResponse } from './common';
 export type { LoginInput, LoginResponse } from './auth';
 export type { User, StaffAccountCreateInput, StaffAccountUpdateInput, StaffDirectoryEntry } from './user';
 export type {
@@ -8,6 +8,49 @@ export type {
 } from './superadmin';
 export type { University, UniversityCreateInput, PublicTenantProfile, UniversitySettings } from './university';
 export type { Announcement, AnnouncementInput } from './announcement';
+export type {
+  CreateLearningGroupPostInput,
+  LearningGroupAttachment,
+  LearningGroupComment,
+  LearningGroupCourse,
+  LearningGroupDetails,
+  LearningGroupMember,
+  LearningGroupPost,
+  LearningGroupPostPage,
+  LearningGroupPostType,
+  LearningGroupRole,
+  LearningGroupSummary,
+} from './learning-group';
+export type {
+  AiChatRequest,
+  AiChatResponse,
+  AiExamResponse,
+  AiHealth,
+  AiIndexInfo,
+  AiHistoryMessage,
+  AiMindMapResponse,
+  AiProjectChapters,
+  AiProjectFiles,
+  AiSearchResponse,
+  AiSession,
+  AiSessionHistory,
+  AiSessionList,
+  AiStudyData,
+  AiStudyFiles,
+  AiSummaryResponse,
+  AiSyncResult,
+} from './ai';
+export type {
+  StudentTranscripts,
+  TranscriptBatchGenerationSummary,
+  TranscriptCourse,
+  TranscriptGenerationJob,
+  TranscriptGenerationJobResult,
+  TranscriptGenerationJobResultItem,
+  TranscriptGenerationJobStatus,
+  TranscriptRecord,
+  TranscriptSemesterInfo,
+} from './transcript';
 export type { Faculty, FacultyCreateInput, FacultyUpdateInput } from './faculty';
 export type {
   Program,

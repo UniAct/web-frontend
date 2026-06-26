@@ -10,6 +10,9 @@ import { studentApi } from './modules/student/student.api';
 import { universityApi } from './modules/university/university.api';
 import { userApi } from './modules/user/user.api';
 import { announcementApi } from './modules/announcement/announcement.api';
+import { aiApi } from './modules/ai/ai.api';
+import { learningGroupApi } from './modules/learning-group/learning-group.api';
+import { transcriptApi } from './modules/transcript/transcript.api';
 
 export const apiClient = {
   ...authApi,
@@ -23,6 +26,9 @@ export const apiClient = {
   ...programApi,
   ...rbacApi,
   ...announcementApi,
+  ai: aiApi,
+  learningGroups: learningGroupApi,
+  transcripts: transcriptApi,
   validateCurrentTenant: () => httpClient.validateCurrentTenant(),
   getCurrentPublicTenantProfile: () => httpClient.getCurrentTenantProfile(),
   isSuperAdmin: () => httpClient.isSuperAdmin(),
@@ -49,5 +55,12 @@ export type {
   UniversitySettings,
   Announcement,
   AnnouncementInput,
+  LearningGroupSummary,
+  LearningGroupDetails,
+  LearningGroupPost,
+  LearningGroupPostType,
+  AiChatResponse,
+  AiSyncResult,
+  StudentTranscripts,
   User,
 } from './types/index';

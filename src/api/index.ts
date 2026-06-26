@@ -13,6 +13,9 @@ export { StudentService } from './modules/student/student.service';
 export { ScheduleService } from './modules/Schedule/schedule.service';
 export { EnrollmentService } from './modules/enrollment/enrollment.service';
 export { AnnouncementService } from './modules/announcement/announcement.service';
+export { AiService } from './modules/ai/ai.service';
+export { LearningGroupService } from './modules/learning-group/learning-group.service';
+export { TranscriptService } from './modules/transcript/transcript.service';
 
 export { apiClient } from './client';
 
@@ -31,9 +34,21 @@ export type {
   UniversitySettings,
   Announcement,
   AnnouncementInput,
+  LearningGroupSummary,
+  LearningGroupDetails,
+  LearningGroupPost,
+  LearningGroupPostType,
+  AiChatResponse,
+  AiSyncResult,
+  StudentTranscripts,
+  TranscriptRecord,
   Faculty,
   FacultyCreateInput,
   FacultyUpdateInput,
+  TranscriptGenerationJob,
+  TranscriptGenerationJobResult,
+  TranscriptGenerationJobResultItem,
+  TranscriptGenerationJobStatus,
   Program,
   ProgramCreateInput,
   ProgramUpdateInput,
