@@ -139,7 +139,7 @@ function buildStudentGrades(students: CourseStudentGrades[], columns: GradeColum
     const gradeIds: Record<string, number> = {};
 
     columns.forEach((column) => {
-      const record = student.grades.find((grade) => grade.label === column.name);
+      const record = student.grades.find((grade) => grade.assessmentId === column.assessmentId);
       grades[column.id] = record ? record.obtainedMarks : null;
       if (record) gradeIds[column.id] = record.gradeId;
     });
@@ -371,8 +371,7 @@ export function AdminGradesPage({ user, selectedUniversity }: AdminGradesPagePro
     try {
       setIsSaving(true);
       await Promise.all(updates.map((item) => CourseService.updateStudentGrade(item.gradeId, { marks: item.marks })));
-      setInitialData(JSON.stringify(studentGrades));
-      setHasChanges(false);
+      await loadCourseGrades(Number(selectedCourse), { quiet: true });
       toast.success(`Saved ${updates.length} grade update${updates.length === 1 ? "" : "s"}`);
     } catch (error) {
       console.error("Failed to save grades:", error);

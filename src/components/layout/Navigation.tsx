@@ -91,10 +91,10 @@ export function Navigation({ user, currentPage, onNavigate, onLogout, tenantProf
     if (user.role === 'faculty') {
       return [
         ...baseItems,
-        { id: 'courses', label: 'My Courses', icon: BookOpen },
+        // { id: 'courses', label: 'My Courses', icon: BookOpen },
         { id: 'attendance', label: 'Attendance', icon: UserCheck },
         { id: 'grades', label: 'Grades', icon: Award },
-        { id: 'teams', label: 'Manage Teams', icon: Users },
+        // { id: 'teams', label: 'Manage Teams', icon: Users },
         { id: 'groups', label: 'Groups & Rooms', icon: Network },
         { id: 'ai-assistant', label: 'AI Assistant', icon: Bot },
         { id: 'analytics', label: 'Analytics', icon: BarChart3 },
