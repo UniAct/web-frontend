@@ -12,6 +12,7 @@ export { RBACService } from './modules/rbac/rbac.service';
 export { StudentService } from './modules/student/student.service';
 export { ScheduleService } from './modules/Schedule/schedule.service';
 export { EnrollmentService } from './modules/enrollment/enrollment.service';
+export { EnrollmentWindowService } from './modules/enrollment-window/enrollment-window.service';
 export { AnnouncementService } from './modules/announcement/announcement.service';
 export { AiService } from './modules/ai/ai.service';
 export { LearningGroupService } from './modules/learning-group/learning-group.service';
