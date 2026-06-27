@@ -3,6 +3,9 @@ import type {
   StaffAccountCreateInput,
   StaffAccountUpdateInput,
   StaffDirectoryEntry,
+  CurrentUserProfile,
+  CurrentUserProfileUpdateInput,
+  ChangePasswordInput,
 } from '../../types';
 
 interface RawStaffRecord {
@@ -105,6 +108,25 @@ export const UserService = {
     const res = await userApi.deleteStaffAccount(id);
     if (res.status !== 'success') {
       throw new Error(res.message || 'Failed to delete staff account');
+    }
+  },
+
+  async getCurrentUserProfile(): Promise<CurrentUserProfile> {
+    const res = await userApi.getCurrentUserProfile();
+    if (!res.data) throw new Error(res.message || 'Failed to load profile');
+    return res.data;
+  },
+
+  async updateCurrentUserProfile(data: CurrentUserProfileUpdateInput): Promise<CurrentUserProfile> {
+    const res = await userApi.updateCurrentUserProfile(data);
+    if (!res.data) throw new Error(res.message || 'Failed to update profile');
+    return res.data;
+  },
+
+  async changeCurrentUserPassword(data: ChangePasswordInput): Promise<void> {
+    const res = await userApi.changeCurrentUserPassword(data);
+    if (res.status !== 'success') {
+      throw new Error(res.message || 'Failed to change password');
     }
   },
 };

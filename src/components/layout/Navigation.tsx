@@ -80,11 +80,11 @@ export function Navigation({ user, currentPage, onNavigate, onLogout, tenantProf
         { id: 'academic-registration', label: 'Academic Registration', icon: FileUp },
         { id: 'timetable', label: 'Timetable', icon: Calendar },
         { id: 'attendance', label: 'Attendance', icon: UserCheck },
-        { id: 'teams', label: 'Project Teams', icon: Users },
+        // { id: 'teams', label: 'Project Teams', icon: Users },
         { id: 'groups', label: 'Groups & Rooms', icon: Network },
         { id: 'ai-assistant', label: 'AI Assistant', icon: Bot },
         { id: 'alumni-hub', label: 'Alumni Hub', icon: GraduationCap },
-        { id: 'career-board', label: 'Career Board', icon: Briefcase },
+        // { id: 'career-board', label: 'Career Board', icon: Briefcase },
       ];
     }
 
@@ -97,7 +97,7 @@ export function Navigation({ user, currentPage, onNavigate, onLogout, tenantProf
         // { id: 'teams', label: 'Manage Teams', icon: Users },
         { id: 'groups', label: 'Groups & Rooms', icon: Network },
         { id: 'ai-assistant', label: 'AI Assistant', icon: Bot },
-        { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+        // { id: 'analytics', label: 'Analytics', icon: BarChart3 },
       ];
     }
 

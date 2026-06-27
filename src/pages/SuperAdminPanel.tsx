@@ -98,7 +98,7 @@ const navigationItems = [
   { id: 'attendance', label: 'Attendance', icon: ClipboardCheck, description: 'Track student attendance' },
   { id: 'grades', label: 'Grades', icon: Award, description: 'Manage student grades' },
   { id: 'announcements', label: 'Announcements', icon: Bell, description: 'Events & attendance' },
-  { id: 'audit', label: 'Audit Logs', icon: Clock, description: 'System activity' },
+  // { id: 'audit', label: 'Audit Logs', icon: Clock, description: 'System activity' },
   { id: 'settings', label: 'Settings', icon: Settings, description: 'System configuration' }
 ] as const;
 
@@ -526,12 +526,12 @@ export function SuperAdminPanel({ user, onLogout, tenantProfile: tenantProfilePr
   const currentSemesterLabel = tenantBootstrapStatus === 'loading'
     ? 'Preparing tenant...'
     : semesterLoading
-    ? 'Loading semesters...'
-    : activeSemester
-      ? `${activeSemester.year} | Semester ${activeSemester.term}`
-      : semesterLoadStatus === 'success'
-        ? 'No semesters yet'
-        : 'Preparing semesters...';
+      ? 'Loading semesters...'
+      : activeSemester
+        ? `${activeSemester.year} | Semester ${activeSemester.term}`
+        : semesterLoadStatus === 'success'
+          ? 'No semesters yet'
+          : 'Preparing semesters...';
 
   // Filter navigation items based on role
   const filteredNavigationItems = navigationItems.filter(item => {

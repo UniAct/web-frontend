@@ -18,7 +18,7 @@ import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { AttendanceService } from '../../api/modules/attendance/attendance.service';
 import type { User as AppUser } from '../../App';
-import type { AttendanceCourseSummary, StaffAttendanceCourse } from '../../api/types';
+import type { AttendanceCourseSummary, AttendanceSessionRecord, StaffAttendanceCourse } from '../../api/types';
 import { useResolvedSemester } from '../../hooks/useResolvedSemester';
 
 interface AdminAttendancePageProps {
@@ -100,6 +100,30 @@ function toAttendanceStatus(status: string): Student['attendanceStatus'] {
   if (status === 'Present') return 'present';
   if (status === 'Late') return 'late';
   return 'absent';
+}
+
+function withSubmittedAttendanceStatus(students: Student[]): Student[] {
+  return students.map((student) => ({
+    ...student,
+    attendanceStatus: student.isPresent ? 'present' : 'absent',
+  }));
+}
+
+function withSavedAttendanceStatus(students: Student[], records: AttendanceSessionRecord[]): Student[] {
+  if (records.length === 0) return withSubmittedAttendanceStatus(students);
+
+  const savedStatusByStudentId = new Map(
+    records.map((record) => [record.studentId, toAttendanceStatus(record.status)]),
+  );
+
+  return students.map((student) => {
+    const attendanceStatus = savedStatusByStudentId.get(student.studentId) ?? (student.isPresent ? 'present' : 'absent');
+    return {
+      ...student,
+      attendanceStatus,
+      isPresent: attendanceStatus === 'present' || attendanceStatus === 'late',
+    };
+  });
 }
 
 export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendancePageProps) {
@@ -221,10 +245,11 @@ export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendanc
             toAttendanceStatus(record.status),
           ]),
         );
+        const defaultStatus: Student['attendanceStatus'] = existingSession ? 'absent' : null;
 
         const formattedStudents: Student[] = enrolled.map(e => ({
           ...(() => {
-            const attendanceStatus = attendanceByStudentId.get(e.studentId) ?? null;
+            const attendanceStatus = attendanceByStudentId.get(e.studentId) ?? defaultStatus;
             return {
               attendanceStatus,
               isPresent: attendanceStatus === 'present' || attendanceStatus === 'late',
@@ -356,7 +381,7 @@ export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendanc
       }
 
       // Save attendances
-      await AttendanceService.saveAttendances(sessionId, {
+      const savedRecords = await AttendanceService.saveAttendances(sessionId, {
         attendanceSessionId: sessionId,
         records: students.map((student) => ({
           studentId: student.studentId,
@@ -364,8 +389,10 @@ export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendanc
         })),
       });
 
-      // Update initial state to current state
-      setInitialStudents([...students]);
+      // Update state to the exact statuses saved by the backend, including mixed absences.
+      const savedStudents = withSavedAttendanceStatus(students, savedRecords);
+      setStudents(savedStudents);
+      setInitialStudents(savedStudents);
       setHasChanges(false);
 
       toast.success(`Attendance saved successfully! ${modifiedRecords.length} record(s) updated.`);
