@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import {
@@ -7,7 +7,8 @@ import {
 } from 'lucide-react';
 import type { User as AppUser } from '../App';
 import { toast } from 'sonner';
-import { ProgramService, ScheduleService, EnrollmentService, type ScheduleSlot } from '../api';
+import { ProgramService, ScheduleService, EnrollmentService, apiClient, type ScheduleSlot } from '../api';
+import { ENROLLMENT_WS_URL } from '../api/core/constants';
 
 interface AcademicRegistrationPageProps {
   user: AppUser;
@@ -165,6 +166,8 @@ const daysOfWeek = ['Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thu
 const MAX_CREDIT_HOURS = 21;
 const ENROLLMENT_POLL_DELAY_MS = 1500;
 const ENROLLMENT_MAX_POLLS = 40;
+const ENROLLMENT_WS_PATH = '/ws/enrollment';
+const ENROLLMENT_WS_RECONNECT_MS = 3000;
 
 // Timetable column dims (px)
 const SLOT_W = 82;
@@ -303,6 +306,32 @@ function isKnownScheduleLoadSyncError(error: unknown): boolean {
   return error.message.includes('coursePrerequisitesFor') || error.message.includes('scheduleSlotContext.findMany()');
 }
 
+function buildEnrollmentWebSocketUrl(token: string): string {
+  const configuredUrl = ENROLLMENT_WS_URL?.trim();
+  const baseUrl = configuredUrl || apiClient.getApiBaseUrl();
+  const url = new URL(configuredUrl ? baseUrl : ENROLLMENT_WS_PATH, configuredUrl ? undefined : baseUrl);
+
+  if (url.protocol === 'http:') {
+    url.protocol = 'ws:';
+  } else if (url.protocol === 'https:') {
+    url.protocol = 'wss:';
+  }
+
+  url.searchParams.set('access_token', token);
+  return url.toString();
+}
+
+function isSeatUpdateMessage(value: unknown): value is { type: 'seat_update'; slotId: number; remainingSeats: number } {
+  if (!value || typeof value !== 'object') return false;
+
+  const candidate = value as { type?: unknown; slotId?: unknown; remainingSeats?: unknown };
+  return (
+    candidate.type === 'seat_update' &&
+    typeof candidate.slotId === 'number' &&
+    typeof candidate.remainingSeats === 'number'
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps) {
   const [selectedLevel, setSelectedLevel] = useState(() =>
@@ -329,6 +358,21 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
 
   // Split-screen threshold: 900px viewport (avoids lg=1024px issue in sidebar layouts)
   const isSplit = vpWidth >= 900;
+  const enrollmentSlotKey = useMemo(() => {
+    const slotIds = courses.flatMap((course) =>
+      course.sessions.map((session) => getPhysicalSlotId(session)),
+    );
+
+    return Array.from(new Set(slotIds)).sort((a, b) => a - b).join(',');
+  }, [courses]);
+  const enrollmentSessionKey = useMemo(() => {
+    return courses
+      .flatMap((course) =>
+        course.sessions.map((session) => `${getPhysicalSlotId(session)}:${session.sessionId}`),
+      )
+      .sort()
+      .join('|');
+  }, [courses]);
 
   useEffect(() => {
     if (user.role !== 'student') return;
@@ -438,6 +482,97 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
   }, [isLevelResolved, selectedLevel, user.role, user.programId, user.currentSemesterId]);
 
   // ── Business logic (all preserved) ────────────────────────────────────────
+  useEffect(() => {
+    if (user.role !== 'student' || !enrollmentSlotKey) return;
+    if (typeof WebSocket === 'undefined') return;
+
+    const token = apiClient.getTokenValue();
+    if (!token) return;
+
+    const slotIds = enrollmentSlotKey.split(',').map(Number);
+    const slotSessionPairs = enrollmentSessionKey
+      .split('|')
+      .filter(Boolean)
+      .map((entry) => {
+        const separatorIndex = entry.indexOf(':');
+        return {
+          slotId: Number(entry.slice(0, separatorIndex)),
+          sessionId: entry.slice(separatorIndex + 1),
+        };
+      });
+    let socket: WebSocket | undefined;
+    let reconnectTimer: number | undefined;
+    let stopped = false;
+
+    const scheduleReconnect = () => {
+      if (stopped) return;
+      reconnectTimer = window.setTimeout(connect, ENROLLMENT_WS_RECONNECT_MS);
+    };
+
+    const connect = () => {
+      if (stopped) return;
+
+      socket = new WebSocket(buildEnrollmentWebSocketUrl(token));
+
+      socket.onopen = () => {
+        socket?.send(JSON.stringify({ slotIds }));
+      };
+
+      socket.onmessage = (event) => {
+        let parsed: unknown;
+
+        try {
+          parsed = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+
+        if (!isSeatUpdateMessage(parsed)) return;
+
+        const remainingSeats = Math.max(parsed.remainingSeats, 0);
+
+        setSessionSeats((currentSeats) => {
+          const nextSeats = { ...currentSeats };
+          slotSessionPairs.forEach((pair) => {
+            if (pair.slotId === parsed.slotId) {
+              nextSeats[pair.sessionId] = remainingSeats;
+            }
+          });
+          return nextSeats;
+        });
+
+        setCourses((currentCourses) =>
+          currentCourses.map((course) => ({
+            ...course,
+            sessions: course.sessions.map((session) =>
+              getPhysicalSlotId(session) === parsed.slotId
+                ? {
+                    ...session,
+                    availableSeats: remainingSeats,
+                    rawSlot: {
+                      ...session.rawSlot,
+                      enrolledSeats: Math.max((session.rawSlot.allowedCapacity ?? 0) - remainingSeats, 0),
+                    },
+                  }
+                : session,
+            ),
+          })),
+        );
+      };
+
+      socket.onclose = scheduleReconnect;
+      socket.onerror = () => socket?.close();
+    };
+
+    connect();
+
+    return () => {
+      stopped = true;
+      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+      socket?.close();
+    };
+  }, [user.role, enrollmentSlotKey, enrollmentSessionKey]);
+
   const isSessionAdded = (sessionId: string) =>
     selectedSessions.some(s => s.sessionId === sessionId);
 
