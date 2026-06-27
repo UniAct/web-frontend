@@ -41,6 +41,7 @@ import type {
   CourseAssessment,
   CourseAssessmentType,
   CourseStudentGrades,
+  StaffAttendanceCourse,
 } from "../../api/types";
 import { useResolvedSemester } from "../../hooks/useResolvedSemester";
 
@@ -117,6 +118,21 @@ function buildCourseOptions(options: AttendanceCourseSummary[]): CourseOption[] 
     .sort((left, right) => left.label.localeCompare(right.label));
 }
 
+function buildStaffCourseOptions(options: StaffAttendanceCourse[]): CourseOption[] {
+  return options
+    .map((item) => ({
+      value: String(item.courseId),
+      courseId: item.courseId,
+      label: `${item.courseCode} - ${item.courseName}`,
+      description: item.description?.trim() || `${item.courseCredits} credit hours`,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function canUseStaffScopedCourses(user: AppUser): boolean {
+  return user.role === "faculty";
+}
+
 function buildStudentGrades(students: CourseStudentGrades[], columns: GradeColumn[]): StudentGrade[] {
   return students.map((student) => {
     const grades: Record<string, number | null> = {};
@@ -185,8 +201,10 @@ export function AdminGradesPage({ user, selectedUniversity }: AdminGradesPagePro
 
       try {
         setIsLoadingCourses(true);
-        const options = await AttendanceService.getCourseSummaries({ semesterId: activeSemesterId });
-        setCourses(buildCourseOptions(options));
+        const nextCourses = canUseStaffScopedCourses(user)
+          ? buildStaffCourseOptions(await AttendanceService.getStaffCourses(Number(user.id)))
+          : buildCourseOptions(await AttendanceService.getCourseSummaries({ semesterId: activeSemesterId }));
+        setCourses(nextCourses);
       } catch (error) {
         console.error("Failed to load grade courses:", error);
         toast.error("Failed to load courses");
@@ -196,7 +214,7 @@ export function AdminGradesPage({ user, selectedUniversity }: AdminGradesPagePro
     };
 
     void fetchCourses();
-  }, [activeSemesterId, isResolvingSemester]);
+  }, [activeSemesterId, isResolvingSemester, user]);
 
   useEffect(() => {
     if (!selectedCourse || !courses.some((course) => course.value === selectedCourse)) {

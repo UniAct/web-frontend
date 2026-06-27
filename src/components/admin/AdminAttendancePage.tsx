@@ -17,7 +17,7 @@ import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { AttendanceService } from '../../api/modules/attendance/attendance.service';
 import type { User as AppUser } from '../../App';
-import type { AttendanceCourseSummary } from '../../api/types';
+import type { AttendanceCourseSummary, StaffAttendanceCourse } from '../../api/types';
 import { useResolvedSemester } from '../../hooks/useResolvedSemester';
 
 interface AdminAttendancePageProps {
@@ -79,6 +79,21 @@ function buildCourseOptions(options: AttendanceCourseSummary[]): CourseOption[] 
     .sort((left, right) => left.label.localeCompare(right.label));
 }
 
+function buildStaffCourseOptions(options: StaffAttendanceCourse[]): CourseOption[] {
+  return options
+    .map((item) => ({
+      value: String(item.courseId),
+      courseId: item.courseId,
+      label: `${item.courseCode} - ${item.courseName}`,
+      description: item.description?.trim() || `${item.courseCredits} credit hours`,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function canUseStaffScopedCourses(user: AppUser): boolean {
+  return user.role === 'faculty';
+}
+
 export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendancePageProps) {
   const [selectedCourse, setSelectedCourse] = useState('');
   const [selectedSection, setSelectedSection] = useState('');
@@ -115,9 +130,9 @@ export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendanc
 
         setIsLoading(true);
 
-        const nextCourses = buildCourseOptions(
-          await AttendanceService.getCourseSummaries({ semesterId: activeSemesterId }),
-        );
+        const nextCourses = canUseStaffScopedCourses(user)
+          ? buildStaffCourseOptions(await AttendanceService.getStaffCourses(Number(user.id)))
+          : buildCourseOptions(await AttendanceService.getCourseSummaries({ semesterId: activeSemesterId }));
 
         setCourses(nextCourses);
         setSections([]);
@@ -131,7 +146,7 @@ export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendanc
     };
 
     void fetchCourses();
-  }, [activeSemesterId, isResolvingSemester]);
+  }, [activeSemesterId, isResolvingSemester, user]);
 
   useEffect(() => {
     const fetchSections = async () => {
