@@ -310,14 +310,14 @@ const toIsoFromDateTimeLocal = (value: string) => {
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 };
 
-const makeDefaultEnrollmentWindowForm = () => {
+const makeDefaultEnrollmentWindowForm = (name = "Student registration window") => {
   const now = new Date();
   now.setMinutes(0, 0, 0);
   const end = new Date(now);
   end.setDate(end.getDate() + 7);
 
   return {
-    name: "Student registration window",
+    name,
     startTime: toDateTimeLocalValue(now),
     endTime: toDateTimeLocalValue(end),
     isActive: true,
@@ -664,10 +664,15 @@ export function RoomsTimetablingPage({
     return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
   }, [selLevel]);
 
+  const selectedWindowDefaultName = useMemo(() => {
+    if (!selProgram || !selLevel) return "Student registration window";
+    return `${selProgram.name} ${levelLabel(selLevel.level)} registration`;
+  }, [selProgram, selLevel]);
+
   useEffect(() => {
     if (!selectedUniversity || !selFacultyId || !selProgramId || !selectedProgramLevelId || !activeSemesterId) {
       setEnrollmentWindow(null);
-      setEnrollmentWindowForm(makeDefaultEnrollmentWindowForm());
+      setEnrollmentWindowForm(makeDefaultEnrollmentWindowForm(selectedWindowDefaultName));
       return;
     }
 
@@ -688,13 +693,13 @@ export function RoomsTimetablingPage({
         setEnrollmentWindow(result);
         if (result) {
           setEnrollmentWindowForm({
-            name: result.name ?? "Student registration window",
+            name: result.name ?? selectedWindowDefaultName,
             startTime: toDateTimeLocalValue(result.startTime),
             endTime: toDateTimeLocalValue(result.endTime),
             isActive: result.isActive,
           });
         } else {
-          setEnrollmentWindowForm(makeDefaultEnrollmentWindowForm());
+          setEnrollmentWindowForm(makeDefaultEnrollmentWindowForm(selectedWindowDefaultName));
         }
       } catch (error: any) {
         if (isMounted) {
@@ -711,7 +716,7 @@ export function RoomsTimetablingPage({
     return () => {
       isMounted = false;
     };
-  }, [selectedUniversity, selFacultyId, selProgramId, selectedProgramLevelId, activeSemesterId]);
+  }, [selectedUniversity, selFacultyId, selProgramId, selectedProgramLevelId, activeSemesterId, selectedWindowDefaultName]);
 
   const courseOptions = useMemo(
     () =>
@@ -1640,7 +1645,9 @@ export function RoomsTimetablingPage({
                 )}
               </CardTitle>
               <CardDescription className="mt-1 text-xs">
-                Controls when students can open registration for the selected faculty, program, level, and semester.
+                {canConfigureEnrollmentWindow && selFaculty && selProgram && selLevel
+                  ? `Controls registration for ${selFaculty.name} / ${selProgram.name} / ${levelLabel(selLevel.level)}.`
+                  : "Controls when students can open registration for the selected faculty, program, level, and semester."}
               </CardDescription>
             </div>
             <Button

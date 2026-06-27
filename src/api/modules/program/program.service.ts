@@ -29,13 +29,28 @@ interface RawProgram {
   programLevels?: Array<{
     id: number;
     level: number;
-    minCredits: number;
-    maxCredits: number;
+    minCredits?: number;
+    maxCredits?: number;
     fees?: Array<{
       id: number;
       feeType: ProgramFee['feeType'];
       semesterId?: number | null;
       semester?: { number?: number } | null;
+      amount: number | string;
+      description?: string | null;
+    }>;
+  }>;
+  levels?: Array<{
+    id?: number;
+    level: number;
+    minCredits?: number;
+    maxCredits?: number;
+    fees?: Array<{
+      id: number;
+      feeType: ProgramFee['feeType'];
+      semesterId?: number | null;
+      semester?: { number?: number } | null;
+      semesterNumber?: number | null;
       amount: number | string;
       description?: string | null;
     }>;
@@ -71,17 +86,17 @@ function toNumber(value: number | string | undefined | null): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function mapProgramLevel(raw: NonNullable<RawProgram['programLevels']>[number]): ProgramLevel {
+function mapProgramLevel(raw: NonNullable<RawProgram['programLevels']>[number] | NonNullable<RawProgram['levels']>[number]): ProgramLevel {
   return {
-    id: raw.id,
+    id: toNumber(raw.id),
     level: raw.level,
-    minCredits: raw.minCredits,
-    maxCredits: raw.maxCredits,
+    minCredits: raw.minCredits ?? 0,
+    maxCredits: raw.maxCredits ?? 0,
     fees: (raw.fees ?? []).map((fee) => ({
       id: fee.id,
       feeType: fee.feeType,
       semesterId: fee.semesterId ?? undefined,
-      semesterNumber: fee.semester?.number ?? undefined,
+      semesterNumber: fee.semesterNumber ?? fee.semester?.number ?? undefined,
       amount: toNumber(fee.amount),
       description: fee.description ?? undefined,
     })),
@@ -125,6 +140,8 @@ function mapAcademicLoadGPA(raw: NonNullable<RawProgram['academicLoadGPAs']>[num
 }
 
 function mapProgram(raw: RawProgram): Program {
+  const rawLevels = raw.programLevels ?? raw.levels ?? [];
+
   return {
     id: raw.id,
     name: raw.name,
@@ -138,8 +155,8 @@ function mapProgram(raw: RawProgram): Program {
     programType: raw.programType,
     resultDisplay: raw.resultDisplay ?? 'CourseGrade',
     blockReason: raw.blockReason ?? undefined,
-    levelsNumber: raw.programLevels?.length ?? 0,
-    levels: (raw.programLevels ?? []).map(mapProgramLevel),
+    levelsNumber: rawLevels.length,
+    levels: rawLevels.map(mapProgramLevel).filter((level) => level.level > 0),
     transcriptDefinition: (raw.programTranscriptDefs ?? []).map(mapTranscriptDefinition),
     academicLoadSemester: (raw.academicLoadSemesters ?? []).map(mapAcademicLoadSemester),
     academicLoadGPA: (raw.academicLoadGPAs ?? []).map(mapAcademicLoadGPA),
