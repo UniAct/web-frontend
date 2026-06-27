@@ -53,7 +53,58 @@ export interface UniversityAnalyticsSummary {
   students: number;
   staff: number;
   admins: number;
-  activeTeams: number;
+  faculties: number;
+  programs: number;
+  courses: number;
+  classrooms: number;
+  learningGroups: number;
+  activeRegistrations: number;
+  attendanceSessions: number;
+}
+
+export interface UniversityAnalyticsResources {
+  classrooms: number;
+  totalCapacity: number;
+  maintenanceClassrooms: number;
+}
+
+export interface UniversityAnalyticsCommunications {
+  announcements: number;
+  events: number;
+}
+
+export interface UniversityAnalyticsAttendanceWindow {
+  present: number;
+  absent: number;
+  late: number;
+  excused: number;
+  medical: number;
+  total: number;
+  attendanceRate: number;
+}
+
+export interface UniversityAnalyticsAttendance {
+  last30Days: UniversityAnalyticsAttendanceWindow;
+}
+
+export interface UniversityAnalyticsFacultyBreakdown {
+  id: number;
+  name: string;
+  programs: number;
+  students: number;
+  staff: number;
+  courses: number;
+}
+
+export interface UniversityAnalyticsProgramBreakdown {
+  id: number;
+  name: string;
+  facultyName: string;
+  programType: string;
+  students: number;
+  levels: number;
+  courses: number;
+  averageCgpa: number;
 }
 
 export interface UniversityAnalyticsAbsenceLevel {
@@ -80,6 +131,11 @@ export interface UniversityAnalyticsItem {
 
 export interface UniversityAnalytics {
   summary: UniversityAnalyticsSummary;
+  resources: UniversityAnalyticsResources;
+  communications: UniversityAnalyticsCommunications;
+  attendance: UniversityAnalyticsAttendance;
+  facultyBreakdown: UniversityAnalyticsFacultyBreakdown[];
+  programBreakdown: UniversityAnalyticsProgramBreakdown[];
   todayAbsences: UniversityAnalyticsProgramAbsence[];
   upcomingItems: UniversityAnalyticsItem[];
   generatedAt: string;

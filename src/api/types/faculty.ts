@@ -5,6 +5,21 @@ export interface Faculty {
   universityId: number;
   deanId?: number;
   establishedDate?: string;
+  regulations?: FacultyRegulation[];
+}
+
+export interface FacultyRegulation {
+  id?: number;
+  name: string;
+  roundToWholeNumber: boolean;
+  approximateFractions: boolean;
+  maxAbsence: number;
+  minGradeExcellent: number;
+  minGradeVeryGood: number;
+  minGradeGood: number;
+  minGradeAcceptable: number;
+  minGradeVeryWeak: number;
+  enableMercyRules: boolean;
 }
 
 export interface FacultyCreateInput {
@@ -13,6 +28,7 @@ export interface FacultyCreateInput {
   description?: string;
   deanId?: number;
   establishedDate?: string;
+  regulations: FacultyRegulation[];
 }
 
 export interface FacultyUpdateInput {
@@ -21,4 +37,5 @@ export interface FacultyUpdateInput {
   description?: string;
   deanId?: number;
   establishedDate?: string;
+  regulations?: FacultyRegulation[];
 }

@@ -33,6 +33,7 @@ import {
   type CourseType,
   type Faculty,
   type FacultyCreateInput,
+  type FacultyRegulation,
   type FeeType,
   type Program,
   type ProgramCreateInput,
@@ -54,6 +55,23 @@ interface FacultyFormState {
   name: string;
   description: string;
   deanId: string;
+  establishedDate: string;
+  regulations: FacultyRegulationDraft[];
+}
+
+interface FacultyRegulationDraft {
+  id?: number;
+  key: string;
+  name: string;
+  roundToWholeNumber: boolean;
+  approximateFractions: boolean;
+  maxAbsence: number;
+  minGradeExcellent: number;
+  minGradeVeryGood: number;
+  minGradeGood: number;
+  minGradeAcceptable: number;
+  minGradeVeryWeak: number;
+  enableMercyRules: boolean;
 }
 
 interface ProgramFeeDraft extends ProgramFeeInput {
@@ -138,13 +156,38 @@ const programTypeOptions: ProgramType[] = ['Bachelor', 'Master', 'Diploma', 'PhD
 const resultDisplayOptions: ResultDisplayType[] = ['CourseGrade', 'DetailedEstimate'];
 const blockReasonOptions: BlockReasonType[] = ['NonPaymentCurrent', 'NonPaymentOld'];
 const courseTypeOptions: CourseType[] = ['Mandatory', 'Elective', 'Project'];
+const gradeLetterOptions = ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'F'];
+
+const gradeEnumToDisplay: Record<string, string> = {
+  A_PLUS: 'A+',
+  A: 'A',
+  A_MINUS: 'A-',
+  B_PLUS: 'B+',
+  B: 'B',
+  B_MINUS: 'B-',
+  C_PLUS: 'C+',
+  C: 'C',
+  C_MINUS: 'C-',
+  D_PLUS: 'D+',
+  D: 'D',
+  F: 'F',
+};
 
 function newFee(): ProgramFeeDraft {
-  return { key: createKey(), feeType: 'PerCreditHour', amount: 0, description: '' };
+  return { key: createKey(), feeType: 'PerCreditHour', amount: 1, description: '' };
 }
 
 function newLevel(level: number): ProgramLevelDraft {
-  return { key: createKey(), level, minCredits: 12, maxCredits: 18, fees: [newFee()] };
+  return {
+    key: createKey(),
+    level,
+    minCredits: 12,
+    maxCredits: 18,
+    fees: [
+      { ...newFee(), semesterNumber: 1, description: 'Semester 1 fee' },
+      { ...newFee(), semesterNumber: 2, description: 'Semester 2 fee' },
+    ],
+  };
 }
 
 function newSemesterLoad(level: number, semester: number): AcademicLoadSemesterDraft {
@@ -159,6 +202,42 @@ function newSemesterLoad(level: number, semester: number): AcademicLoadSemesterD
 
 function newGpaLoad(): AcademicLoadGPADraft {
   return { key: createKey(), minGPA: 0, maxGPA: 4, minCredits: 12, maxCredits: 18 };
+}
+
+function newRegulation(): FacultyRegulationDraft {
+  return {
+    key: createKey(),
+    name: 'Undergraduate Credit Hour Bylaw',
+    roundToWholeNumber: false,
+    approximateFractions: true,
+    maxAbsence: 15,
+    minGradeExcellent: 85,
+    minGradeVeryGood: 75,
+    minGradeGood: 65,
+    minGradeAcceptable: 50,
+    minGradeVeryWeak: 35,
+    enableMercyRules: false,
+  };
+}
+
+function createFacultyForm(): FacultyFormState {
+  return {
+    name: '',
+    description: '',
+    deanId: '',
+    establishedDate: '',
+    regulations: [newRegulation()],
+  };
+}
+
+function defaultTranscriptDefinitions(): ProgramTranscriptDefinitionDraft[] {
+  return [
+    { key: createKey(), minScore: 85, maxScore: 100, minGPA: 3.6, maxGPA: 4, gradeLetter: 'A', equivalentEstimate: 'Excellent' },
+    { key: createKey(), minScore: 75, maxScore: 84, minGPA: 3, maxGPA: 3.59, gradeLetter: 'B', equivalentEstimate: 'Very Good' },
+    { key: createKey(), minScore: 65, maxScore: 74, minGPA: 2.4, maxGPA: 2.99, gradeLetter: 'C', equivalentEstimate: 'Good' },
+    { key: createKey(), minScore: 50, maxScore: 64, minGPA: 2, maxGPA: 2.39, gradeLetter: 'D', equivalentEstimate: 'Acceptable' },
+    { key: createKey(), minScore: 0, maxScore: 49, minGPA: 0, maxGPA: 1.99, gradeLetter: 'F', equivalentEstimate: 'Fail' },
+  ];
 }
 
 function syncLevels(levelsNumber: number, current?: ProgramLevelDraft[]): ProgramLevelDraft[] {
@@ -193,7 +272,7 @@ function createProgramForm(): ProgramFormState {
     blockReason: 'NonPaymentCurrent',
     levelsNumber: 4,
     levels: syncLevels(4),
-    transcriptDefinition: [],
+    transcriptDefinition: defaultTranscriptDefinitions(),
     academicLoadSemester: syncSemesterLoads(4),
     academicLoadGPA: [newGpaLoad()],
   };
@@ -225,6 +304,33 @@ function truncateText(value: string, maxLength: number): string {
   }
 
   return `${value.slice(0, maxLength - 1)}...`;
+}
+
+function regulationToDraft(regulation: FacultyRegulation): FacultyRegulationDraft {
+  return {
+    id: regulation.id,
+    key: regulation.id ? `regulation-${regulation.id}` : createKey(),
+    name: regulation.name,
+    roundToWholeNumber: regulation.roundToWholeNumber,
+    approximateFractions: regulation.approximateFractions,
+    maxAbsence: regulation.maxAbsence,
+    minGradeExcellent: regulation.minGradeExcellent,
+    minGradeVeryGood: regulation.minGradeVeryGood,
+    minGradeGood: regulation.minGradeGood,
+    minGradeAcceptable: regulation.minGradeAcceptable,
+    minGradeVeryWeak: regulation.minGradeVeryWeak,
+    enableMercyRules: regulation.enableMercyRules,
+  };
+}
+
+function facultyToForm(faculty: Faculty): FacultyFormState {
+  return {
+    name: faculty.name,
+    description: faculty.description ?? '',
+    deanId: faculty.deanId ? String(faculty.deanId) : '',
+    establishedDate: faculty.establishedDate ? faculty.establishedDate.slice(0, 10) : '',
+    regulations: faculty.regulations?.length ? faculty.regulations.map(regulationToDraft) : [newRegulation()],
+  };
 }
 
 function programToForm(program: Program): ProgramFormState {
@@ -261,14 +367,14 @@ function programToForm(program: Program): ProgramFormState {
         })),
       })),
     ),
-    transcriptDefinition: program.transcriptDefinition.map((item) => ({
+      transcriptDefinition: program.transcriptDefinition.map((item) => ({
       id: item.id,
       key: `transcript-${item.id}`,
       minScore: item.minScore,
       maxScore: item.maxScore,
       minGPA: item.minGPA,
       maxGPA: item.maxGPA,
-      gradeLetter: item.gradeLetter,
+      gradeLetter: gradeEnumToDisplay[item.gradeLetter] ?? item.gradeLetter,
       equivalentEstimate: item.equivalentEstimate ?? '',
     })),
     academicLoadSemester: syncSemesterLoads(
@@ -398,7 +504,7 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
 
   const [facultyDialogOpen, setFacultyDialogOpen] = useState(false);
   const [editingFaculty, setEditingFaculty] = useState<Faculty | null>(null);
-  const [facultyForm, setFacultyForm] = useState<FacultyFormState>({ name: '', description: '', deanId: '' });
+  const [facultyForm, setFacultyForm] = useState<FacultyFormState>(createFacultyForm);
 
   const [programDialogOpen, setProgramDialogOpen] = useState(false);
   const [editingProgram, setEditingProgram] = useState<Program | null>(null);
@@ -612,7 +718,7 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
 
   const resetFacultyDialog = () => {
     setEditingFaculty(null);
-    setFacultyForm({ name: '', description: '', deanId: '' });
+    setFacultyForm(createFacultyForm());
   };
 
   const resetProgramDialog = () => {
@@ -639,11 +745,30 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
       return;
     }
 
+    if (facultyForm.regulations.length === 0 || facultyForm.regulations.some((item) => !item.name.trim())) {
+      toast.error('At least one named academic regulation is required');
+      return;
+    }
+
     const payload: FacultyCreateInput = {
       universityId: Number(universityId),
       name: facultyForm.name.trim(),
       description: facultyForm.description.trim() || undefined,
       deanId: facultyForm.deanId ? Number(facultyForm.deanId) : undefined,
+      establishedDate: facultyForm.establishedDate || undefined,
+      regulations: facultyForm.regulations.map((regulation) => ({
+        id: regulation.id,
+        name: regulation.name.trim(),
+        roundToWholeNumber: regulation.roundToWholeNumber,
+        approximateFractions: regulation.approximateFractions,
+        maxAbsence: regulation.maxAbsence,
+        minGradeExcellent: regulation.minGradeExcellent,
+        minGradeVeryGood: regulation.minGradeVeryGood,
+        minGradeGood: regulation.minGradeGood,
+        minGradeAcceptable: regulation.minGradeAcceptable,
+        minGradeVeryWeak: regulation.minGradeVeryWeak,
+        enableMercyRules: regulation.enableMercyRules,
+      })),
     };
 
     try {
@@ -678,6 +803,21 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
 
     if (programForm.transcriptDefinition.some((item) => !item.gradeLetter.trim())) {
       toast.error('Every transcript definition needs a grade letter');
+      return;
+    }
+
+    const invalidLevelFees = programForm.levels.some((level) => {
+      const semesterOneFees = level.fees.filter((fee) => fee.semesterNumber === 1);
+      const semesterTwoFees = level.fees.filter((fee) => fee.semesterNumber === 2);
+      return (
+        semesterOneFees.length === 0 ||
+        semesterTwoFees.length === 0 ||
+        level.fees.some((fee) => fee.amount < 1)
+      );
+    });
+
+    if (invalidLevelFees) {
+      toast.error('Each program level needs semester 1 and semester 2 fees with positive amounts');
       return;
     }
 
@@ -889,7 +1029,7 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
                           <CardDescription className="max-w-full">{faculty.description || 'No description provided'}</CardDescription>
                         </div>
                         <div className="flex shrink-0 gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => { setEditingFaculty(faculty); setFacultyForm({ name: faculty.name, description: faculty.description ?? '', deanId: faculty.deanId ? String(faculty.deanId) : '' }); setFacultyDialogOpen(true); }}><Edit className="h-4 w-4" /></Button>
+                          <Button size="sm" variant="ghost" onClick={() => { setEditingFaculty(faculty); setFacultyForm(facultyToForm(faculty)); setFacultyDialogOpen(true); }}><Edit className="h-4 w-4" /></Button>
                           <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700" onClick={() => void deleteFaculty(faculty)}><Trash2 className="h-4 w-4" /></Button>
                         </div>
                       </div>
@@ -964,15 +1104,55 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
       </Tabs>
 
       <Dialog open={facultyDialogOpen} onOpenChange={(open) => { setFacultyDialogOpen(open); if (!open) resetFacultyDialog(); }}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingFaculty ? 'Edit Faculty' : 'Add Faculty'}</DialogTitle>
-            <DialogDescription>Create or update a faculty and assign its dean.</DialogDescription>
+            <DialogDescription>Create or update a faculty, dean assignment, and academic regulation rules.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div><Label>Faculty Name</Label><Input value={facultyForm.name} onChange={(event) => setFacultyForm((current) => ({ ...current, name: event.target.value }))} /></div>
-            <div><Label>Dean</Label><SearchableSelect value={facultyForm.deanId} onValueChange={(value) => setFacultyForm((current) => ({ ...current, deanId: value }))} options={staffOptions} placeholder="Select dean" searchPlaceholder="Search staff..." emptyMessage="No staff found" /></div>
-            <div><Label>Description</Label><Textarea rows={4} value={facultyForm.description} onChange={(event) => setFacultyForm((current) => ({ ...current, description: event.target.value }))} /></div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div><Label>Faculty Name</Label><Input value={facultyForm.name} onChange={(event) => setFacultyForm((current) => ({ ...current, name: event.target.value }))} /></div>
+              <div><Label>Dean</Label><SearchableSelect value={facultyForm.deanId} onValueChange={(value) => setFacultyForm((current) => ({ ...current, deanId: value }))} options={staffOptions} placeholder="Select dean" searchPlaceholder="Search staff..." emptyMessage="No staff found" /></div>
+              <div><Label>Established Date</Label><Input type="date" value={facultyForm.establishedDate} onChange={(event) => setFacultyForm((current) => ({ ...current, establishedDate: event.target.value }))} /></div>
+              <div className="md:col-span-2"><Label>Description</Label><Textarea rows={4} value={facultyForm.description} onChange={(event) => setFacultyForm((current) => ({ ...current, description: event.target.value }))} /></div>
+            </div>
+
+            <section className="space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-semibold">Academic Regulations</h3>
+                  <p className="text-sm text-slate-500">Grade thresholds, absence limits, and rounding behavior for this faculty.</p>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => setFacultyForm((current) => ({ ...current, regulations: [...current.regulations, newRegulation()] }))}><Plus className="mr-2 h-4 w-4" />Add Regulation</Button>
+              </div>
+
+              {facultyForm.regulations.map((regulation) => (
+                <Card key={regulation.key}>
+                  <CardContent className="space-y-4 p-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="md:col-span-2"><Label>Regulation Name</Label><Input value={regulation.name} onChange={(event) => setFacultyForm((current) => ({ ...current, regulations: current.regulations.map((item) => item.key === regulation.key ? { ...item, name: event.target.value } : item) }))} /></div>
+                      <div><Label>Max Absence</Label><Input type="number" min="0" value={regulation.maxAbsence} onChange={(event) => setFacultyForm((current) => ({ ...current, regulations: current.regulations.map((item) => item.key === regulation.key ? { ...item, maxAbsence: Number(event.target.value) || 0 } : item) }))} /></div>
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <label className="flex items-center gap-2 rounded-md border px-3 py-2"><Checkbox checked={regulation.roundToWholeNumber} onCheckedChange={(checked) => setFacultyForm((current) => ({ ...current, regulations: current.regulations.map((item) => item.key === regulation.key ? { ...item, roundToWholeNumber: checked === true } : item) }))} /><span className="text-sm">Round grades</span></label>
+                        <label className="flex items-center gap-2 rounded-md border px-3 py-2"><Checkbox checked={regulation.approximateFractions} onCheckedChange={(checked) => setFacultyForm((current) => ({ ...current, regulations: current.regulations.map((item) => item.key === regulation.key ? { ...item, approximateFractions: checked === true } : item) }))} /><span className="text-sm">Approximate</span></label>
+                        <label className="flex items-center gap-2 rounded-md border px-3 py-2"><Checkbox checked={regulation.enableMercyRules} onCheckedChange={(checked) => setFacultyForm((current) => ({ ...current, regulations: current.regulations.map((item) => item.key === regulation.key ? { ...item, enableMercyRules: checked === true } : item) }))} /><span className="text-sm">Mercy rules</span></label>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-5">
+                      <div><Label>Excellent</Label><Input type="number" min="0" step="0.01" value={regulation.minGradeExcellent} onChange={(event) => setFacultyForm((current) => ({ ...current, regulations: current.regulations.map((item) => item.key === regulation.key ? { ...item, minGradeExcellent: Number(event.target.value) || 0 } : item) }))} /></div>
+                      <div><Label>Very Good</Label><Input type="number" min="0" step="0.01" value={regulation.minGradeVeryGood} onChange={(event) => setFacultyForm((current) => ({ ...current, regulations: current.regulations.map((item) => item.key === regulation.key ? { ...item, minGradeVeryGood: Number(event.target.value) || 0 } : item) }))} /></div>
+                      <div><Label>Good</Label><Input type="number" min="0" step="0.01" value={regulation.minGradeGood} onChange={(event) => setFacultyForm((current) => ({ ...current, regulations: current.regulations.map((item) => item.key === regulation.key ? { ...item, minGradeGood: Number(event.target.value) || 0 } : item) }))} /></div>
+                      <div><Label>Acceptable</Label><Input type="number" min="0" step="0.01" value={regulation.minGradeAcceptable} onChange={(event) => setFacultyForm((current) => ({ ...current, regulations: current.regulations.map((item) => item.key === regulation.key ? { ...item, minGradeAcceptable: Number(event.target.value) || 0 } : item) }))} /></div>
+                      <div><Label>Very Weak</Label><Input type="number" min="0" step="0.01" value={regulation.minGradeVeryWeak} onChange={(event) => setFacultyForm((current) => ({ ...current, regulations: current.regulations.map((item) => item.key === regulation.key ? { ...item, minGradeVeryWeak: Number(event.target.value) || 0 } : item) }))} /></div>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700" disabled={facultyForm.regulations.length === 1} onClick={() => setFacultyForm((current) => ({ ...current, regulations: current.regulations.filter((item) => item.key !== regulation.key) }))}><Trash2 className="mr-2 h-4 w-4" />Remove</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </section>
+
             <div className="flex justify-end gap-3"><Button variant="outline" onClick={() => { setFacultyDialogOpen(false); resetFacultyDialog(); }}>Cancel</Button><Button disabled={submitting} onClick={() => void saveFaculty()}>{submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{editingFaculty ? 'Update Faculty' : 'Create Faculty'}</Button></div>
           </div>
         </DialogContent>
@@ -1038,10 +1218,10 @@ export function ProgramsFacultiesPage({ selectedUniversity }: ProgramsFacultiesP
                   <h3 className="text-lg font-semibold">Transcript Definition</h3>
                   <p className="text-sm text-slate-500">Score ranges and GPA equivalents used on transcripts.</p>
                 </div>
-                <Button size="sm" variant="outline" onClick={() => setProgramForm((current) => ({ ...current, transcriptDefinition: [...current.transcriptDefinition, { key: createKey(), minScore: 0, maxScore: 100, minGPA: 0, maxGPA: 4, gradeLetter: '', equivalentEstimate: '' }] }))}><Plus className="mr-2 h-4 w-4" />Add Definition</Button>
+                <Button size="sm" variant="outline" onClick={() => setProgramForm((current) => ({ ...current, transcriptDefinition: [...current.transcriptDefinition, { key: createKey(), minScore: 0, maxScore: 100, minGPA: 0, maxGPA: 4, gradeLetter: 'A', equivalentEstimate: '' }] }))}><Plus className="mr-2 h-4 w-4" />Add Definition</Button>
               </div>
               {programForm.transcriptDefinition.length === 0 ? <div className="rounded-lg border border-dashed p-6 text-center text-slate-500">No transcript definitions yet.</div> : programForm.transcriptDefinition.map((item) => (
-                <Card key={item.key}><CardContent className="grid gap-3 p-4 md:grid-cols-6"><Input type="number" value={item.minScore} onChange={(event) => setProgramForm((current) => ({ ...current, transcriptDefinition: current.transcriptDefinition.map((entry) => entry.key === item.key ? { ...entry, minScore: Number(event.target.value) || 0 } : entry) }))} /><Input type="number" value={item.maxScore} onChange={(event) => setProgramForm((current) => ({ ...current, transcriptDefinition: current.transcriptDefinition.map((entry) => entry.key === item.key ? { ...entry, maxScore: Number(event.target.value) || 0 } : entry) }))} /><Input type="number" step="0.01" value={item.minGPA} onChange={(event) => setProgramForm((current) => ({ ...current, transcriptDefinition: current.transcriptDefinition.map((entry) => entry.key === item.key ? { ...entry, minGPA: Number(event.target.value) || 0 } : entry) }))} /><Input type="number" step="0.01" value={item.maxGPA} onChange={(event) => setProgramForm((current) => ({ ...current, transcriptDefinition: current.transcriptDefinition.map((entry) => entry.key === item.key ? { ...entry, maxGPA: Number(event.target.value) || 0 } : entry) }))} /><Input value={item.gradeLetter} onChange={(event) => setProgramForm((current) => ({ ...current, transcriptDefinition: current.transcriptDefinition.map((entry) => entry.key === item.key ? { ...entry, gradeLetter: event.target.value } : entry) }))} placeholder="Grade" /><div className="flex gap-2"><Input value={item.equivalentEstimate ?? ''} onChange={(event) => setProgramForm((current) => ({ ...current, transcriptDefinition: current.transcriptDefinition.map((entry) => entry.key === item.key ? { ...entry, equivalentEstimate: event.target.value } : entry) }))} placeholder="Estimate" /><Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700" onClick={() => setProgramForm((current) => ({ ...current, transcriptDefinition: current.transcriptDefinition.filter((entry) => entry.key !== item.key) }))}><X className="h-4 w-4" /></Button></div></CardContent></Card>
+                <Card key={item.key}><CardContent className="grid gap-3 p-4 md:grid-cols-6"><Input type="number" value={item.minScore} onChange={(event) => setProgramForm((current) => ({ ...current, transcriptDefinition: current.transcriptDefinition.map((entry) => entry.key === item.key ? { ...entry, minScore: Number(event.target.value) || 0 } : entry) }))} /><Input type="number" value={item.maxScore} onChange={(event) => setProgramForm((current) => ({ ...current, transcriptDefinition: current.transcriptDefinition.map((entry) => entry.key === item.key ? { ...entry, maxScore: Number(event.target.value) || 0 } : entry) }))} /><Input type="number" step="0.01" value={item.minGPA} onChange={(event) => setProgramForm((current) => ({ ...current, transcriptDefinition: current.transcriptDefinition.map((entry) => entry.key === item.key ? { ...entry, minGPA: Number(event.target.value) || 0 } : entry) }))} /><Input type="number" step="0.01" value={item.maxGPA} onChange={(event) => setProgramForm((current) => ({ ...current, transcriptDefinition: current.transcriptDefinition.map((entry) => entry.key === item.key ? { ...entry, maxGPA: Number(event.target.value) || 0 } : entry) }))} /><Select value={item.gradeLetter} onValueChange={(value) => setProgramForm((current) => ({ ...current, transcriptDefinition: current.transcriptDefinition.map((entry) => entry.key === item.key ? { ...entry, gradeLetter: value } : entry) }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{gradeLetterOptions.map((grade) => <SelectItem key={grade} value={grade}>{grade}</SelectItem>)}</SelectContent></Select><div className="flex gap-2"><Input value={item.equivalentEstimate ?? ''} onChange={(event) => setProgramForm((current) => ({ ...current, transcriptDefinition: current.transcriptDefinition.map((entry) => entry.key === item.key ? { ...entry, equivalentEstimate: event.target.value } : entry) }))} placeholder="Estimate" /><Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700" onClick={() => setProgramForm((current) => ({ ...current, transcriptDefinition: current.transcriptDefinition.filter((entry) => entry.key !== item.key) }))}><X className="h-4 w-4" /></Button></div></CardContent></Card>
               ))}
             </section>
 

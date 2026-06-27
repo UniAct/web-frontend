@@ -12,9 +12,15 @@ export type {
   PublicTenantProfile,
   UniversitySettings,
   UniversityAnalytics,
+  UniversityAnalyticsAttendance,
+  UniversityAnalyticsAttendanceWindow,
   UniversityAnalyticsAbsenceLevel,
+  UniversityAnalyticsCommunications,
+  UniversityAnalyticsFacultyBreakdown,
   UniversityAnalyticsItem,
   UniversityAnalyticsProgramAbsence,
+  UniversityAnalyticsProgramBreakdown,
+  UniversityAnalyticsResources,
   UniversityAnalyticsSummary,
 } from './university';
 export type { Announcement, AnnouncementInput } from './announcement';
@@ -61,7 +67,7 @@ export type {
   TranscriptRecord,
   TranscriptSemesterInfo,
 } from './transcript';
-export type { Faculty, FacultyCreateInput, FacultyUpdateInput } from './faculty';
+export type { Faculty, FacultyCreateInput, FacultyUpdateInput, FacultyRegulation } from './faculty';
 export type {
   Program,
   ProgramCreateInput,
