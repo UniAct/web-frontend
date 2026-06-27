@@ -71,9 +71,15 @@ export const UniversityService = {
     }
   },
 
-  async getPublicStats(tenantKey: string): Promise<{ students: number; staff: number; programs: number }> {
+  async getPublicStats(tenantKey: string): Promise<{ students: number; staff: number; faculties: number; programs: number }> {
     const res = await universityApi.getPublicStats(tenantKey.trim().toLowerCase());
-    return res.data ?? { students: 0, staff: 0, programs: 0 };
+    const data = res.data;
+    return {
+      students: data?.students ?? 0,
+      staff: data?.staff ?? 0,
+      faculties: data?.faculties ?? 0,
+      programs: data?.programs ?? 0,
+    };
   },
 
   async getById(id: number): Promise<University> {

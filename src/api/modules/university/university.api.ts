@@ -24,8 +24,8 @@ export const universityApi = {
     );
   },
 
-  getPublicStats(tenantKey: string): Promise<ApiResponse<{ students: number; staff: number; programs: number }>> {
-    return httpClient.request<{ students: number; staff: number; programs: number }>(
+  getPublicStats(tenantKey: string): Promise<ApiResponse<{ students: number; staff: number; faculties?: number; programs: number }>> {
+    return httpClient.request<{ students: number; staff: number; faculties?: number; programs: number }>(
       'GET',
       `/university/public/${encodeURIComponent(tenantKey)}/stats`,
     );

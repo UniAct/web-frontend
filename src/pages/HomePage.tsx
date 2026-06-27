@@ -68,7 +68,7 @@ export function HomePage({ onLogin }: HomePageProps) {
   const [loginError, setLoginError] = useState<string>('');
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [tenantProfile, setTenantProfile] = useState<PublicTenantProfile | null>(null);
-  const [realStats, setRealStats] = useState<{ students: number; staff: number; programs: number } | null>(null);
+  const [realStats, setRealStats] = useState<{ students: number; staff: number; faculties: number; programs: number } | null>(null);
   const [realFaculties, setRealFaculties] = useState<Faculty[]>([]);
   const [realAnnouncements, setRealAnnouncements] = useState<HomeEvent[]>([]);
   const [facultiesLoaded, setFacultiesLoaded] = useState(false);
@@ -76,8 +76,8 @@ export function HomePage({ onLogin }: HomePageProps) {
 
   // Counter animation states
   const [studentsCount, setStudentsCount] = useState(0);
-  const [facultyCount, setFacultyCount] = useState(0);
-  const [programsCount, setProgramsCount] = useState(0);
+  const [staffCount, setStaffCount] = useState(0);
+  const [facultiesCount, setFacultiesCount] = useState(0);
   const [hasAnimated, setHasAnimated] = useState(false);
 
   // Hero carousel state
@@ -249,10 +249,10 @@ export function HomePage({ onLogin }: HomePageProps) {
 
       // Animate all counters with slightly different durations for a staggered effect
       animateCounter(realStats?.students ?? 0, setStudentsCount, 2000);
-      animateCounter(realStats?.staff ?? 0, setFacultyCount, 2200);
-      animateCounter(realStats?.programs ?? 0, setProgramsCount, 1800);
+      animateCounter(realStats?.staff ?? 0, setStaffCount, 2200);
+      animateCounter(realStats?.faculties ?? faculties.length, setFacultiesCount, 1800);
     }
-  }, [isStatsInView, hasAnimated, realStats]);
+  }, [isStatsInView, hasAnimated, realStats, faculties.length]);
 
   // Auto-advance hero carousel
   useEffect(() => {
@@ -542,7 +542,7 @@ export function HomePage({ onLogin }: HomePageProps) {
                   </div>
                 </motion.div>
 
-                {/* Faculty Counter */}
+                {/* Staff Counter */}
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={isStatsInView ? { opacity: 1, y: 0 } : {}}
@@ -554,13 +554,13 @@ export function HomePage({ onLogin }: HomePageProps) {
                   </div>
                   <div className="text-center">
                     <div className="text-[32px] text-purple-600 tabular-nums tracking-tight">
-                      {facultyCount.toLocaleString()}
+                      {staffCount.toLocaleString()}
                     </div>
-                    <div className="text-sm text-gray-600 tracking-wider mt-1">Faculty</div>
+                    <div className="text-sm text-gray-600 tracking-wider mt-1">Staff</div>
                   </div>
                 </motion.div>
 
-                {/* Programs Counter */}
+                {/* Faculties Counter */}
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={isStatsInView ? { opacity: 1, y: 0 } : {}}
@@ -572,9 +572,9 @@ export function HomePage({ onLogin }: HomePageProps) {
                   </div>
                   <div className="text-center">
                     <div className="text-[32px] text-green-600 tabular-nums tracking-tight">
-                      {programsCount.toLocaleString()}
+                      {facultiesCount.toLocaleString()}
                     </div>
-                    <div className="text-sm text-gray-600 tracking-wider mt-1">Programs</div>
+                    <div className="text-sm text-gray-600 tracking-wider mt-1">Faculties</div>
                   </div>
                 </motion.div>
               </div>

@@ -10,6 +10,7 @@ export interface AiProjectFiles {
     asset_id: string;
     asset_name: string;
     asset_size: number;
+    chunk_count?: number;
   }>;
   filesystem: Array<{
     name: string;
