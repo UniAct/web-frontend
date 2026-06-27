@@ -188,3 +188,8 @@ export type {
   AdminEnrollmentCreateInput,
   AdminEnrollmentUpdateInput,
 } from './enrollment';
+export type {
+  EnrollmentWindowLookupQuery,
+  EnrollmentWindowPayload,
+  EnrollmentWindowRecord,
+} from './enrollment-window';

@@ -263,156 +263,119 @@ export function TimetablePage({ user }: TimetablePageProps) {
     setIsExporting(true);
 
     try {
-      // Import html2pdf library dynamically
-      const html2pdf = (await import('html2pdf.js')).default;
+      const { jsPDF } = await import('jspdf');
+      const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 8;
+      const headerHeight = 22;
+      const tableTop = margin + headerHeight + 3;
+      const timeColumnWidth = 24;
+      const dayColumnWidth = (pageWidth - margin * 2 - timeColumnWidth) / daysOfWeek.length;
+      const rowHeight = (pageHeight - tableTop - margin) / timeSlots.length;
+      const colors = [
+        [37, 99, 235],
+        [124, 58, 237],
+        [5, 150, 105],
+        [234, 88, 12],
+        [219, 39, 119],
+        [79, 70, 229],
+        [13, 148, 136],
+        [220, 38, 38],
+      ] as const;
 
-      const element = document.getElementById('timetable-content');
-      if (!element) {
-        toast.error('Timetable content not found');
-        return;
-      }
+      doc.setFillColor(15, 23, 42);
+      doc.roundedRect(margin, margin, pageWidth - margin * 2, headerHeight, 2, 2, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(15);
+      doc.text('Weekly Timetable', margin + 5, margin + 8);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.text(`${user.name} | ${semesterLabel} | ${uniqueCourses.length} courses | ${getTotalCreditHours()} credit hours`, margin + 5, margin + 15);
+      doc.text(`Generated ${new Date().toLocaleDateString()}`, pageWidth - margin - 5, margin + 15, { align: 'right' });
 
-      // Clone the element to avoid modifying the original
-      const clonedElement = element.cloneNode(true) as HTMLElement;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.2);
 
-      // Create a comprehensive style override to prevent oklch parsing issues
-      const style = document.createElement('style');
-      style.textContent = `
-        :root, * {
-          --background: #f8f9fb !important;
-          --foreground: #2d3748 !important;
-          --card: #ffffff !important;
-          --card-foreground: #2d3748 !important;
-          --popover: #ffffff !important;
-          --popover-foreground: #2d3748 !important;
-          --primary: #2563eb !important;
-          --primary-foreground: #ffffff !important;
-          --secondary: #e2e8f0 !important;
-          --secondary-foreground: #1e293b !important;
-          --muted: #f1f5f9 !important;
-          --muted-foreground: #64748b !important;
-          --accent: #dbeafe !important;
-          --accent-foreground: #1e40af !important;
-          --destructive: #dc2626 !important;
-          --destructive-foreground: #ffffff !important;
-          --border: #e2e8f0 !important;
-          --input: transparent !important;
-          --ring: #93c5fd !important;
-          --color-background: #f8f9fb !important;
-          --color-foreground: #2d3748 !important;
-          --color-card: #ffffff !important;
-          --color-card-foreground: #2d3748 !important;
-          --color-popover: #ffffff !important;
-          --color-popover-foreground: #2d3748 !important;
-          --color-primary: #2563eb !important;
-          --color-primary-foreground: #ffffff !important;
-          --color-secondary: #e2e8f0 !important;
-          --color-secondary-foreground: #1e293b !important;
-          --color-muted: #f1f5f9 !important;
-          --color-muted-foreground: #64748b !important;
-          --color-accent: #dbeafe !important;
-          --color-accent-foreground: #1e40af !important;
-          --color-destructive: #dc2626 !important;
-          --color-destructive-foreground: #ffffff !important;
-          --color-border: #e2e8f0 !important;
-          --color-input: transparent !important;
-          --color-ring: #93c5fd !important;
-        }
-        .text-primary-foreground { color: #ffffff !important; }
-        .text-foreground { color: #2d3748 !important; }
-        .text-muted-foreground { color: #64748b !important; }
-        .text-slate-900 { color: #0f172a !important; }
-        .text-slate-600 { color: #475569 !important; }
-        .text-slate-700 { color: #334155 !important; }
-        .bg-primary { background-color: #2563eb !important; }
-        .bg-secondary { background-color: #e2e8f0 !important; }
-        .bg-card { background-color: #ffffff !important; }
-        .bg-white { background-color: #ffffff !important; }
-        .bg-slate-50 { background-color: #f8fafc !important; }
-        .bg-slate-100 { background-color: #f1f5f9 !important; }
-        .border-border { border-color: #e2e8f0 !important; }
-        .border-slate-100 { border-color: #f1f5f9 !important; }
-        .border-slate-200 { border-color: #e2e8f0 !important; }
-      `;
-      clonedElement.prepend(style);
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, tableTop, timeColumnWidth, rowHeight, 'FD');
+      doc.setTextColor(51, 65, 85);
+      doc.text('Time', margin + timeColumnWidth / 2, tableTop + 5.5, { align: 'center' });
 
-      // Force layout recalculation
-      clonedElement.style.display = 'block';
-      clonedElement.style.visibility = 'visible';
+      daysOfWeek.forEach((day, dayIndex) => {
+        const x = margin + timeColumnWidth + dayIndex * dayColumnWidth;
+        doc.setFillColor(37, 99, 235);
+        doc.rect(x, tableTop, dayColumnWidth, rowHeight, 'FD');
+        doc.setTextColor(255, 255, 255);
+        doc.text(day.slice(0, 3), x + dayColumnWidth / 2, tableTop + 5.5, { align: 'center' });
+      });
 
-      const opt = {
-        margin: 10,
-        filename: `Timetable_Semester_1_${user.name.replace(/\s+/g, '_')}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          logging: false,
-          allowTaint: true,
-          backgroundColor: '#ffffff',
-          windowWidth: element.scrollWidth,
-          windowHeight: element.scrollHeight,
-          onclone: (clonedDoc: Document) => {
-            // Override all CSS variables in the cloned document to prevent oklch
-            const root = clonedDoc.documentElement;
-            const allElements = clonedDoc.querySelectorAll('*');
+      timeSlots.forEach((slot, slotIndex) => {
+        const y = tableTop + (slotIndex + 1) * rowHeight;
+        doc.setFillColor(slotIndex % 2 === 0 ? 248 : 241, slotIndex % 2 === 0 ? 250 : 245, slotIndex % 2 === 0 ? 252 : 249);
+        doc.rect(margin, y, timeColumnWidth, rowHeight, 'FD');
+        doc.setTextColor(71, 85, 105);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.5);
+        doc.text(slot.label.replace(':00 ', ' '), margin + timeColumnWidth / 2, y + rowHeight / 2 + 1.5, { align: 'center' });
 
-            // Set root variables
-            const vars = {
-              '--background': '#f8f9fb',
-              '--foreground': '#2d3748',
-              '--card': '#ffffff',
-              '--card-foreground': '#2d3748',
-              '--primary': '#2563eb',
-              '--primary-foreground': '#ffffff',
-              '--secondary': '#e2e8f0',
-              '--secondary-foreground': '#1e293b',
-              '--muted': '#f1f5f9',
-              '--muted-foreground': '#64748b',
-              '--border': '#e2e8f0',
-              '--ring': '#93c5fd',
-              '--color-background': '#f8f9fb',
-              '--color-foreground': '#2d3748',
-              '--color-card': '#ffffff',
-              '--color-primary': '#2563eb',
-              '--color-primary-foreground': '#ffffff',
-              '--color-border': '#e2e8f0'
-            };
+        daysOfWeek.forEach((_, dayIndex) => {
+          const x = margin + timeColumnWidth + dayIndex * dayColumnWidth;
+          doc.setFillColor(255, 255, 255);
+          doc.rect(x, y, dayColumnWidth, rowHeight, 'D');
+        });
+      });
 
-            Object.entries(vars).forEach(([key, value]) => {
-              root.style.setProperty(key, value, 'important');
-            });
+      savedCourses.forEach((course) => {
+        const dayIndex = daysOfWeek.indexOf(course.day);
+        const slotIndex = timeSlots.findIndex((slot) => {
+          const slotStart = timeToMinutes(slot.value);
+          const courseStart = timeToMinutes(course.sortTime);
+          return courseStart >= slotStart && courseStart < slotStart + 60;
+        });
 
-            // Remove any computed styles with oklch
-            allElements.forEach((el) => {
-              const element = el as HTMLElement;
-              const computedStyle = window.getComputedStyle(element);
+        if (dayIndex < 0 || slotIndex < 0) return;
 
-              // Check for oklch in color properties
-              ['color', 'backgroundColor', 'borderColor'].forEach(prop => {
-                const value = computedStyle.getPropertyValue(prop);
-                if (value && value.includes('oklch')) {
-                  // Replace with a default color
-                  element.style.setProperty(prop, '#2d3748', 'important');
-                }
-              });
-            });
-          }
-        },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
-      };
+        const courseStart = timeToMinutes(course.sortTime);
+        const courseEnd = Math.max(timeToMinutes(course.sortEndTime), courseStart + 45);
+        const durationRows = Math.max(1, Math.min(timeSlots.length - slotIndex, Math.ceil((courseEnd - courseStart) / 60)));
+        const x = margin + timeColumnWidth + dayIndex * dayColumnWidth + 1.2;
+        const y = tableTop + (slotIndex + 1) * rowHeight + 1.2;
+        const width = dayColumnWidth - 2.4;
+        const height = rowHeight * durationRows - 2.4;
+        const color = colors[Math.abs(savedCourses.findIndex((item) => item.id === course.id)) % colors.length];
 
-      await html2pdf().set(opt).from(clonedElement).save();
+        doc.setFillColor(color[0], color[1], color[2]);
+        doc.setDrawColor(255, 255, 255);
+        doc.roundedRect(x, y, width, height, 1.5, 1.5, 'FD');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(height < 9 ? 5.3 : 6.2);
+        doc.text(doc.splitTextToSize(course.code, width - 2), x + 1.2, y + 3.5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(height < 11 ? 4.6 : 5.2);
+        const details = [
+          course.name,
+          `${course.timeFrom}-${course.timeTo}`,
+          course.room,
+        ];
+        const lines = doc.splitTextToSize(details.join(' | '), width - 2).slice(0, Math.max(1, Math.floor(height / 3.6) - 1));
+        doc.text(lines, x + 1.2, y + 6.8);
+      });
+
+      doc.setTextColor(100, 116, 139);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.text('Course details are compressed into the weekly grid so the timetable fits on one page.', margin, pageHeight - 3);
+      doc.save(`Timetable_${semesterLabel.replace(/\s+/g, '_')}_${user.name.replace(/\s+/g, '_')}.pdf`);
       toast.success('Timetable downloaded successfully!');
-    } catch (error: any) {
+    } catch (error) {
       console.error('PDF export error:', error);
-      const errorMessage = error?.message || String(error);
-      if (errorMessage.includes('oklch')) {
-        toast.error('Color format error. Retrying with compatibility mode...');
-        // Could implement a fallback here if needed
-      } else {
-        toast.error('Failed to download timetable. Please try again.');
-      }
+      toast.error('Failed to download timetable. Please try again.');
     } finally {
       setIsExporting(false);
     }

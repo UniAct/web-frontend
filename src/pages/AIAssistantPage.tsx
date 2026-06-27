@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Brain, CheckCircle2, FileText, Loader2, MessageSquare, RefreshCw, Search, Send, Sparkles, TriangleAlert } from 'lucide-react';
+import { Bot, Brain, CheckCircle2, ExternalLink, FileText, Loader2, MessageSquare, RefreshCw, Search, Send, Sparkles, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import type { User as AppUser } from '../App';
 import { AiService, LearningGroupService } from '../api';
@@ -78,6 +78,7 @@ export function AIAssistantPage({ user }: AIAssistantPageProps) {
   );
 
   const canUseTranscript = user.role === 'student' || user.role === 'faculty';
+  const aiFeatureHubUrl = 'https://ai-full-features.vercel.app/';
 
   const loadGroups = useCallback(async () => {
     setIsLoadingGroups(true);
@@ -295,6 +296,16 @@ export function AIAssistantPage({ user }: AIAssistantPageProps) {
           <p className="mt-1 text-sm text-slate-600">Ask against learning-group materials, generate study assets, and include transcript context when useful.</p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Button
+            asChild
+            className="gap-2 bg-slate-950 text-white shadow-sm hover:bg-slate-800"
+          >
+            <a href={aiFeatureHubUrl} target="_blank" rel="noreferrer">
+              <Sparkles className="h-4 w-4" />
+              AI Feature Hub
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          </Button>
           <Select value={selectedGroupId ? String(selectedGroupId) : undefined} onValueChange={(value) => setSelectedGroupId(Number(value))}>
             <SelectTrigger className="w-full sm:w-80">
               <SelectValue placeholder="Select learning group" />
@@ -313,6 +324,27 @@ export function AIAssistantPage({ user }: AIAssistantPageProps) {
           </Button>
         </div>
       </div>
+
+      <a
+        href={aiFeatureHubUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="group flex flex-col gap-3 rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 via-white to-emerald-50 px-4 py-3 shadow-sm transition-all hover:border-blue-200 hover:shadow-md sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm">
+            <Bot className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-900">All AI features in one place</p>
+            <p className="text-xs text-slate-600">Open the full feature hub in a separate tab.</p>
+          </div>
+        </div>
+        <span className="inline-flex items-center gap-2 text-sm font-semibold text-blue-700 transition-colors group-hover:text-blue-800">
+          Open hub
+          <ExternalLink className="h-4 w-4" />
+        </span>
+      </a>
 
       {error && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">

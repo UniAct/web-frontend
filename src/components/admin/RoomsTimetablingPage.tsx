@@ -53,9 +53,11 @@ import {
 import { toast } from "sonner";
 import {
   ScheduleService,
+  EnrollmentWindowService,
   FacultyService,
   ProgramService,
   type DayOfWeek,
+  type EnrollmentWindowRecord,
   type Faculty,
   type Program,
   type TimetableClassroomLookup,
@@ -295,6 +297,33 @@ const parseAllowedCapacity = (value: string) => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 };
 
+const toDateTimeLocalValue = (value: string | Date | null | undefined) => {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+};
+
+const toIsoFromDateTimeLocal = (value: string) => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+};
+
+const makeDefaultEnrollmentWindowForm = () => {
+  const now = new Date();
+  now.setMinutes(0, 0, 0);
+  const end = new Date(now);
+  end.setDate(end.getDate() + 7);
+
+  return {
+    name: "Student registration window",
+    startTime: toDateTimeLocalValue(now),
+    endTime: toDateTimeLocalValue(end),
+    isActive: true,
+  };
+};
+
 /** Returns which period a class belongs to — whichever period has the most overlap */
 function classifyPeriod(
   cls: { startTime: string; endTime: string },
@@ -500,6 +529,12 @@ export function RoomsTimetablingPage({
   const [exportScope, setExportScope] = useState<"current" | "all">("current");
   const [isExporting, setIsExporting] = useState(false);
 
+  // Enrollment registration window
+  const [enrollmentWindow, setEnrollmentWindow] = useState<EnrollmentWindowRecord | null>(null);
+  const [enrollmentWindowForm, setEnrollmentWindowForm] = useState(makeDefaultEnrollmentWindowForm);
+  const [isLoadingEnrollmentWindow, setIsLoadingEnrollmentWindow] = useState(false);
+  const [isSavingEnrollmentWindow, setIsSavingEnrollmentWindow] = useState(false);
+
   // ── Drag & Drop — use refs to avoid stale closures
   const draggingIdRef = useRef<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -624,6 +659,55 @@ export function RoomsTimetablingPage({
     [filteredLevels, selLevelId],
   );
 
+  useEffect(() => {
+    if (!selectedUniversity || !selFacultyId || !selProgramId || !selLevel || !activeSemesterId) {
+      setEnrollmentWindow(null);
+      setEnrollmentWindowForm(makeDefaultEnrollmentWindowForm());
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadEnrollmentWindow = async () => {
+      try {
+        setIsLoadingEnrollmentWindow(true);
+        const result = await EnrollmentWindowService.findConfigured({
+          facultyId: Number(selFacultyId),
+          programId: Number(selProgramId),
+          semesterId: activeSemesterId,
+          programLevelId: selLevel.id,
+        });
+
+        if (!isMounted) return;
+
+        setEnrollmentWindow(result);
+        if (result) {
+          setEnrollmentWindowForm({
+            name: result.name ?? "Student registration window",
+            startTime: toDateTimeLocalValue(result.startTime),
+            endTime: toDateTimeLocalValue(result.endTime),
+            isActive: result.isActive,
+          });
+        } else {
+          setEnrollmentWindowForm(makeDefaultEnrollmentWindowForm());
+        }
+      } catch (error: any) {
+        if (isMounted) {
+          toast.error(error?.message || "Failed to load enrollment window");
+          setEnrollmentWindow(null);
+        }
+      } finally {
+        if (isMounted) setIsLoadingEnrollmentWindow(false);
+      }
+    };
+
+    void loadEnrollmentWindow();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedUniversity, selFacultyId, selProgramId, selLevel, activeSemesterId]);
+
   const courseOptions = useMemo(
     () =>
 
@@ -668,6 +752,17 @@ export function RoomsTimetablingPage({
   );
 
   const activeDays = DAYS.filter((d) => dayRanges[d].enabled);
+  const canConfigureEnrollmentWindow = Boolean(selFacultyId && selProgramId && selLevel && activeSemesterId);
+  const enrollmentWindowStart = enrollmentWindowForm.startTime ? new Date(enrollmentWindowForm.startTime) : null;
+  const enrollmentWindowEnd = enrollmentWindowForm.endTime ? new Date(enrollmentWindowForm.endTime) : null;
+  const enrollmentWindowNow = new Date();
+  const enrollmentWindowIsOpen = Boolean(
+    enrollmentWindowForm.isActive &&
+    enrollmentWindowStart &&
+    enrollmentWindowEnd &&
+    enrollmentWindowStart <= enrollmentWindowNow &&
+    enrollmentWindowEnd >= enrollmentWindowNow,
+  );
 
   // ─────────────────────────────────────────────────────
   //  CONFLICT DETECTION
@@ -733,6 +828,53 @@ export function RoomsTimetablingPage({
       ...prev,
       [day]: { ...prev[day], [field]: value },
     }));
+  };
+
+  const handleSaveEnrollmentWindow = async () => {
+    if (!selFacultyId || !selProgramId || !selLevel || !activeSemesterId) {
+      toast.error("Select faculty, program, level, and active semester first.");
+      return;
+    }
+
+    const startTime = toIsoFromDateTimeLocal(enrollmentWindowForm.startTime);
+    const endTime = toIsoFromDateTimeLocal(enrollmentWindowForm.endTime);
+
+    if (!startTime || !endTime) {
+      toast.error("Please enter a valid start and end time.");
+      return;
+    }
+
+    if (new Date(endTime) <= new Date(startTime)) {
+      toast.error("Enrollment window end time must be after start time.");
+      return;
+    }
+
+    try {
+      setIsSavingEnrollmentWindow(true);
+      const saved = await EnrollmentWindowService.save(enrollmentWindow?.id ?? null, {
+        name: enrollmentWindowForm.name.trim() || null,
+        facultyId: Number(selFacultyId),
+        programId: Number(selProgramId),
+        semesterId: activeSemesterId,
+        programLevelId: selLevel.id,
+        startTime,
+        endTime,
+        isActive: enrollmentWindowForm.isActive,
+      });
+
+      setEnrollmentWindow(saved);
+      setEnrollmentWindowForm({
+        name: saved.name ?? "Student registration window",
+        startTime: toDateTimeLocalValue(saved.startTime),
+        endTime: toDateTimeLocalValue(saved.endTime),
+        isActive: saved.isActive,
+      });
+      toast.success("Enrollment window saved successfully");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to save enrollment window");
+    } finally {
+      setIsSavingEnrollmentWindow(false);
+    }
   };
 
   // ─────────────────────────────────────────────────────
@@ -1471,6 +1613,124 @@ export function RoomsTimetablingPage({
           </div>
         </div>
       </div>
+
+      {/* Enrollment Window */}
+      <Card className="border-slate-200 shadow-sm">
+        <CardHeader className="border-b border-slate-100 pb-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Calendar className="h-5 w-5 text-emerald-600" />
+                Student Enrollment Window
+                {canConfigureEnrollmentWindow && (
+                  <Badge
+                    className={
+                      enrollmentWindowIsOpen
+                        ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                        : "bg-slate-100 text-slate-700 border border-slate-200"
+                    }
+                  >
+                    {enrollmentWindowIsOpen ? "Open now" : "Closed now"}
+                  </Badge>
+                )}
+              </CardTitle>
+              <CardDescription className="mt-1 text-xs">
+                Controls when students can open registration for the selected faculty, program, level, and semester.
+              </CardDescription>
+            </div>
+            <Button
+              size="sm"
+              onClick={handleSaveEnrollmentWindow}
+              disabled={!canConfigureEnrollmentWindow || isLoadingEnrollmentWindow || isSavingEnrollmentWindow}
+              className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+            >
+              {isSavingEnrollmentWindow ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              {enrollmentWindow ? "Update Window" : "Create Window"}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-5">
+          {!canConfigureEnrollmentWindow ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              Select faculty, program, level, and make sure an active semester is set before configuring student registration.
+            </div>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-[1fr_190px_190px_150px]">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold uppercase text-slate-500">
+                  Window Name
+                </label>
+                <input
+                  value={enrollmentWindowForm.name}
+                  onChange={(event) =>
+                    setEnrollmentWindowForm((current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }))
+                  }
+                  disabled={isLoadingEnrollmentWindow}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 disabled:opacity-60"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold uppercase text-slate-500">
+                  Opens
+                </label>
+                <input
+                  type="datetime-local"
+                  value={enrollmentWindowForm.startTime}
+                  onChange={(event) =>
+                    setEnrollmentWindowForm((current) => ({
+                      ...current,
+                      startTime: event.target.value,
+                    }))
+                  }
+                  disabled={isLoadingEnrollmentWindow}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 disabled:opacity-60"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold uppercase text-slate-500">
+                  Closes
+                </label>
+                <input
+                  type="datetime-local"
+                  value={enrollmentWindowForm.endTime}
+                  onChange={(event) =>
+                    setEnrollmentWindowForm((current) => ({
+                      ...current,
+                      endTime: event.target.value,
+                    }))
+                  }
+                  disabled={isLoadingEnrollmentWindow}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 disabled:opacity-60"
+                />
+              </div>
+              <label className="flex items-end">
+                <span className="flex h-10 w-full cursor-pointer items-center justify-between gap-3 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700">
+                  Active
+                  <input
+                    type="checkbox"
+                    checked={enrollmentWindowForm.isActive}
+                    onChange={(event) =>
+                      setEnrollmentWindowForm((current) => ({
+                        ...current,
+                        isActive: event.target.checked,
+                      }))
+                    }
+                    disabled={isLoadingEnrollmentWindow}
+                    className="h-4 w-4 accent-emerald-600"
+                  />
+                </span>
+              </label>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ── Weekly Timetable ── */}
       <Card className="shadow-sm overflow-hidden">

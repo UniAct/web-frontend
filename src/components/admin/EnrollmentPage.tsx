@@ -11,10 +11,9 @@ import {
   Search,
   Trash2,
   UserRound,
-  Wifi,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { EnrollmentService, apiClient } from '../../api';
+import { EnrollmentService } from '../../api';
 import type {
   AdminEnrollmentListQuery,
   AdminEnrollmentListResponse,
@@ -24,7 +23,6 @@ import type {
   AdminEnrollmentStatus,
   AdminEnrollmentStudentTrackResponse,
 } from '../../api';
-import { ENROLLMENT_WS_URL } from '../../api/core/constants';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -39,7 +37,6 @@ interface EnrollmentPageProps {
 }
 
 const STATUS_OPTIONS: AdminEnrollmentStatus[] = ['Enrolled', 'InProgress', 'Completed', 'Withdrawn', 'Failed'];
-const ENROLLMENT_WS_PATH = '/ws/enrollment';
 
 function statusBadgeClass(status: AdminEnrollmentStatus) {
   switch (status) {
@@ -56,18 +53,6 @@ function statusBadgeClass(status: AdminEnrollmentStatus) {
     default:
       return 'bg-slate-100 text-slate-700 border-slate-200';
   }
-}
-
-function buildEnrollmentWebSocketUrl(token: string): string {
-  const configuredUrl = ENROLLMENT_WS_URL?.trim();
-  const baseUrl = configuredUrl || apiClient.getApiBaseUrl();
-  const url = new URL(configuredUrl ? baseUrl : ENROLLMENT_WS_PATH, configuredUrl ? undefined : baseUrl);
-
-  if (url.protocol === 'http:') url.protocol = 'ws:';
-  if (url.protocol === 'https:') url.protocol = 'wss:';
-
-  url.searchParams.set('access_token', token);
-  return url.toString();
 }
 
 function formatSlot(slot: AdminEnrollmentSlotOption | AdminEnrollmentRecord) {
@@ -160,25 +145,6 @@ export function EnrollmentPage({ selectedUniversity }: EnrollmentPageProps) {
     if (!detailsOpen || !selectedEnrollment) return;
     loadStudentTrack(selectedEnrollment.studentId);
   }, [detailsOpen, loadStudentTrack, selectedEnrollment, refreshNonce]);
-
-  useEffect(() => {
-    const token = apiClient.getTokenValue();
-    const slotIds = [...new Set((data?.enrollments ?? [])
-      .map((enrollment) => enrollment.scheduleSlotId)
-      .filter((id): id is number => typeof id === 'number'))];
-
-    if (!token || slotIds.length === 0) return;
-
-    const socket = new WebSocket(buildEnrollmentWebSocketUrl(token));
-    socket.addEventListener('open', () => {
-      socket.send(JSON.stringify({ type: 'subscribe', slotIds }));
-    });
-    socket.addEventListener('message', () => {
-      setRefreshNonce((value) => value + 1);
-    });
-
-    return () => socket.close();
-  }, [data?.enrollments]);
 
   const visibleEnrollments = data?.enrollments ?? [];
   const selectedStudentAvailableSlots = options?.availableSlots ?? [];
@@ -362,10 +328,7 @@ export function EnrollmentPage({ selectedUniversity }: EnrollmentPageProps) {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
           <CardTitle className="text-base">Live Enrollment Records</CardTitle>
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <Wifi className="h-3.5 w-3.5" />
-            Backend synced
-          </div>
+          <div className="text-xs text-slate-500">Refresh manually when needed</div>
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (
