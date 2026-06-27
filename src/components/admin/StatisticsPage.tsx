@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
-  BarChart3,
   Bell,
   BookOpen,
   Building2,
@@ -13,7 +12,6 @@ import {
   Network,
   RefreshCcw,
   School,
-  Shield,
   TrendingUp,
   Users,
 } from 'lucide-react';
@@ -32,7 +30,6 @@ import {
 import {
   UniversityService,
   type UniversityAnalytics,
-  type UniversityAnalyticsFacultyBreakdown,
   type UniversityAnalyticsItem,
   type UniversityAnalyticsProgramBreakdown,
 } from '../../api';
@@ -40,13 +37,16 @@ import { Alert, AlertDescription } from '../ui/alert';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Calendar } from '../ui/calendar';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
 import { Progress } from '../ui/progress';
 import { Skeleton } from '../ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
 
-const CHART_COLORS = ['#2563eb', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#be123c', '#4f46e5'];
+const CHART_COLORS = [
+  '#2a78d6', '#1baf7a', '#eda100', '#008300',
+  '#4a3aa7', '#e34948', '#e87ba4', '#eb6834',
+];
 
 interface StatisticsPageProps {
   selectedUniversity: string | null;
@@ -54,6 +54,7 @@ interface StatisticsPageProps {
 }
 
 type EventTab = 'ANNOUNCEMENT' | 'EVENT';
+type DistributionTab = 'faculty' | 'program';
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US').format(value);
@@ -79,10 +80,8 @@ function sameCalendarDay(left: Date, right: Date) {
   );
 }
 
-function itemTypeLabel(type: EventTab) {
-  return type === 'EVENT' ? 'Events' : 'Announcements';
-}
-
+// Custom active shape for PieChart — renders a highlighted sector with an outer ring
+// and a centered label showing name + count in the donut hole.
 export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
   const [analytics, setAnalytics] = useState<UniversityAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
@@ -90,11 +89,12 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
   const [expandedPrograms, setExpandedPrograms] = useState<number[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [activeEventTab, setActiveEventTab] = useState<EventTab>('ANNOUNCEMENT');
+  const [distributionTab, setDistributionTab] = useState<DistributionTab>('faculty');
+  const [activePieIndex, setActivePieIndex] = useState(0);
 
   const loadAnalytics = async () => {
     setLoading(true);
     setError(null);
-
     try {
       const data = await UniversityService.getAnalytics();
       setAnalytics(data);
@@ -107,72 +107,97 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
 
   useEffect(() => {
     void loadAnalytics();
+    setActivePieIndex(0);
   }, [selectedUniversity]);
+
+  // Reset pie index when switching tabs
+  useEffect(() => {
+    setActivePieIndex(0);
+  }, [distributionTab]);
 
   const summary = analytics?.summary;
   const attendance = analytics?.attendance.last30Days;
-  const totalAbsences = analytics?.todayAbsences.reduce((total, program) => total + program.absences, 0) ?? 0;
-  const avgStudentsPerProgram = summary?.programs ? Math.round((summary.students / summary.programs) * 10) / 10 : 0;
-  const avgCapacityPerRoom = analytics?.resources.classrooms
-    ? Math.round(analytics.resources.totalCapacity / analytics.resources.classrooms)
+  const totalAbsences = analytics?.todayAbsences.reduce((t, p) => t + p.absences, 0) ?? 0;
+  const avgStudentsPerProgram = summary?.programs
+    ? Math.round((summary.students / summary.programs) * 10) / 10
     : 0;
 
+  // Headline stats — 4 primary KPIs
   const headlineStats = [
-    { label: 'Students', value: summary?.students ?? 0, icon: Users, tone: 'text-blue-700 bg-blue-50 border-blue-100' },
+    { label: 'Students', value: summary?.students ?? 0, icon: Users, color: 'text-blue-700 bg-blue-50 border-blue-100' },
+    { label: 'Faculties', value: summary?.faculties ?? 0, icon: School, color: 'text-emerald-700 bg-emerald-50 border-emerald-100' },
+    { label: 'Programs', value: summary?.programs ?? 0, icon: Layers3, color: 'text-violet-700 bg-violet-50 border-violet-100' },
+    { label: 'Courses', value: summary?.courses ?? 0, icon: BookOpen, color: 'text-amber-700 bg-amber-50 border-amber-100' },
+  ];
+
+  // Secondary KPIs rendered as a compact strip
+  const secondaryStats = [
     {
-      label: 'Faculties',
-      value: summary?.faculties ?? 0,
-      icon: School,
-      tone: 'text-emerald-700 bg-emerald-50 border-emerald-100',
+      icon: GraduationCap,
+      label: 'Staff / Admins',
+      value: `${formatNumber(summary?.staff ?? 0)} / ${formatNumber(summary?.admins ?? 0)}`,
     },
     {
-      label: 'Programs',
-      value: summary?.programs ?? 0,
-      icon: Layers3,
-      tone: 'text-violet-700 bg-violet-50 border-violet-100',
+      icon: Network,
+      label: 'Learning groups',
+      value: formatNumber(summary?.learningGroups ?? 0),
+      sub: `${formatNumber(summary?.activeRegistrations ?? 0)} active enrollments`,
     },
     {
-      label: 'Courses',
-      value: summary?.courses ?? 0,
-      icon: BookOpen,
-      tone: 'text-amber-700 bg-amber-50 border-amber-100',
+      icon: Building2,
+      label: 'Room capacity',
+      value: formatNumber(analytics?.resources.totalCapacity ?? 0),
+      sub: `${analytics?.resources.classrooms ?? 0} classrooms`,
+    },
+    {
+      icon: TrendingUp,
+      label: 'Attendance rate',
+      value: `${attendance?.attendanceRate ?? 0}%`,
+      sub: `${formatNumber(attendance?.total ?? 0)} records / 30 days`,
     },
   ];
 
+  // Faculty pie data
   const facultyPieData = useMemo(
     () =>
-      analytics?.facultyBreakdown.map((faculty, index) => ({
-        name: faculty.name,
-        value: faculty.students,
-        secondary: `${faculty.programs} programs`,
-        color: CHART_COLORS[index % CHART_COLORS.length],
+      analytics?.facultyBreakdown.map((f, i) => ({
+        name: f.name,
+        value: f.students,
+        secondary: `${f.programs} programs`,
+        color: CHART_COLORS[i % CHART_COLORS.length],
       })) ?? [],
     [analytics],
   );
 
+  // Program pie data (top 8)
   const programPieData = useMemo(
     () =>
-      analytics?.programBreakdown.slice(0, 8).map((program, index) => ({
-        name: program.name,
-        value: program.students,
-        secondary: program.facultyName,
-        color: CHART_COLORS[index % CHART_COLORS.length],
+      analytics?.programBreakdown.slice(0, 8).map((p, i) => ({
+        name: p.name,
+        value: p.students,
+        secondary: p.facultyName,
+        color: CHART_COLORS[i % CHART_COLORS.length],
       })) ?? [],
     [analytics],
   );
 
-  const topPrograms = useMemo(() => analytics?.programBreakdown.slice(0, 7) ?? [], [analytics]);
+  const activePieData = distributionTab === 'faculty' ? facultyPieData : programPieData;
+  const normalizedActivePieIndex = activePieData.length > 0
+    ? Math.min(activePieIndex, activePieData.length - 1)
+    : 0;
+  const activePieItem = activePieData[normalizedActivePieIndex];
+  const topPrograms = useMemo(() => analytics?.programBreakdown.slice(0, 6) ?? [], [analytics]);
 
   const attendanceData = useMemo(
     () =>
       attendance
         ? [
-            { name: 'Present', value: attendance.present, color: '#059669' },
-            { name: 'Late', value: attendance.late, color: '#d97706' },
-            { name: 'Absent', value: attendance.absent, color: '#dc2626' },
-            { name: 'Excused', value: attendance.excused, color: '#2563eb' },
-            { name: 'Medical', value: attendance.medical, color: '#7c3aed' },
-          ]
+          { name: 'Present', value: attendance.present, color: '#1baf7a' },
+          { name: 'Late', value: attendance.late, color: '#eda100' },
+          { name: 'Absent', value: attendance.absent, color: '#e34948' },
+          { name: 'Excused', value: attendance.excused, color: '#2a78d6' },
+          { name: 'Medical', value: attendance.medical, color: '#4a3aa7' },
+        ]
         : [],
     [attendance],
   );
@@ -187,39 +212,36 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
     return visibleItems.filter((item) => sameCalendarDay(toDate(item.date), selectedDate));
   }, [selectedDate, visibleItems]);
 
-  const hasItemOnDate = (date: Date) => visibleItems.some((item) => sameCalendarDay(toDate(item.date), date));
+  const hasItemOnDate = (date: Date) =>
+    visibleItems.some((item) => sameCalendarDay(toDate(item.date), date));
 
-  const toggleProgram = (programId: number) => {
+  const toggleProgram = (id: number) =>
     setExpandedPrograms((prev) =>
-      prev.includes(programId) ? prev.filter((id) => id !== programId) : [...prev, programId],
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
-  };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      {/* ── Header ── */}
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="bg-slate-50 text-slate-700">
-                Live tenant analytics
+              <Badge variant="outline" className="bg-slate-50 text-slate-700 text-xs">
+                Live analytics
               </Badge>
               {analytics?.generatedAt && (
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-slate-400">
                   Updated {new Date(analytics.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
               )}
             </div>
-            <h2 className="mt-3 text-2xl font-semibold tracking-normal text-slate-950">
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">
               {selectedUniversity ?? 'University'} Statistics
             </h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-              A real-time snapshot of academic structure, attendance activity, learning groups, facilities, and
-              communications for this tenant.
-            </p>
           </div>
-          <Button variant="outline" size="sm" onClick={loadAnalytics} disabled={loading} className="w-fit gap-2">
-            <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          <Button variant="outline" size="sm" onClick={loadAnalytics} disabled={loading} className="w-fit gap-2 shrink-0">
+            <RefreshCcw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
         </div>
@@ -231,226 +253,357 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
           </Alert>
         )}
 
-        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {headlineStats.map((stat) => {
-            const Icon = stat.icon;
-            return (
-              <div key={stat.label} className="rounded-lg border border-slate-200 bg-slate-50/60 p-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-slate-500">{stat.label}</p>
-                    {loading ? (
-                      <Skeleton className="mt-3 h-8 w-24" />
-                    ) : (
-                      <p className="mt-2 text-3xl font-semibold tracking-normal text-slate-950">
-                        {formatNumber(stat.value)}
-                      </p>
-                    )}
-                  </div>
-                  <div className={`rounded-lg border p-3 ${stat.tone}`}>
-                    <Icon className="h-5 w-5" />
-                  </div>
+        {/* Primary KPIs */}
+        <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          {headlineStats.map(({ label, value, icon: Icon, color }) => (
+            <div key={label} className="rounded-lg border border-slate-100 bg-slate-50 p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-medium text-slate-500">{label}</p>
+                <div className={`rounded-md border p-1.5 ${color}`}>
+                  <Icon className="h-3.5 w-3.5" />
                 </div>
               </div>
-            );
-          })}
+              {loading ? (
+                <Skeleton className="mt-2 h-7 w-20" />
+              ) : (
+                <p className="mt-1.5 text-2xl font-semibold tracking-tight text-slate-950">
+                  {formatNumber(value)}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Secondary KPI strip */}
+        <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {secondaryStats.map(({ icon: Icon, label, value, sub }) => (
+            <div key={label} className="rounded-lg border border-slate-100 bg-white px-3 py-2.5">
+              <div className="flex items-center gap-1.5 text-slate-500">
+                <Icon className="h-3.5 w-3.5 shrink-0" />
+                <span className="text-xs font-medium">{label}</span>
+              </div>
+              {loading ? (
+                <Skeleton className="mt-1.5 h-5 w-16" />
+              ) : (
+                <>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{value}</p>
+                  {sub && <p className="text-xs text-slate-400">{sub}</p>}
+                </>
+              )}
+            </div>
+          ))}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <InsightTile
-          icon={GraduationCap}
-          label="Staff & Admins"
-          value={`${formatNumber(summary?.staff ?? 0)} / ${formatNumber(summary?.admins ?? 0)}`}
-          helper="staff accounts / admin roles"
-          loading={loading}
-        />
-        <InsightTile
-          icon={Network}
-          label="Learning Groups"
-          value={formatNumber(summary?.learningGroups ?? 0)}
-          helper={`${formatNumber(summary?.activeRegistrations ?? 0)} active enrollments`}
-          loading={loading}
-        />
-        <InsightTile
-          icon={Building2}
-          label="Room Capacity"
-          value={formatNumber(analytics?.resources.totalCapacity ?? 0)}
-          helper={`${formatNumber(avgCapacityPerRoom)} avg seats / room`}
-          loading={loading}
-        />
-        <InsightTile
-          icon={TrendingUp}
-          label="Attendance Rate"
-          value={`${attendance?.attendanceRate ?? 0}%`}
-          helper={`${formatNumber(attendance?.total ?? 0)} records in 30 days`}
-          loading={loading}
-        />
-      </div>
+      {/* ── Row 2: Distribution + Attendance side-by-side ── */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_380px]">
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <DistributionCard
-          title="Students By Faculty"
-          description="Pie distribution based on active student records connected to programs."
-          data={facultyPieData}
-          loading={loading}
-          emptyLabel="No faculty student distribution yet"
-        />
-        <DistributionCard
-          title="Students By Program"
-          description="Top programs by student count, grouped from the tenant academic structure."
-          data={programPieData}
-          loading={loading}
-          emptyLabel="No program student distribution yet"
-        />
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
+        {/* Combined Distribution Card */}
         <Card className="border-slate-200 shadow-sm">
-          <CardHeader>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <CardTitle className="text-lg font-semibold text-slate-950">Program Scale</CardTitle>
-                <CardDescription>Largest programs by enrolled students with course and level depth.</CardDescription>
-              </div>
-              <Badge variant="secondary" className="w-fit bg-slate-100 text-slate-700">
-                {formatDecimal(avgStudentsPerProgram, 1)} students/program
-              </Badge>
+          <CardHeader className="pb-3 pt-5 px-5">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-base font-semibold text-slate-950">Student distribution</CardTitle>
+              <Tabs
+                value={distributionTab}
+                onValueChange={(v) => setDistributionTab(v as DistributionTab)}
+              >
+                <TabsList className="h-7 gap-0.5 px-0.5 py-0.5">
+                  <TabsTrigger value="faculty" className="h-6 px-3 text-xs">
+                    By faculty
+                  </TabsTrigger>
+                  <TabsTrigger value="program" className="h-6 px-3 text-xs">
+                    By program
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-5 pb-5">
             {loading ? (
-              <Skeleton className="h-80 w-full" />
-            ) : topPrograms.length > 0 ? (
-              <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-                <ResponsiveContainer width="100%" height={310}>
-                  <BarChart data={topPrograms} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} height={58} />
-                    <YAxis tick={{ fontSize: 11 }} width={38} />
-                    <Tooltip formatter={(value: number) => [formatNumber(value), 'Students']} />
-                    <Bar dataKey="students" radius={[6, 6, 0, 0]} fill="#2563eb" />
-                  </BarChart>
+              <div className="flex gap-6">
+                <Skeleton className="h-52 w-52 rounded-full" />
+                <div className="flex-1 space-y-3 pt-4">
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-full" />
+                </div>
+              </div>
+            ) : activePieData.length > 0 ? (
+              <div className="grid gap-6 md:grid-cols-[220px_1fr]">
+                {/* Interactive donut — hover shows label in center */}
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    {activePieItem && (
+                      <>
+                        <text
+                          x={110}
+                          y={100}
+                          textAnchor="middle"
+                          fill="#0f172a"
+                          style={{ fontSize: 13, fontWeight: 600 }}
+                        >
+                          {activePieItem.name.length > 16
+                            ? `${activePieItem.name.slice(0, 15)}...`
+                            : activePieItem.name}
+                        </text>
+                        <text x={110} y={119} textAnchor="middle" fill="#64748b" style={{ fontSize: 12 }}>
+                          {formatNumber(activePieItem.value)} students
+                        </text>
+                        <text x={110} y={136} textAnchor="middle" fill="#94a3b8" style={{ fontSize: 11 }}>
+                          {activePieItem.secondary}
+                        </text>
+                      </>
+                    )}
+                    <Pie
+                      data={activePieData}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={60}
+                      outerRadius={90}
+                      onMouseEnter={(_, index) => setActivePieIndex(index)}
+                    >
+                      {activePieData.map((entry, index) => (
+                        <Cell
+                          key={entry.name}
+                          fill={entry.color}
+                          opacity={index === normalizedActivePieIndex ? 1 : 0.72}
+                          stroke={index === normalizedActivePieIndex ? '#ffffff' : entry.color}
+                          strokeWidth={index === normalizedActivePieIndex ? 4 : 1}
+                        />
+                      ))}
+                    </Pie>
+                  </PieChart>
                 </ResponsiveContainer>
 
-                <div className="space-y-3">
-                  {topPrograms.slice(0, 5).map((program) => (
-                    <ProgramCompactRow key={program.id} program={program} maxStudents={topPrograms[0]?.students ?? 1} />
-                  ))}
+                {/* Legend list */}
+                <div className="flex flex-col justify-center gap-2 py-1">
+                  {activePieData.slice(0, 7).map((item, idx) => {
+                    const total = activePieData.reduce((s, x) => s + x.value, 0);
+                    const pct = total > 0 ? Math.round((item.value / total) * 100) : 0;
+                    const isActive = idx === normalizedActivePieIndex;
+                    return (
+                      <button
+                        key={item.name}
+                        type="button"
+                        className={`flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors ${isActive ? 'bg-slate-100' : 'hover:bg-slate-50'
+                          }`}
+                        onMouseEnter={() => setActivePieIndex(idx)}
+                        onClick={() => setActivePieIndex(idx)}
+                      >
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                          style={{ backgroundColor: item.color }}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-800">
+                          {item.name}
+                        </span>
+                        <span className="shrink-0 text-xs text-slate-400">{pct}%</span>
+                        <span className="shrink-0 text-xs font-medium text-slate-700">
+                          {formatNumber(item.value)}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ) : (
-              <EmptyState title="No programs yet" description="Programs will appear here once created." />
+              <EmptyState
+                title="No distribution data"
+                description="This chart will populate once student records are linked."
+                compact
+              />
             )}
           </CardContent>
         </Card>
 
+        {/* Attendance card */}
         <Card className="border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold text-slate-950">Attendance Health</CardTitle>
-            <CardDescription>Last 30 days across submitted attendance sessions.</CardDescription>
+          <CardHeader className="pb-3 pt-5 px-5">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-base font-semibold text-slate-950">Attendance health</CardTitle>
+              {!loading && attendance && attendance.total > 0 && (
+                <Badge variant="outline" className="text-xs">
+                  {totalAbsences} absent today
+                </Badge>
+              )}
+            </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-5 pb-5">
             {loading ? (
               <div className="space-y-4">
-                <Skeleton className="h-8 w-32" />
-                <Skeleton className="h-3 w-full" />
-                <Skeleton className="h-56 w-full" />
+                <Skeleton className="h-6 w-24" />
+                <Skeleton className="h-2 w-full" />
+                <Skeleton className="h-40 w-full" />
               </div>
             ) : attendance && attendance.total > 0 ? (
-              <div className="space-y-5">
+              <div className="space-y-4">
                 <div>
-                  <div className="flex items-end justify-between gap-4">
-                    <div>
-                      <p className="text-3xl font-semibold tracking-normal text-slate-950">
-                        {attendance.attendanceRate}%
-                      </p>
-                      <p className="mt-1 text-sm text-slate-500">present or late</p>
-                    </div>
-                    <Badge variant="outline">{formatNumber(totalAbsences)} absent today</Badge>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl font-semibold text-slate-950">
+                      {attendance.attendanceRate}%
+                    </span>
+                    <span className="text-sm text-slate-500">present or late</span>
                   </div>
-                  <Progress value={attendance.attendanceRate} className="mt-3 h-2 bg-slate-100" />
+                  <Progress value={attendance.attendanceRate} className="mt-2 h-1.5 bg-slate-100" />
                 </div>
 
-                <ResponsiveContainer width="100%" height={220}>
+                <ResponsiveContainer width="100%" height={160}>
                   <PieChart>
-                    <Pie data={attendanceData} dataKey="value" nameKey="name" innerRadius={54} outerRadius={84}>
+                    <Pie
+                      data={attendanceData}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={44}
+                      outerRadius={72}
+                    >
                       {attendanceData.map((entry) => (
                         <Cell key={entry.name} fill={entry.color} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(value: number) => [formatNumber(value), 'Records']} />
+                    <Tooltip
+                      formatter={(value: number) => [formatNumber(value), 'Records']}
+                      contentStyle={{ borderRadius: 8, border: '0.5px solid var(--border)', fontSize: 12 }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-1.5">
                   {attendanceData.map((item) => (
-                    <div key={item.name} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2">
-                      <span className="flex items-center gap-2 text-sm text-slate-600">
-                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                    <div
+                      key={item.name}
+                      className="flex items-center justify-between rounded bg-slate-50 px-2.5 py-1.5"
+                    >
+                      <span className="flex items-center gap-1.5 text-xs text-slate-600">
+                        <span
+                          className="h-2 w-2 rounded-full"
+                          style={{ backgroundColor: item.color }}
+                        />
                         {item.name}
                       </span>
-                      <span className="text-sm font-medium text-slate-950">{formatNumber(item.value)}</span>
+                      <span className="text-xs font-medium text-slate-900">
+                        {formatNumber(item.value)}
+                      </span>
                     </div>
                   ))}
                 </div>
               </div>
             ) : (
-              <EmptyState title="No attendance records" description="Attendance insights appear after sessions are recorded." />
+              <EmptyState
+                title="No attendance records"
+                description="Insights appear after sessions are submitted."
+                compact
+              />
             )}
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_430px]">
+      {/* ── Row 3: Program scale + Absences + Communications ── */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_320px_340px]">
+
+        {/* Program bar chart */}
         <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <CardTitle className="text-lg font-semibold text-slate-950">Today's Absence Drilldown</CardTitle>
-              <CardDescription>Program and level detail from recorded absences today.</CardDescription>
+          <CardHeader className="pb-3 pt-5 px-5">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-base font-semibold text-slate-950">Program scale</CardTitle>
+              <Badge variant="secondary" className="bg-slate-100 text-xs text-slate-600">
+                {formatDecimal(avgStudentsPerProgram, 1)} students/program
+              </Badge>
             </div>
-            <Badge variant="secondary" className="w-fit bg-slate-100 text-slate-700">
-              {formatNumber(totalAbsences)} total
-            </Badge>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-5 pb-5">
             {loading ? (
+              <Skeleton className="h-56 w-full" />
+            ) : topPrograms.length > 0 ? (
               <div className="space-y-3">
-                <Skeleton className="h-12 w-full" />
-                <Skeleton className="h-12 w-full" />
-                <Skeleton className="h-12 w-full" />
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={topPrograms} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fontSize: 10 }}
+                      interval={0}
+                      height={48}
+                      tickFormatter={(name: string) =>
+                        name.length > 10 ? `${name.slice(0, 9)}…` : name
+                      }
+                    />
+                    <YAxis tick={{ fontSize: 10 }} width={36} />
+                    <Tooltip
+                      formatter={(value: number) => [formatNumber(value), 'Students']}
+                      contentStyle={{ borderRadius: 8, border: '0.5px solid var(--border)', fontSize: 12 }}
+                    />
+                    <Bar dataKey="students" radius={[4, 4, 0, 0]} fill="#2a78d6" maxBarSize={40} />
+                  </BarChart>
+                </ResponsiveContainer>
+
+                {/* Compact program rows */}
+                <div className="space-y-1.5">
+                  {topPrograms.slice(0, 4).map((p) => (
+                    <ProgramRow key={p.id} program={p} max={topPrograms[0]?.students ?? 1} />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <EmptyState title="No programs" description="Programs appear once created." compact />
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Today's absences */}
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-3 pt-5 px-5">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-base font-semibold text-slate-950">Today's absences</CardTitle>
+              <Badge variant="secondary" className="bg-slate-100 text-xs text-slate-600">
+                {formatNumber(totalAbsences)} total
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="px-5 pb-5">
+            {loading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
               </div>
             ) : analytics && analytics.todayAbsences.length > 0 ? (
-              <div className="space-y-2">
+              <div className="space-y-1.5 max-h-[380px] overflow-y-auto pr-0.5">
                 {analytics.todayAbsences.map((program) => {
                   const expanded = expandedPrograms.includes(program.id);
-
                   return (
-                    <Collapsible key={program.id} open={expanded} onOpenChange={() => toggleProgram(program.id)}>
+                    <Collapsible
+                      key={program.id}
+                      open={expanded}
+                      onOpenChange={() => toggleProgram(program.id)}
+                    >
                       <CollapsibleTrigger className="w-full">
-                        <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-left transition-colors hover:bg-slate-50">
-                          <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-left transition-colors hover:bg-slate-50">
+                          <div className="flex min-w-0 items-center gap-2">
                             {expanded ? (
-                              <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" />
+                              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                             ) : (
-                              <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
+                              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                             )}
-                            <span className="truncate text-sm font-medium text-slate-900">{program.name}</span>
+                            <span className="truncate text-xs font-medium text-slate-900">
+                              {program.name}
+                            </span>
                           </div>
-                          <Badge variant="outline" className="shrink-0">
+                          <Badge variant="outline" className="shrink-0 text-xs">
                             {formatNumber(program.absences)}
                           </Badge>
                         </div>
                       </CollapsibleTrigger>
                       <CollapsibleContent>
-                        <div className="ml-7 mt-2 grid gap-2 sm:grid-cols-2">
+                        <div className="ml-5 mt-1 grid gap-1 grid-cols-2">
                           {program.levels.map((level) => (
                             <div
                               key={level.id}
-                              className="flex items-center justify-between rounded-md border border-slate-100 bg-slate-50 px-3 py-2"
+                              className="flex items-center justify-between rounded border border-slate-100 bg-slate-50 px-2.5 py-1.5"
                             >
-                              <span className="text-sm text-slate-700">{level.name}</span>
-                              <span className="text-sm font-medium text-slate-900">
+                              <span className="truncate text-xs text-slate-600">{level.name}</span>
+                              <span className="ml-2 shrink-0 text-xs font-medium text-slate-900">
                                 {formatNumber(level.absences)}
                               </span>
                             </div>
@@ -462,67 +615,78 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
                 })}
               </div>
             ) : (
-              <EmptyState title="No absences recorded today" description="This panel updates as attendance is submitted." />
+              <EmptyState
+                title="No absences today"
+                description="Updates as attendance is submitted."
+                compact
+              />
             )}
           </CardContent>
         </Card>
 
+        {/* Communications calendar */}
         <Card className="border-slate-200 shadow-sm">
-          <CardHeader>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <CardTitle className="text-lg font-semibold text-slate-950">Communications</CardTitle>
-                <CardDescription>Published announcements and events by date.</CardDescription>
-              </div>
-              <Badge variant="outline">
-                {formatNumber(analytics?.communications.announcements ?? 0)} /{' '}
-                {formatNumber(analytics?.communications.events ?? 0)}
+          <CardHeader className="pb-3 pt-5 px-5">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-base font-semibold text-slate-950">Communications</CardTitle>
+              <Badge variant="outline" className="text-xs">
+                {formatNumber(analytics?.communications.announcements ?? 0)} / {formatNumber(analytics?.communications.events ?? 0)}
               </Badge>
             </div>
           </CardHeader>
-          <CardContent>
-            <Tabs value={activeEventTab} onValueChange={(value) => setActiveEventTab(value as EventTab)}>
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="ANNOUNCEMENT" className="gap-2">
-                  <Bell className="h-4 w-4" />
+          <CardContent className="px-5 pb-5 space-y-4">
+            <Tabs
+              value={activeEventTab}
+              onValueChange={(v) => setActiveEventTab(v as EventTab)}
+            >
+              <TabsList className="grid w-full grid-cols-2 h-8">
+                <TabsTrigger value="ANNOUNCEMENT" className="gap-1.5 text-xs h-7">
+                  <Bell className="h-3.5 w-3.5" />
                   Announcements
                 </TabsTrigger>
-                <TabsTrigger value="EVENT" className="gap-2">
-                  <CalendarIcon className="h-4 w-4" />
+                <TabsTrigger value="EVENT" className="gap-1.5 text-xs h-7">
+                  <CalendarIcon className="h-3.5 w-3.5" />
                   Events
                 </TabsTrigger>
               </TabsList>
             </Tabs>
 
-            <div className="mt-5 flex justify-center overflow-x-auto">
+            <div className="flex justify-center">
               <Calendar
                 mode="single"
                 selected={selectedDate}
                 onSelect={setSelectedDate}
-                className="rounded-md border border-slate-200"
+                className="rounded-md border border-slate-200 scale-90 origin-top"
                 modifiers={{ hasItem: hasItemOnDate }}
-                modifiersClassNames={{ hasItem: 'font-semibold text-blue-700 underline underline-offset-4' }}
+                modifiersClassNames={{
+                  hasItem: 'font-semibold text-blue-700 underline underline-offset-2',
+                }}
               />
             </div>
 
-            <div className="mt-5">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <h4 className="text-sm font-medium text-slate-900">
-                  {selectedDate ? `${itemTypeLabel(activeEventTab)} on ${selectedDate.toLocaleDateString()}` : 'Select a date'}
-                </h4>
-                <Badge variant="outline">{selectedItems.length}</Badge>
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-medium text-slate-700">
+                  {selectedDate
+                    ? `${activeEventTab === 'EVENT' ? 'Events' : 'Announcements'} on ${selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                    : 'Select a date'}
+                </p>
+                <Badge variant="outline" className="text-xs">{selectedItems.length}</Badge>
               </div>
 
-              <div className="max-h-64 space-y-3 overflow-y-auto pr-1">
+              <div className="max-h-48 space-y-2 overflow-y-auto pr-0.5">
                 {loading ? (
-                  <>
-                    <Skeleton className="h-20 w-full" />
-                    <Skeleton className="h-20 w-full" />
-                  </>
+                  <Skeleton className="h-16 w-full" />
                 ) : selectedItems.length > 0 ? (
-                  selectedItems.map((item) => <CalendarItem key={`${item.type}-${item.id}`} item={item} />)
+                  selectedItems.map((item) => (
+                    <CalendarItem key={`${item.type}-${item.id}`} item={item} />
+                  ))
                 ) : (
-                  <EmptyState title="Nothing scheduled" description="Choose an underlined day to view details." compact />
+                  <EmptyState
+                    title="Nothing scheduled"
+                    description="Underlined dates have items."
+                    compact
+                  />
                 )}
               </div>
             </div>
@@ -533,185 +697,84 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
   );
 }
 
-function InsightTile({
-  icon: Icon,
-  label,
-  value,
-  helper,
-  loading,
-}: {
-  icon: typeof Users;
-  label: string;
-  value: string;
-  helper: string;
-  loading: boolean;
-}) {
-  return (
-    <Card className="border-slate-200 shadow-sm">
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-slate-500">{label}</p>
-            {loading ? (
-              <Skeleton className="mt-3 h-7 w-24" />
-            ) : (
-              <p className="mt-2 text-2xl font-semibold tracking-normal text-slate-950">{value}</p>
-            )}
-            <p className="mt-1 truncate text-xs text-slate-500">{helper}</p>
-          </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-2.5 text-slate-700">
-            <Icon className="h-4 w-4" />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+// ── Sub-components ──────────────────────────────────────────────────────────
 
-function DistributionCard({
-  title,
-  description,
-  data,
-  loading,
-  emptyLabel,
-}: {
-  title: string;
-  description: string;
-  data: { name: string; value: number; secondary: string; color: string }[];
-  loading: boolean;
-  emptyLabel: string;
-}) {
-  const total = data.reduce((sum, item) => sum + item.value, 0);
-
-  return (
-    <Card className="border-slate-200 shadow-sm">
-      <CardHeader>
-        <CardTitle className="text-lg font-semibold text-slate-950">{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
-            <Skeleton className="h-64 w-full" />
-            <div className="space-y-3">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
-          </div>
-        ) : total > 0 ? (
-          <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie data={data} dataKey="value" nameKey="name" innerRadius={58} outerRadius={96} paddingAngle={2}>
-                  {data.map((entry) => (
-                    <Cell key={entry.name} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value: number) => [formatNumber(value), 'Students']} />
-              </PieChart>
-            </ResponsiveContainer>
-
-            <div className="space-y-3">
-              {data.slice(0, 6).map((item) => {
-                const percent = total > 0 ? Math.round((item.value / total) * 100) : 0;
-                return (
-                  <div key={item.name}>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-800">
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
-                        <span className="truncate">{item.name}</span>
-                      </span>
-                      <span className="shrink-0 text-sm text-slate-500">{percent}%</span>
-                    </div>
-                    <div className="mt-1 flex items-center justify-between gap-3 text-xs text-slate-500">
-                      <span className="truncate">{item.secondary}</span>
-                      <span>{formatNumber(item.value)} students</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ) : (
-          <EmptyState title={emptyLabel} description="This chart will populate when student records are linked." />
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function ProgramCompactRow({
+function ProgramRow({
   program,
-  maxStudents,
+  max,
 }: {
   program: UniversityAnalyticsProgramBreakdown;
-  maxStudents: number;
+  max: number;
 }) {
-  const width = maxStudents > 0 ? Math.max(6, Math.round((program.students / maxStudents) * 100)) : 0;
-
+  const width = max > 0 ? Math.max(4, Math.round((program.students / max) * 100)) : 0;
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-slate-950">{program.name}</p>
-          <p className="mt-1 truncate text-xs text-slate-500">{program.facultyName}</p>
+    <div className="flex items-center gap-3 rounded border border-slate-100 bg-white px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-2">
+          <p className="truncate text-xs font-medium text-slate-900">{program.name}</p>
+          <span className="shrink-0 text-xs font-medium text-slate-700">
+            {formatNumber(program.students)}
+          </span>
         </div>
-        <Badge variant="outline" className="shrink-0">
-          {formatNumber(program.students)}
-        </Badge>
+        <div className="mt-1.5 h-1 rounded-full bg-slate-100">
+          <div className="h-1 rounded-full bg-blue-500" style={{ width: `${width}%` }} />
+        </div>
+        <div className="mt-1 flex items-center gap-3 text-xs text-slate-400">
+          <span>{program.levels} levels</span>
+          <span>{program.courses} courses</span>
+          <span>CGPA {formatDecimal(program.averageCgpa)}</span>
+        </div>
       </div>
-      <div className="mt-3 h-2 rounded-full bg-slate-100">
-        <div className="h-2 rounded-full bg-blue-600" style={{ width: `${width}%` }} />
-      </div>
-      <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-        <span>{program.levels} levels</span>
-        <span>{program.courses} courses</span>
-        <span>CGPA {formatDecimal(program.averageCgpa)}</span>
-      </div>
-    </div>
-  );
-}
-
-function EmptyState({ title, description, compact = false }: { title: string; description: string; compact?: boolean }) {
-  return (
-    <div
-      className={`flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 text-center ${
-        compact ? 'px-4 py-7' : 'min-h-52 px-6 py-10'
-      }`}
-    >
-      <BarChart3 className="h-7 w-7 text-slate-400" />
-      <p className="mt-3 text-sm font-medium text-slate-900">{title}</p>
-      <p className="mt-1 max-w-sm text-sm text-slate-500">{description}</p>
     </div>
   );
 }
 
 function CalendarItem({ item }: { item: UniversityAnalyticsItem }) {
   const itemDate = toDate(item.date);
-
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <div className="flex items-start justify-between gap-3">
+    <div className="rounded-lg border border-slate-200 bg-white p-3">
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h5 className="line-clamp-2 text-sm font-medium text-slate-950">{item.title}</h5>
-          <p className="mt-1 line-clamp-2 text-sm text-slate-600">{item.description}</p>
+          <h5 className="line-clamp-1 text-xs font-medium text-slate-900">{item.title}</h5>
+          <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{item.description}</p>
         </div>
-        <Badge variant={item.type === 'EVENT' ? 'default' : 'secondary'} className="shrink-0">
+        <Badge
+          variant={item.type === 'EVENT' ? 'default' : 'secondary'}
+          className="shrink-0 text-xs"
+        >
           {item.type === 'EVENT' ? 'Event' : 'Notice'}
         </Badge>
       </div>
-      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+      <div className="mt-2 flex flex-wrap gap-x-3 text-xs text-slate-400">
         <span>
           {itemDate.toLocaleDateString('en-US', {
             weekday: 'short',
             month: 'short',
             day: 'numeric',
-            year: 'numeric',
           })}
         </span>
         {item.location && <span>{item.location}</span>}
       </div>
+    </div>
+  );
+}
+
+function EmptyState({
+  title,
+  description,
+  compact = false,
+}: {
+  title: string;
+  description: string;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={`flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 text-center ${compact ? 'px-4 py-6' : 'min-h-44 px-6 py-8'
+        }`}
+    >
+      <p className="text-sm font-medium text-slate-700">{title}</p>
+      <p className="mt-1 text-xs text-slate-400">{description}</p>
     </div>
   );
 }
