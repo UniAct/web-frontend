@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   TriangleAlert,
   Users,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { User } from '../App';
@@ -185,6 +186,19 @@ export function GroupsPage({ user }: GroupsPageProps) {
     setPostContent('');
     setDueDate('');
     setFiles([]);
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
+  const handleFileSelection = (selectedFiles: FileList | null) => {
+    const nextFiles = Array.from(selectedFiles ?? []);
+    if (nextFiles.length > 5) {
+      toast.error('You can attach up to 5 files.');
+    }
+    setFiles(nextFiles.slice(0, 5));
+  };
+
+  const removeSelectedFile = (fileToRemove: File) => {
+    setFiles((current) => current.filter((file) => file !== fileToRemove));
     if (fileRef.current) fileRef.current.value = '';
   };
 
@@ -478,15 +492,31 @@ export function GroupsPage({ user }: GroupsPageProps) {
                 type="file"
                 multiple
                 className="hidden"
-                onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
+                onChange={(event) => handleFileSelection(event.target.files)}
               />
-              <Button variant="outline" type="button" onClick={() => fileRef.current?.click()} className="gap-2">
-                <Paperclip className="h-4 w-4" />
-                Attach files
-              </Button>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-slate-900">Attachments</p>
+                  <p className="text-xs text-slate-500">Attach up to 5 files to this post.</p>
+                </div>
+                <Button variant="outline" type="button" onClick={() => fileRef.current?.click()} className="gap-2">
+                  <Paperclip className="h-4 w-4" />
+                  {files.length > 0 ? 'Change files' : 'Attach files'}
+                </Button>
+              </div>
               {files.length > 0 && (
-                <div className="mt-3 space-y-1 text-sm text-slate-600">
-                  {files.map((file) => <p key={`${file.name}-${file.size}`}>{file.name}</p>)}
+                <div className="mt-3 space-y-2">
+                  {files.map((file) => (
+                    <div key={`${file.name}-${file.size}-${file.lastModified}`} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-800">{file.name}</p>
+                        <p className="text-xs text-slate-500">{formatFileSize(file.size)}</p>
+                      </div>
+                      <Button variant="ghost" size="icon" type="button" onClick={() => removeSelectedFile(file)} aria-label={`Remove ${file.name}`}>
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
