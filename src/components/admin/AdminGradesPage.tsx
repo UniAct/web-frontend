@@ -709,22 +709,6 @@ export function AdminGradesPage({ user, selectedUniversity }: AdminGradesPagePro
                   Create First Assessment
                 </Button>
               </div>
-            ) : studentGrades.length === 0 ? (
-              <div className="p-12 text-center">
-                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-slate-500">
-                  <BookOpen className="h-6 w-6" />
-                </div>
-                <h3 className="text-lg font-medium text-slate-900">Assessments are ready</h3>
-                <p className="mx-auto mt-2 max-w-md text-sm text-slate-600">
-                  No enrolled students were found for this course in the active semester. You can still manage the assessment columns now.
-                </p>
-                <div className="mt-5 flex justify-center gap-2">
-                  <Button variant="outline" className="gap-2" onClick={openCreateAssessmentDialog}>
-                    <Plus className="h-4 w-4" />
-                    Add Assessment
-                  </Button>
-                </div>
-              </div>
             ) : (
               <>
                 <div className="overflow-hidden rounded-lg border border-slate-200">
@@ -770,7 +754,19 @@ export function AdminGradesPage({ user, selectedUniversity }: AdminGradesPagePro
                       </tr>
                     </thead>
                     <tbody>
-                      {paginatedStudents.map((student, studentIndex) => {
+                      {studentGrades.length === 0 ? (
+                        <tr>
+                          <td colSpan={gradeColumns.length + 5} className="bg-white px-6 py-12 text-center">
+                            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+                              <BookOpen className="h-6 w-6" />
+                            </div>
+                            <h3 className="text-lg font-medium text-slate-900">Assessments are ready</h3>
+                            <p className="mx-auto mt-2 max-w-md text-sm text-slate-600">
+                              No enrolled students were found for this course in the active semester. You can still manage the assessment columns now.
+                            </p>
+                          </td>
+                        </tr>
+                      ) : paginatedStudents.map((student, studentIndex) => {
                         const absoluteStudentIndex = startIndex + studentIndex;
                         return (
                         <tr key={student.id} className="border-b border-slate-200 hover:bg-slate-50">
@@ -814,22 +810,24 @@ export function AdminGradesPage({ user, selectedUniversity }: AdminGradesPagePro
                   </div>
                 </div>
 
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 pt-6 border-t border-slate-200">
-                  <div className="text-sm text-slate-600">
-                    Showing {startIndex + 1} to {Math.min(startIndex + studentsPerPage, studentGrades.length)} of {studentGrades.length} students
+                {studentGrades.length > 0 && (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 pt-6 border-t border-slate-200">
+                    <div className="text-sm text-slate-600">
+                      Showing {startIndex + 1} to {Math.min(startIndex + studentsPerPage, studentGrades.length)} of {studentGrades.length} students
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPage === 1}>
+                        <ChevronLeft className="w-4 h-4" />
+                        Previous
+                      </Button>
+                      <span className="text-sm text-slate-600">Page {currentPage} of {totalPages}</span>
+                      <Button variant="outline" size="sm" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage === totalPages}>
+                        Next
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPage === 1}>
-                      <ChevronLeft className="w-4 h-4" />
-                      Previous
-                    </Button>
-                    <span className="text-sm text-slate-600">Page {currentPage} of {totalPages}</span>
-                    <Button variant="outline" size="sm" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage === totalPages}>
-                      Next
-                      <ChevronRight className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
+                )}
               </>
             )}
           </CardContent>

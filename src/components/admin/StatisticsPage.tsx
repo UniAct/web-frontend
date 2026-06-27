@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Bell,
@@ -23,6 +23,7 @@ import {
   Pie,
   PieChart,
   ResponsiveContainer,
+  Sector,
   Tooltip,
   XAxis,
   YAxis,
@@ -33,374 +34,403 @@ import {
   type UniversityAnalyticsItem,
   type UniversityAnalyticsProgramBreakdown,
 } from '../../api';
-import { Alert, AlertDescription } from '../ui/alert';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
 import { Calendar } from '../ui/calendar';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
-import { Progress } from '../ui/progress';
-import { Skeleton } from '../ui/skeleton';
-import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
 
-const CHART_COLORS = [
-  '#2a78d6', '#1baf7a', '#eda100', '#008300',
-  '#4a3aa7', '#e34948', '#e87ba4', '#eb6834',
-];
+// ── Palette ──────────────────────────────────────────────────────────────────
+const SERIES = ['#2a78d6', '#1baf7a', '#eda100', '#4a3aa7', '#e34948', '#eb6834', '#e87ba4', '#008300'];
 
+const ATTENDANCE_COLORS: Record<string, string> = {
+  Present: '#1baf7a',
+  Late: '#eda100',
+  Absent: '#e34948',
+  Excused: '#2a78d6',
+  Medical: '#4a3aa7',
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmt(n: number) { return new Intl.NumberFormat('en-US').format(n); }
+function dec(n: number, d = 2) {
+  return new Intl.NumberFormat('en-US', { minimumFractionDigits: n > 0 ? d : 0, maximumFractionDigits: d }).format(n);
+}
+function toDate(s: string) { const d = new Date(s); return isNaN(d.getTime()) ? new Date() : d; }
+function sameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 interface StatisticsPageProps {
   selectedUniversity: string | null;
-  setSelectedUniversity: (university: string | null) => void;
+  setSelectedUniversity: (u: string | null) => void;
 }
-
 type EventTab = 'ANNOUNCEMENT' | 'EVENT';
-type DistributionTab = 'faculty' | 'program';
+type DistTab = 'faculty' | 'program';
 
-function formatNumber(value: number) {
-  return new Intl.NumberFormat('en-US').format(value);
-}
-
-function formatDecimal(value: number, digits = 2) {
-  return new Intl.NumberFormat('en-US', {
-    maximumFractionDigits: digits,
-    minimumFractionDigits: value > 0 ? digits : 0,
-  }).format(value);
-}
-
-function toDate(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? new Date() : date;
-}
-
-function sameCalendarDay(left: Date, right: Date) {
+// ── Active Pie Shape ──────────────────────────────────────────────────────────
+// Recharts calls this with a wide set of props we forward to Sector
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ActivePieShape = (props: any) => {
+  const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill } = props;
   return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
+    <g>
+      <Sector cx={cx} cy={cy} innerRadius={innerRadius} outerRadius={outerRadius + 5}
+        startAngle={startAngle} endAngle={endAngle} fill={fill} />
+      <Sector cx={cx} cy={cy} innerRadius={outerRadius + 9} outerRadius={outerRadius + 12}
+        startAngle={startAngle} endAngle={endAngle} fill={fill} opacity={0.5} />
+    </g>
+  );
+};
+
+// ── KPI Card ──────────────────────────────────────────────────────────────────
+function KpiCard({
+  label, value, icon: Icon, accent, sub, loading,
+}: {
+  label: string; value: string; icon: React.ElementType;
+  accent: string; sub?: string; loading: boolean;
+}) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 14,
+      background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12,
+      padding: '14px 16px', minWidth: 0
+    }}>
+      <div style={{
+        width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: accent + '18', border: `1px solid ${accent}30`,
+      }}>
+        <Icon style={{ width: 18, height: 18, color: accent }} />
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <p style={{ margin: 0, fontSize: 11, fontWeight: 500, color: '#64748b', letterSpacing: '0.03em', textTransform: 'uppercase' }}>{label}</p>
+        {loading
+          ? <div style={{ width: 64, height: 22, background: '#f1f5f9', borderRadius: 4, marginTop: 4 }} />
+          : <p style={{ margin: '2px 0 0', fontSize: 22, fontWeight: 700, color: '#0f172a', lineHeight: 1.1 }}>{value}</p>
+        }
+        {sub && !loading && <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>{sub}</p>}
+      </div>
+    </div>
   );
 }
 
-// Custom active shape for PieChart — renders a highlighted sector with an outer ring
-// and a centered label showing name + count in the donut hole.
+// ── Section Header ─────────────────────────────────────────────────────────────
+function SectionHeader({ title, badge, action }: { title: string; badge?: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      gap: 12, padding: '16px 20px 0', flexWrap: 'wrap'
+    }}>
+      <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#0f172a' }}>{title}</h3>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {badge}
+        {action}
+      </div>
+    </div>
+  );
+}
+
+// ── Pill Badge ─────────────────────────────────────────────────────────────────
+function Pill({ children, variant = 'default' }: { children: React.ReactNode; variant?: 'default' | 'blue' }) {
+  const bg = variant === 'blue' ? '#eff6ff' : '#f8fafc';
+  const color = variant === 'blue' ? '#1d4ed8' : '#475569';
+  const border = variant === 'blue' ? '#bfdbfe' : '#e2e8f0';
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      background: bg, color, border: `1px solid ${border}`,
+      borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 500
+    }}>
+      {children}
+    </span>
+  );
+}
+
+// ── Panel (card substitute) ────────────────────────────────────────────────────
+function Panel({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+  return (
+    <div style={{
+      background: '#fff',
+      border: '1px solid #e2e8f0',
+      borderRadius: 14,
+      overflow: 'hidden',
+      boxShadow: '0 1px 3px rgba(0,0,0,.04), 0 1px 2px rgba(0,0,0,.03)',
+      ...style,
+    }}>
+      {children}
+    </div>
+  );
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────────
 export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
   const [analytics, setAnalytics] = useState<UniversityAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [expandedPrograms, setExpandedPrograms] = useState<number[]>([]);
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
-  const [activeEventTab, setActiveEventTab] = useState<EventTab>('ANNOUNCEMENT');
-  const [distributionTab, setDistributionTab] = useState<DistributionTab>('faculty');
-  const [activePieIndex, setActivePieIndex] = useState(0);
+  const [expanded, setExpanded] = useState<number[]>([]);
+  const [selDate, setSelDate] = useState<Date | undefined>(new Date());
+  const [evTab, setEvTab] = useState<EventTab>('ANNOUNCEMENT');
+  const [distTab, setDistTab] = useState<DistTab>('faculty');
+  const [pieIdx, setPieIdx] = useState(0);
 
-  const loadAnalytics = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await UniversityService.getAnalytics();
-      setAnalytics(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load statistics');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try { setAnalytics(await UniversityService.getAnalytics()); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Failed to load'); }
+    finally { setLoading(false); }
+  }, []);
 
-  useEffect(() => {
-    void loadAnalytics();
-    setActivePieIndex(0);
-  }, [selectedUniversity]);
+  useEffect(() => { void load(); setPieIdx(0); }, [load, selectedUniversity]);
+  useEffect(() => { setPieIdx(0); }, [distTab]);
 
-  // Reset pie index when switching tabs
-  useEffect(() => {
-    setActivePieIndex(0);
-  }, [distributionTab]);
+  const sum = analytics?.summary;
+  const att30 = analytics?.attendance.last30Days;
+  const totalAbs = analytics?.todayAbsences.reduce((t, p) => t + p.absences, 0) ?? 0;
+  const avgSPP = sum?.programs ? Math.round((sum.students / sum.programs) * 10) / 10 : 0;
+  const avgCap = analytics?.resources.classrooms
+    ? Math.round(analytics.resources.totalCapacity / analytics.resources.classrooms) : 0;
 
-  const summary = analytics?.summary;
-  const attendance = analytics?.attendance.last30Days;
-  const totalAbsences = analytics?.todayAbsences.reduce((t, p) => t + p.absences, 0) ?? 0;
-  const avgStudentsPerProgram = summary?.programs
-    ? Math.round((summary.students / summary.programs) * 10) / 10
-    : 0;
+  const facultyPie = useMemo(() =>
+    analytics?.facultyBreakdown.map((f, i) => ({
+      name: f.name, value: f.students, secondary: `${f.programs} programs`, color: SERIES[i % SERIES.length],
+    })) ?? [], [analytics]);
 
-  // Headline stats — 4 primary KPIs
-  const headlineStats = [
-    { label: 'Students', value: summary?.students ?? 0, icon: Users, color: 'text-blue-700 bg-blue-50 border-blue-100' },
-    { label: 'Faculties', value: summary?.faculties ?? 0, icon: School, color: 'text-emerald-700 bg-emerald-50 border-emerald-100' },
-    { label: 'Programs', value: summary?.programs ?? 0, icon: Layers3, color: 'text-violet-700 bg-violet-50 border-violet-100' },
-    { label: 'Courses', value: summary?.courses ?? 0, icon: BookOpen, color: 'text-amber-700 bg-amber-50 border-amber-100' },
-  ];
+  const programPie = useMemo(() =>
+    analytics?.programBreakdown.slice(0, 8).map((p, i) => ({
+      name: p.name, value: p.students, secondary: p.facultyName, color: SERIES[i % SERIES.length],
+    })) ?? [], [analytics]);
 
-  // Secondary KPIs rendered as a compact strip
-  const secondaryStats = [
-    {
-      icon: GraduationCap,
-      label: 'Staff / Admins',
-      value: `${formatNumber(summary?.staff ?? 0)} / ${formatNumber(summary?.admins ?? 0)}`,
-    },
-    {
-      icon: Network,
-      label: 'Learning groups',
-      value: formatNumber(summary?.learningGroups ?? 0),
-      sub: `${formatNumber(summary?.activeRegistrations ?? 0)} active enrollments`,
-    },
-    {
-      icon: Building2,
-      label: 'Room capacity',
-      value: formatNumber(analytics?.resources.totalCapacity ?? 0),
-      sub: `${analytics?.resources.classrooms ?? 0} classrooms`,
-    },
-    {
-      icon: TrendingUp,
-      label: 'Attendance rate',
-      value: `${attendance?.attendanceRate ?? 0}%`,
-      sub: `${formatNumber(attendance?.total ?? 0)} records / 30 days`,
-    },
-  ];
+  const pieData = distTab === 'faculty' ? facultyPie : programPie;
+  const safeIdx = pieData.length > 0 ? Math.min(pieIdx, pieData.length - 1) : 0;
+  const active = pieData[safeIdx];
+  const pieTotal = pieData.reduce((s, x) => s + x.value, 0);
 
-  // Faculty pie data
-  const facultyPieData = useMemo(
-    () =>
-      analytics?.facultyBreakdown.map((f, i) => ({
-        name: f.name,
-        value: f.students,
-        secondary: `${f.programs} programs`,
-        color: CHART_COLORS[i % CHART_COLORS.length],
-      })) ?? [],
-    [analytics],
+  const topProgs = useMemo(() => analytics?.programBreakdown.slice(0, 6) ?? [], [analytics]);
+
+  const attData = useMemo(() => att30 ? [
+    { name: 'Present', value: att30.present },
+    { name: 'Late', value: att30.late },
+    { name: 'Absent', value: att30.absent },
+    { name: 'Excused', value: att30.excused },
+    { name: 'Medical', value: att30.medical },
+  ] : [], [att30]);
+
+  const upcomingFiltered = useMemo(
+    () => analytics?.upcomingItems.filter(i => i.type === evTab) ?? [],
+    [analytics, evTab],
   );
+  const selItems = useMemo(() =>
+    selDate ? upcomingFiltered.filter(i => sameDay(toDate(i.date), selDate)) : [],
+    [selDate, upcomingFiltered]);
 
-  // Program pie data (top 8)
-  const programPieData = useMemo(
-    () =>
-      analytics?.programBreakdown.slice(0, 8).map((p, i) => ({
-        name: p.name,
-        value: p.students,
-        secondary: p.facultyName,
-        color: CHART_COLORS[i % CHART_COLORS.length],
-      })) ?? [],
-    [analytics],
+  const hasItem = (d: Date) => upcomingFiltered.some(i => sameDay(toDate(i.date), d));
+  const toggle = (id: number) => setExpanded(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+
+  // Donut center label rendered via foreignObject so it doesn't rely on coordinate guessing
+  const DonutLabel = active ? (
+    <foreignObject x={0} y={60} width={220} height={100} style={{ pointerEvents: 'none' }}>
+      <div style={{ textAlign: 'center', padding: '0 12px' }}>
+        <p style={{
+          margin: 0, fontSize: 12, fontWeight: 600, color: '#0f172a',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+        }}>
+          {active.name}
+        </p>
+        <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
+          {fmt(active.value)} students
+        </p>
+        <p style={{ margin: '1px 0 0', fontSize: 10, color: '#94a3b8' }}>
+          {active.secondary}
+        </p>
+      </div>
+    </foreignObject>
+  ) : null;
+
+  const isLoading = (h: number) => (
+    <div style={{
+      height: h, background: '#f8fafc', borderRadius: 8,
+      animation: 'pulse 1.5s ease-in-out infinite'
+    }} />
   );
-
-  const activePieData = distributionTab === 'faculty' ? facultyPieData : programPieData;
-  const normalizedActivePieIndex = activePieData.length > 0
-    ? Math.min(activePieIndex, activePieData.length - 1)
-    : 0;
-  const activePieItem = activePieData[normalizedActivePieIndex];
-  const topPrograms = useMemo(() => analytics?.programBreakdown.slice(0, 6) ?? [], [analytics]);
-
-  const attendanceData = useMemo(
-    () =>
-      attendance
-        ? [
-          { name: 'Present', value: attendance.present, color: '#1baf7a' },
-          { name: 'Late', value: attendance.late, color: '#eda100' },
-          { name: 'Absent', value: attendance.absent, color: '#e34948' },
-          { name: 'Excused', value: attendance.excused, color: '#2a78d6' },
-          { name: 'Medical', value: attendance.medical, color: '#4a3aa7' },
-        ]
-        : [],
-    [attendance],
-  );
-
-  const visibleItems = useMemo(
-    () => analytics?.upcomingItems.filter((item) => item.type === activeEventTab) ?? [],
-    [activeEventTab, analytics],
-  );
-
-  const selectedItems = useMemo(() => {
-    if (!selectedDate) return [];
-    return visibleItems.filter((item) => sameCalendarDay(toDate(item.date), selectedDate));
-  }, [selectedDate, visibleItems]);
-
-  const hasItemOnDate = (date: Date) =>
-    visibleItems.some((item) => sameCalendarDay(toDate(item.date), date));
-
-  const toggleProgram = (id: number) =>
-    setExpandedPrograms((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
 
   return (
-    <div className="space-y-4">
-      {/* ── Header ── */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="bg-slate-50 text-slate-700 text-xs">
-                Live analytics
-              </Badge>
-              {analytics?.generatedAt && (
-                <span className="text-xs text-slate-400">
-                  Updated {new Date(analytics.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              )}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* ── HEADER PANEL ──────────────────────────────────────────────────── */}
+      <Panel>
+        <div style={{ padding: '20px 20px 4px' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <Pill variant="blue">
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#2a78d6', display: 'inline-block' }} />
+                  Live analytics
+                </Pill>
+                {analytics?.generatedAt && (
+                  <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                    Updated {new Date(analytics.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
+              </div>
+              <h2 style={{ margin: '8px 0 0', fontSize: 20, fontWeight: 700, color: '#0f172a' }}>
+                {selectedUniversity ?? 'University'} Statistics
+              </h2>
+              <p style={{ margin: '4px 0 0', fontSize: 12, color: '#64748b' }}>
+                Real-time snapshot of academic structure, attendance, and communications.
+              </p>
             </div>
-            <h2 className="mt-2 text-xl font-semibold text-slate-950">
-              {selectedUniversity ?? 'University'} Statistics
-            </h2>
+            <button
+              onClick={load}
+              disabled={loading}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px',
+                background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+                fontSize: 12, fontWeight: 500, color: '#475569', cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.6 : 1, flexShrink: 0, whiteSpace: 'nowrap',
+              }}
+            >
+              <RefreshCcw style={{ width: 13, height: 13, animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+              Refresh
+            </button>
           </div>
-          <Button variant="outline" size="sm" onClick={loadAnalytics} disabled={loading} className="w-fit gap-2 shrink-0">
-            <RefreshCcw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
+
+          {error && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8, marginTop: 12,
+              padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca',
+              borderRadius: 8, fontSize: 12, color: '#991b1b',
+            }}>
+              <AlertTriangle style={{ width: 14, height: 14, flexShrink: 0 }} />
+              {error}
+            </div>
+          )}
         </div>
 
-        {error && (
-          <Alert variant="destructive" className="mt-4 border-red-200 bg-red-50">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
+        {/* Primary KPIs — explicit 4-col grid, no breakpoint */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, padding: '16px 20px 0' }}>
+          <KpiCard label="Students" value={fmt(sum?.students ?? 0)} icon={Users} accent="#2a78d6" loading={loading} />
+          <KpiCard label="Faculties" value={fmt(sum?.faculties ?? 0)} icon={School} accent="#1baf7a" loading={loading} />
+          <KpiCard label="Programs" value={fmt(sum?.programs ?? 0)} icon={Layers3} accent="#7c3aed" loading={loading} />
+          <KpiCard label="Courses" value={fmt(sum?.courses ?? 0)} icon={BookOpen} accent="#d97706" loading={loading} />
+        </div>
 
-        {/* Primary KPIs */}
-        <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-          {headlineStats.map(({ label, value, icon: Icon, color }) => (
-            <div key={label} className="rounded-lg border border-slate-100 bg-slate-50 p-3.5">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-medium text-slate-500">{label}</p>
-                <div className={`rounded-md border p-1.5 ${color}`}>
-                  <Icon className="h-3.5 w-3.5" />
-                </div>
+        {/* Secondary strip */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, padding: '10px 20px 20px' }}>
+          {[
+            { icon: GraduationCap, label: 'Staff / Admins', value: `${fmt(sum?.staff ?? 0)} / ${fmt(sum?.admins ?? 0)}` },
+            { icon: Network, label: 'Learning groups', value: fmt(sum?.learningGroups ?? 0), sub: `${fmt(sum?.activeRegistrations ?? 0)} active enrollments` },
+            { icon: Building2, label: 'Room capacity', value: fmt(analytics?.resources.totalCapacity ?? 0), sub: `${avgCap} avg seats / room` },
+            { icon: TrendingUp, label: 'Attendance rate', value: `${att30?.attendanceRate ?? 0}%`, sub: `${fmt(att30?.total ?? 0)} records / 30 days` },
+          ].map(({ icon: Icon, label, value, sub }) => (
+            <div key={label} style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              background: '#f8fafc', border: '1px solid #f1f5f9', borderRadius: 10, padding: '10px 14px',
+            }}>
+              <Icon style={{ width: 15, height: 15, color: '#64748b', flexShrink: 0 }} />
+              <div style={{ minWidth: 0 }}>
+                <p style={{ margin: 0, fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>{label}</p>
+                {loading
+                  ? <div style={{ width: 56, height: 16, background: '#e2e8f0', borderRadius: 3, marginTop: 3 }} />
+                  : <>
+                    <p style={{ margin: '2px 0 0', fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{value}</p>
+                    {sub && <p style={{ margin: 0, fontSize: 10, color: '#94a3b8' }}>{sub}</p>}
+                  </>
+                }
               </div>
-              {loading ? (
-                <Skeleton className="mt-2 h-7 w-20" />
-              ) : (
-                <p className="mt-1.5 text-2xl font-semibold tracking-tight text-slate-950">
-                  {formatNumber(value)}
-                </p>
-              )}
             </div>
           ))}
         </div>
+      </Panel>
 
-        {/* Secondary KPI strip */}
-        <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {secondaryStats.map(({ icon: Icon, label, value, sub }) => (
-            <div key={label} className="rounded-lg border border-slate-100 bg-white px-3 py-2.5">
-              <div className="flex items-center gap-1.5 text-slate-500">
-                <Icon className="h-3.5 w-3.5 shrink-0" />
-                <span className="text-xs font-medium">{label}</span>
+      {/* ── ROW 2: Distribution + Attendance ─────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 370px', gap: 16 }}>
+
+        {/* Distribution */}
+        <Panel>
+          <SectionHeader
+            title="Student distribution"
+            action={
+              <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: 8, padding: 3, gap: 2 }}>
+                {(['faculty', 'program'] as DistTab[]).map(t => (
+                  <button key={t} onClick={() => setDistTab(t)} style={{
+                    padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                    fontSize: 11, fontWeight: 500, transition: 'all .15s',
+                    background: distTab === t ? '#fff' : 'transparent',
+                    color: distTab === t ? '#0f172a' : '#64748b',
+                    boxShadow: distTab === t ? '0 1px 2px rgba(0,0,0,.08)' : 'none',
+                  }}>
+                    {t === 'faculty' ? 'By faculty' : 'By program'}
+                  </button>
+                ))}
               </div>
-              {loading ? (
-                <Skeleton className="mt-1.5 h-5 w-16" />
-              ) : (
-                <>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{value}</p>
-                  {sub && <p className="text-xs text-slate-400">{sub}</p>}
-                </>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Row 2: Distribution + Attendance side-by-side ── */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_380px]">
-
-        {/* Combined Distribution Card */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="pb-3 pt-5 px-5">
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle className="text-base font-semibold text-slate-950">Student distribution</CardTitle>
-              <Tabs
-                value={distributionTab}
-                onValueChange={(v) => setDistributionTab(v as DistributionTab)}
-              >
-                <TabsList className="h-7 gap-0.5 px-0.5 py-0.5">
-                  <TabsTrigger value="faculty" className="h-6 px-3 text-xs">
-                    By faculty
-                  </TabsTrigger>
-                  <TabsTrigger value="program" className="h-6 px-3 text-xs">
-                    By program
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </div>
-          </CardHeader>
-          <CardContent className="px-5 pb-5">
+            }
+          />
+          <div style={{ padding: '16px 20px 20px' }}>
             {loading ? (
-              <div className="flex gap-6">
-                <Skeleton className="h-52 w-52 rounded-full" />
-                <div className="flex-1 space-y-3 pt-4">
-                  <Skeleton className="h-8 w-full" />
-                  <Skeleton className="h-8 w-full" />
-                  <Skeleton className="h-8 w-full" />
-                  <Skeleton className="h-8 w-full" />
+              <div style={{ display: 'flex', gap: 24 }}>
+                <div style={{ width: 220, height: 220, borderRadius: '50%', background: '#f1f5f9' }} />
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 8 }}>
+                  {[1, 2, 3, 4, 5].map(i => <div key={i} style={{ height: 32, background: '#f8fafc', borderRadius: 6 }} />)}
                 </div>
               </div>
-            ) : activePieData.length > 0 ? (
-              <div className="grid gap-6 md:grid-cols-[220px_1fr]">
-                {/* Interactive donut — hover shows label in center */}
-                <ResponsiveContainer width="100%" height={220}>
-                  <PieChart>
-                    {activePieItem && (
-                      <>
-                        <text
-                          x={110}
-                          y={100}
-                          textAnchor="middle"
-                          fill="#0f172a"
-                          style={{ fontSize: 13, fontWeight: 600 }}
-                        >
-                          {activePieItem.name.length > 16
-                            ? `${activePieItem.name.slice(0, 15)}...`
-                            : activePieItem.name}
-                        </text>
-                        <text x={110} y={119} textAnchor="middle" fill="#64748b" style={{ fontSize: 12 }}>
-                          {formatNumber(activePieItem.value)} students
-                        </text>
-                        <text x={110} y={136} textAnchor="middle" fill="#94a3b8" style={{ fontSize: 11 }}>
-                          {activePieItem.secondary}
-                        </text>
-                      </>
-                    )}
-                    <Pie
-                      data={activePieData}
-                      dataKey="value"
-                      nameKey="name"
-                      innerRadius={60}
-                      outerRadius={90}
-                      onMouseEnter={(_, index) => setActivePieIndex(index)}
-                    >
-                      {activePieData.map((entry, index) => (
-                        <Cell
-                          key={entry.name}
-                          fill={entry.color}
-                          opacity={index === normalizedActivePieIndex ? 1 : 0.72}
-                          stroke={index === normalizedActivePieIndex ? '#ffffff' : entry.color}
-                          strokeWidth={index === normalizedActivePieIndex ? 4 : 1}
-                        />
-                      ))}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-
-                {/* Legend list */}
-                <div className="flex flex-col justify-center gap-2 py-1">
-                  {activePieData.slice(0, 7).map((item, idx) => {
-                    const total = activePieData.reduce((s, x) => s + x.value, 0);
-                    const pct = total > 0 ? Math.round((item.value / total) * 100) : 0;
-                    const isActive = idx === normalizedActivePieIndex;
-                    return (
-                      <button
-                        key={item.name}
-                        type="button"
-                        className={`flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors ${isActive ? 'bg-slate-100' : 'hover:bg-slate-50'
-                          }`}
-                        onMouseEnter={() => setActivePieIndex(idx)}
-                        onClick={() => setActivePieIndex(idx)}
+            ) : pieData.length > 0 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 24, alignItems: 'center' }}>
+                {/* Donut */}
+                <div style={{ position: 'relative' }}>
+                  <ResponsiveContainer width={220} height={220}>
+                    <PieChart>
+                      {DonutLabel}
+                      <Pie
+                        data={pieData} dataKey="value" nameKey="name"
+                        cx={110} cy={110} innerRadius={62} outerRadius={90}
+                        activeIndex={safeIdx}
+                        activeShape={ActivePieShape}
+                        onMouseEnter={(_, i) => setPieIdx(i)}
+                        onClick={(_, i) => setPieIdx(i)}
                       >
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-sm"
-                          style={{ backgroundColor: item.color }}
-                        />
-                        <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-800">
+                        {pieData.map((entry, i) => (
+                          <Cell key={entry.name} fill={entry.color}
+                            opacity={i === safeIdx ? 1 : 0.65}
+                            stroke={i === safeIdx ? '#fff' : 'transparent'}
+                            strokeWidth={i === safeIdx ? 3 : 0}
+                          />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Legend */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {pieData.slice(0, 8).map((item, i) => {
+                    const pct = pieTotal > 0 ? Math.round((item.value / pieTotal) * 100) : 0;
+                    const isSel = i === safeIdx;
+                    return (
+                      <button key={item.name} type="button"
+                        onMouseEnter={() => setPieIdx(i)} onClick={() => setPieIdx(i)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          padding: '7px 10px', borderRadius: 8, border: 'none', textAlign: 'left',
+                          cursor: 'pointer', transition: 'background .1s',
+                          background: isSel ? '#f0f7ff' : 'transparent',
+                        }}
+                      >
+                        <span style={{
+                          width: 10, height: 10, borderRadius: 3, flexShrink: 0,
+                          background: item.color,
+                          boxShadow: isSel ? `0 0 0 2px ${item.color}40` : 'none',
+                        }} />
+                        <span style={{
+                          flex: 1, fontSize: 12, fontWeight: isSel ? 600 : 400,
+                          color: isSel ? '#0f172a' : '#475569', overflow: 'hidden',
+                          textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                        }}>
                           {item.name}
                         </span>
-                        <span className="shrink-0 text-xs text-slate-400">{pct}%</span>
-                        <span className="shrink-0 text-xs font-medium text-slate-700">
-                          {formatNumber(item.value)}
+                        <span style={{ fontSize: 11, color: '#94a3b8', flexShrink: 0 }}>{pct}%</span>
+                        <span style={{
+                          fontSize: 12, fontWeight: 600, color: '#334155',
+                          minWidth: 40, textAlign: 'right', flexShrink: 0
+                        }}>
+                          {fmt(item.value)}
                         </span>
                       </button>
                     );
@@ -408,373 +438,339 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
                 </div>
               </div>
             ) : (
-              <EmptyState
-                title="No distribution data"
-                description="This chart will populate once student records are linked."
-                compact
-              />
+              <EmptySlate title="No distribution data" sub="Populates once student records are linked." />
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </Panel>
 
-        {/* Attendance card */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="pb-3 pt-5 px-5">
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle className="text-base font-semibold text-slate-950">Attendance health</CardTitle>
-              {!loading && attendance && attendance.total > 0 && (
-                <Badge variant="outline" className="text-xs">
-                  {totalAbsences} absent today
-                </Badge>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent className="px-5 pb-5">
+        {/* Attendance */}
+        <Panel>
+          <SectionHeader title="Attendance health"
+            badge={!loading && att30 && att30.total > 0
+              ? <Pill>{totalAbs} absent today</Pill> : undefined} />
+          <div style={{ padding: '16px 20px 20px' }}>
             {loading ? (
-              <div className="space-y-4">
-                <Skeleton className="h-6 w-24" />
-                <Skeleton className="h-2 w-full" />
-                <Skeleton className="h-40 w-full" />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ height: 28, width: 100, background: '#f1f5f9', borderRadius: 6 }} />
+                <div style={{ height: 6, background: '#f1f5f9', borderRadius: 4 }} />
+                <div style={{ height: 160, background: '#f8fafc', borderRadius: 8 }} />
               </div>
-            ) : attendance && attendance.total > 0 ? (
-              <div className="space-y-4">
+            ) : att30 && att30.total > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-semibold text-slate-950">
-                      {attendance.attendanceRate}%
-                    </span>
-                    <span className="text-sm text-slate-500">present or late</span>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                    <span style={{ fontSize: 28, fontWeight: 700, color: '#0f172a' }}>{att30.attendanceRate}%</span>
+                    <span style={{ fontSize: 12, color: '#64748b' }}>present or late</span>
                   </div>
-                  <Progress value={attendance.attendanceRate} className="mt-2 h-1.5 bg-slate-100" />
+                  <div style={{ marginTop: 8, height: 6, background: '#f1f5f9', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%', width: `${att30.attendanceRate}%`,
+                      background: 'linear-gradient(90deg, #1baf7a, #2a78d6)', borderRadius: 4, transition: 'width .6s'
+                    }} />
+                  </div>
                 </div>
 
-                <ResponsiveContainer width="100%" height={160}>
+                <ResponsiveContainer width="100%" height={148}>
                   <PieChart>
-                    <Pie
-                      data={attendanceData}
-                      dataKey="value"
-                      nameKey="name"
-                      innerRadius={44}
-                      outerRadius={72}
-                    >
-                      {attendanceData.map((entry) => (
-                        <Cell key={entry.name} fill={entry.color} />
-                      ))}
+                    <Pie data={attData} dataKey="value" nameKey="name"
+                      cx="50%" cy="50%" innerRadius={40} outerRadius={66}>
+                      {attData.map(e => <Cell key={e.name} fill={ATTENDANCE_COLORS[e.name] ?? '#94a3b8'} />)}
                     </Pie>
                     <Tooltip
-                      formatter={(value: number) => [formatNumber(value), 'Records']}
-                      contentStyle={{ borderRadius: 8, border: '0.5px solid var(--border)', fontSize: 12 }}
+                      formatter={(v: number) => [fmt(v), 'Records']}
+                      contentStyle={{
+                        borderRadius: 8, border: '1px solid #e2e8f0',
+                        fontSize: 11, boxShadow: '0 4px 6px rgba(0,0,0,.06)'
+                      }}
                     />
                   </PieChart>
                 </ResponsiveContainer>
 
-                <div className="grid grid-cols-2 gap-1.5">
-                  {attendanceData.map((item) => (
-                    <div
-                      key={item.name}
-                      className="flex items-center justify-between rounded bg-slate-50 px-2.5 py-1.5"
-                    >
-                      <span className="flex items-center gap-1.5 text-xs text-slate-600">
-                        <span
-                          className="h-2 w-2 rounded-full"
-                          style={{ backgroundColor: item.color }}
-                        />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                  {attData.map(item => (
+                    <div key={item.name} style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      background: '#f8fafc', borderRadius: 7, padding: '6px 10px',
+                    }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#475569' }}>
+                        <span style={{
+                          width: 8, height: 8, borderRadius: '50%',
+                          background: ATTENDANCE_COLORS[item.name] ?? '#94a3b8', flexShrink: 0
+                        }} />
                         {item.name}
                       </span>
-                      <span className="text-xs font-medium text-slate-900">
-                        {formatNumber(item.value)}
-                      </span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#0f172a' }}>{fmt(item.value)}</span>
                     </div>
                   ))}
                 </div>
               </div>
             ) : (
-              <EmptyState
-                title="No attendance records"
-                description="Insights appear after sessions are submitted."
-                compact
-              />
+              <EmptySlate title="No attendance records" sub="Insights appear after sessions are submitted." />
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </Panel>
       </div>
 
-      {/* ── Row 3: Program scale + Absences + Communications ── */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_320px_340px]">
+      {/* ── ROW 3: Programs + Absences + Comms ───────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px 330px', gap: 16 }}>
 
-        {/* Program bar chart */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="pb-3 pt-5 px-5">
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle className="text-base font-semibold text-slate-950">Program scale</CardTitle>
-              <Badge variant="secondary" className="bg-slate-100 text-xs text-slate-600">
-                {formatDecimal(avgStudentsPerProgram, 1)} students/program
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="px-5 pb-5">
-            {loading ? (
-              <Skeleton className="h-56 w-full" />
-            ) : topPrograms.length > 0 ? (
-              <div className="space-y-3">
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={topPrograms} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                    <XAxis
-                      dataKey="name"
-                      tick={{ fontSize: 10 }}
-                      interval={0}
-                      height={48}
-                      tickFormatter={(name: string) =>
-                        name.length > 10 ? `${name.slice(0, 9)}…` : name
-                      }
-                    />
-                    <YAxis tick={{ fontSize: 10 }} width={36} />
+        {/* Program scale */}
+        <Panel>
+          <SectionHeader title="Program scale"
+            badge={<Pill>{dec(avgSPP, 1)} students / program</Pill>} />
+          <div style={{ padding: '16px 20px 20px' }}>
+            {loading ? isLoading(280) : topProgs.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart data={topProgs} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#94a3b8' }} interval={0} height={44}
+                      tickFormatter={(n: string) => n.length > 9 ? n.slice(0, 8) + '…' : n} />
+                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} width={34} />
                     <Tooltip
-                      formatter={(value: number) => [formatNumber(value), 'Students']}
-                      contentStyle={{ borderRadius: 8, border: '0.5px solid var(--border)', fontSize: 12 }}
+                      formatter={(v: number) => [fmt(v), 'Students']}
+                      contentStyle={{
+                        borderRadius: 8, border: '1px solid #e2e8f0',
+                        fontSize: 11, boxShadow: '0 4px 6px rgba(0,0,0,.06)'
+                      }}
                     />
-                    <Bar dataKey="students" radius={[4, 4, 0, 0]} fill="#2a78d6" maxBarSize={40} />
+                    <Bar dataKey="students" radius={[4, 4, 0, 0]} maxBarSize={38}
+                      fill="url(#barGrad)" />
+                    <defs>
+                      <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#2a78d6" />
+                        <stop offset="100%" stopColor="#60a5fa" />
+                      </linearGradient>
+                    </defs>
                   </BarChart>
                 </ResponsiveContainer>
 
-                {/* Compact program rows */}
-                <div className="space-y-1.5">
-                  {topPrograms.slice(0, 4).map((p) => (
-                    <ProgramRow key={p.id} program={p} max={topPrograms[0]?.students ?? 1} />
-                  ))}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {topProgs.slice(0, 5).map(p => {
+                    const w = topProgs[0]?.students ? Math.max(4, Math.round((p.students / topProgs[0].students) * 100)) : 0;
+                    return (
+                      <div key={p.id} style={{
+                        background: '#f8fafc', borderRadius: 8, padding: '8px 12px',
+                        border: '1px solid #f1f5f9',
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <span style={{
+                            fontSize: 12, fontWeight: 500, color: '#0f172a',
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1
+                          }}>
+                            {p.name}
+                          </span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#2a78d6', flexShrink: 0 }}>{fmt(p.students)}</span>
+                        </div>
+                        <div style={{ marginTop: 6, height: 3, background: '#e2e8f0', borderRadius: 2 }}>
+                          <div style={{ height: 3, width: `${w}%`, background: '#2a78d6', borderRadius: 2, transition: 'width .5s' }} />
+                        </div>
+                        <div style={{ marginTop: 5, display: 'flex', gap: 12 }}>
+                          <span style={{ fontSize: 10, color: '#94a3b8' }}>{p.levels} levels</span>
+                          <span style={{ fontSize: 10, color: '#94a3b8' }}>{p.courses} courses</span>
+                          <span style={{ fontSize: 10, color: '#94a3b8' }}>CGPA {dec(p.averageCgpa)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ) : (
-              <EmptyState title="No programs" description="Programs appear once created." compact />
+              <EmptySlate title="No programs" sub="Programs appear once created." />
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </Panel>
 
         {/* Today's absences */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="pb-3 pt-5 px-5">
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle className="text-base font-semibold text-slate-950">Today's absences</CardTitle>
-              <Badge variant="secondary" className="bg-slate-100 text-xs text-slate-600">
-                {formatNumber(totalAbsences)} total
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="px-5 pb-5">
+        <Panel>
+          <SectionHeader title="Today's absences" badge={<Pill>{fmt(totalAbs)} total</Pill>} />
+          <div style={{ padding: '16px 20px 20px' }}>
             {loading ? (
-              <div className="space-y-2">
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {[1, 2, 3, 4].map(i => <div key={i} style={{ height: 40, background: '#f8fafc', borderRadius: 8 }} />)}
               </div>
-            ) : analytics && analytics.todayAbsences.length > 0 ? (
-              <div className="space-y-1.5 max-h-[380px] overflow-y-auto pr-0.5">
-                {analytics.todayAbsences.map((program) => {
-                  const expanded = expandedPrograms.includes(program.id);
+            ) : analytics?.todayAbsences.length ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 420, overflowY: 'auto' }}>
+                {analytics.todayAbsences.map(prog => {
+                  const open = expanded.includes(prog.id);
                   return (
-                    <Collapsible
-                      key={program.id}
-                      open={expanded}
-                      onOpenChange={() => toggleProgram(program.id)}
-                    >
-                      <CollapsibleTrigger className="w-full">
-                        <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-left transition-colors hover:bg-slate-50">
-                          <div className="flex min-w-0 items-center gap-2">
-                            {expanded ? (
-                              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                            ) : (
-                              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                            )}
-                            <span className="truncate text-xs font-medium text-slate-900">
-                              {program.name}
-                            </span>
-                          </div>
-                          <Badge variant="outline" className="shrink-0 text-xs">
-                            {formatNumber(program.absences)}
-                          </Badge>
+                    <div key={prog.id}>
+                      <button onClick={() => toggle(prog.id)}
+                        style={{
+                          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          gap: 8, padding: '9px 12px', background: open ? '#f0f7ff' : '#f8fafc',
+                          border: `1px solid ${open ? '#bfdbfe' : '#f1f5f9'}`,
+                          borderRadius: open ? '8px 8px 0 0' : 8, cursor: 'pointer', textAlign: 'left',
+                        }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                          {open
+                            ? <ChevronDown style={{ width: 12, height: 12, color: '#2a78d6', flexShrink: 0 }} />
+                            : <ChevronRight style={{ width: 12, height: 12, color: '#94a3b8', flexShrink: 0 }} />
+                          }
+                          <span style={{
+                            fontSize: 12, fontWeight: 500, color: '#0f172a',
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                          }}>
+                            {prog.name}
+                          </span>
                         </div>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <div className="ml-5 mt-1 grid gap-1 grid-cols-2">
-                          {program.levels.map((level) => (
-                            <div
-                              key={level.id}
-                              className="flex items-center justify-between rounded border border-slate-100 bg-slate-50 px-2.5 py-1.5"
-                            >
-                              <span className="truncate text-xs text-slate-600">{level.name}</span>
-                              <span className="ml-2 shrink-0 text-xs font-medium text-slate-900">
-                                {formatNumber(level.absences)}
-                              </span>
+                        <span style={{
+                          fontSize: 11, fontWeight: 700, color: open ? '#1d4ed8' : '#475569',
+                          background: open ? '#dbeafe' : '#e2e8f0', borderRadius: 5, padding: '2px 7px', flexShrink: 0,
+                        }}>
+                          {fmt(prog.absences)}
+                        </span>
+                      </button>
+                      {open && (
+                        <div style={{
+                          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3,
+                          padding: '6px 8px 8px', background: '#f8fbff',
+                          border: '1px solid #bfdbfe', borderTop: 'none', borderRadius: '0 0 8px 8px',
+                        }}>
+                          {prog.levels.map(lv => (
+                            <div key={lv.id} style={{
+                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                              background: '#fff', borderRadius: 6, padding: '5px 8px',
+                              border: '1px solid #e2e8f0',
+                            }}>
+                              <span style={{ fontSize: 10, color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lv.name}</span>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', flexShrink: 0, marginLeft: 4 }}>{fmt(lv.absences)}</span>
                             </div>
                           ))}
                         </div>
-                      </CollapsibleContent>
-                    </Collapsible>
+                      )}
+                    </div>
                   );
                 })}
               </div>
             ) : (
-              <EmptyState
-                title="No absences today"
-                description="Updates as attendance is submitted."
-                compact
-              />
+              <EmptySlate title="No absences today" sub="Updates as attendance is submitted." />
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </Panel>
 
-        {/* Communications calendar */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="pb-3 pt-5 px-5">
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle className="text-base font-semibold text-slate-950">Communications</CardTitle>
-              <Badge variant="outline" className="text-xs">
-                {formatNumber(analytics?.communications.announcements ?? 0)} / {formatNumber(analytics?.communications.events ?? 0)}
-              </Badge>
+        {/* Communications */}
+        <Panel>
+          <SectionHeader title="Communications"
+            badge={
+              <Pill>
+                {fmt(analytics?.communications.announcements ?? 0)} / {fmt(analytics?.communications.events ?? 0)}
+              </Pill>
+            }
+          />
+          <div style={{ padding: '12px 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* Tab toggle */}
+            <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: 8, padding: 3, gap: 2 }}>
+              {([['ANNOUNCEMENT', Bell, 'Announcements'], ['EVENT', CalendarIcon, 'Events']] as const).map(([val, Icon, label]) => (
+                <button key={val} onClick={() => setEvTab(val as EventTab)}
+                  style={{
+                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                    padding: '5px 8px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                    fontSize: 11, fontWeight: 500, transition: 'all .15s',
+                    background: evTab === val ? '#fff' : 'transparent',
+                    color: evTab === val ? '#0f172a' : '#64748b',
+                    boxShadow: evTab === val ? '0 1px 2px rgba(0,0,0,.08)' : 'none',
+                  }}>
+                  <Icon style={{ width: 12, height: 12 }} />
+                  {label}
+                </button>
+              ))}
             </div>
-          </CardHeader>
-          <CardContent className="px-5 pb-5 space-y-4">
-            <Tabs
-              value={activeEventTab}
-              onValueChange={(v) => setActiveEventTab(v as EventTab)}
-            >
-              <TabsList className="grid w-full grid-cols-2 h-8">
-                <TabsTrigger value="ANNOUNCEMENT" className="gap-1.5 text-xs h-7">
-                  <Bell className="h-3.5 w-3.5" />
-                  Announcements
-                </TabsTrigger>
-                <TabsTrigger value="EVENT" className="gap-1.5 text-xs h-7">
-                  <CalendarIcon className="h-3.5 w-3.5" />
-                  Events
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
 
-            <div className="flex justify-center">
+            {/* Calendar */}
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
               <Calendar
-                mode="single"
-                selected={selectedDate}
-                onSelect={setSelectedDate}
-                className="rounded-md border border-slate-200 scale-90 origin-top"
-                modifiers={{ hasItem: hasItemOnDate }}
-                modifiersClassNames={{
-                  hasItem: 'font-semibold text-blue-700 underline underline-offset-2',
-                }}
+                mode="single" selected={selDate} onSelect={setSelDate}
+                className="rounded-lg border border-slate-200"
+                modifiers={{ hasItem }}
+                modifiersClassNames={{ hasItem: 'font-semibold text-blue-600 underline underline-offset-2' }}
               />
             </div>
 
+            {/* Item list */}
             <div>
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-xs font-medium text-slate-700">
-                  {selectedDate
-                    ? `${activeEventTab === 'EVENT' ? 'Events' : 'Announcements'} on ${selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-                    : 'Select a date'}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#475569' }}>
+                  {selDate
+                    ? `${evTab === 'EVENT' ? 'Events' : 'Notices'} on ${selDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                    : 'Pick a date'}
                 </p>
-                <Badge variant="outline" className="text-xs">{selectedItems.length}</Badge>
+                <span style={{
+                  fontSize: 10, fontWeight: 700, background: '#f1f5f9', color: '#475569',
+                  borderRadius: 5, padding: '2px 7px',
+                }}>{selItems.length}</span>
               </div>
 
-              <div className="max-h-48 space-y-2 overflow-y-auto pr-0.5">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
                 {loading ? (
-                  <Skeleton className="h-16 w-full" />
-                ) : selectedItems.length > 0 ? (
-                  selectedItems.map((item) => (
-                    <CalendarItem key={`${item.type}-${item.id}`} item={item} />
-                  ))
-                ) : (
-                  <EmptyState
-                    title="Nothing scheduled"
-                    description="Underlined dates have items."
-                    compact
-                  />
+                  <div style={{ height: 60, background: '#f8fafc', borderRadius: 8 }} />
+                ) : selItems.length > 0 ? selItems.map(item => (
+                  <CommItem key={`${item.type}-${item.id}`} item={item} />
+                )) : (
+                  <EmptySlate title="Nothing scheduled" sub="Underlined dates have items." compact />
                 )}
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </Panel>
       </div>
+
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+      `}</style>
     </div>
   );
 }
 
-// ── Sub-components ──────────────────────────────────────────────────────────
+// ── Sub-components ─────────────────────────────────────────────────────────────
 
-function ProgramRow({
-  program,
-  max,
-}: {
-  program: UniversityAnalyticsProgramBreakdown;
-  max: number;
-}) {
-  const width = max > 0 ? Math.max(4, Math.round((program.students / max) * 100)) : 0;
+function CommItem({ item }: { item: UniversityAnalyticsItem }) {
+  const d = toDate(item.date);
   return (
-    <div className="flex items-center gap-3 rounded border border-slate-100 bg-white px-3 py-2">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-2">
-          <p className="truncate text-xs font-medium text-slate-900">{program.name}</p>
-          <span className="shrink-0 text-xs font-medium text-slate-700">
-            {formatNumber(program.students)}
-          </span>
+    <div style={{
+      background: '#f8fafc', border: '1px solid #f1f5f9', borderRadius: 8, padding: '9px 12px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <p style={{
+            margin: 0, fontSize: 12, fontWeight: 600, color: '#0f172a',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+          }}>{item.title}</p>
+          <p style={{
+            margin: '2px 0 0', fontSize: 11, color: '#64748b',
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+            overflow: 'hidden'
+          }}>{item.description}</p>
         </div>
-        <div className="mt-1.5 h-1 rounded-full bg-slate-100">
-          <div className="h-1 rounded-full bg-blue-500" style={{ width: `${width}%` }} />
-        </div>
-        <div className="mt-1 flex items-center gap-3 text-xs text-slate-400">
-          <span>{program.levels} levels</span>
-          <span>{program.courses} courses</span>
-          <span>CGPA {formatDecimal(program.averageCgpa)}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CalendarItem({ item }: { item: UniversityAnalyticsItem }) {
-  const itemDate = toDate(item.date);
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h5 className="line-clamp-1 text-xs font-medium text-slate-900">{item.title}</h5>
-          <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{item.description}</p>
-        </div>
-        <Badge
-          variant={item.type === 'EVENT' ? 'default' : 'secondary'}
-          className="shrink-0 text-xs"
-        >
+        <span style={{
+          fontSize: 10, fontWeight: 600, flexShrink: 0, borderRadius: 5, padding: '2px 7px',
+          background: item.type === 'EVENT' ? '#eff6ff' : '#f8fafc',
+          color: item.type === 'EVENT' ? '#1d4ed8' : '#64748b',
+          border: `1px solid ${item.type === 'EVENT' ? '#bfdbfe' : '#e2e8f0'}`,
+        }}>
           {item.type === 'EVENT' ? 'Event' : 'Notice'}
-        </Badge>
-      </div>
-      <div className="mt-2 flex flex-wrap gap-x-3 text-xs text-slate-400">
-        <span>
-          {itemDate.toLocaleDateString('en-US', {
-            weekday: 'short',
-            month: 'short',
-            day: 'numeric',
-          })}
         </span>
-        {item.location && <span>{item.location}</span>}
+      </div>
+      <div style={{ marginTop: 5, display: 'flex', gap: 10 }}>
+        <span style={{ fontSize: 10, color: '#94a3b8' }}>
+          {d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+        </span>
+        {item.location && <span style={{ fontSize: 10, color: '#94a3b8' }}>{item.location}</span>}
       </div>
     </div>
   );
 }
 
-function EmptyState({
-  title,
-  description,
-  compact = false,
-}: {
-  title: string;
-  description: string;
-  compact?: boolean;
-}) {
+function EmptySlate({ title, sub, compact }: { title: string; sub: string; compact?: boolean }) {
   return (
-    <div
-      className={`flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 text-center ${compact ? 'px-4 py-6' : 'min-h-44 px-6 py-8'
-        }`}
-    >
-      <p className="text-sm font-medium text-slate-700">{title}</p>
-      <p className="mt-1 text-xs text-slate-400">{description}</p>
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      padding: compact ? '20px 16px' : '36px 24px',
+      border: '1.5px dashed #e2e8f0', borderRadius: 10, background: '#fafafa', textAlign: 'center',
+    }}>
+      <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#334155' }}>{title}</p>
+      <p style={{ margin: '4px 0 0', fontSize: 11, color: '#94a3b8' }}>{sub}</p>
     </div>
   );
 }
