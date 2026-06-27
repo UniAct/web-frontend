@@ -1,6 +1,12 @@
 import { universityApi } from './university.api';
 import { httpClient } from '../../core/http-client';
-import type { PublicTenantProfile, University, UniversityCreateInput, UniversitySettings } from '../../types';
+import type {
+  PublicTenantProfile,
+  University,
+  UniversityAnalytics,
+  UniversityCreateInput,
+  UniversitySettings,
+} from '../../types';
 
 const publicTenantProfileRequests = new Map<string, Promise<PublicTenantProfile>>();
 const publicTenantProfileCache = new Map<string, PublicTenantProfile>();
@@ -95,6 +101,12 @@ export const UniversityService = {
   async getSettings(): Promise<UniversitySettings> {
     const res = await universityApi.getSettings();
     if (!res.data) throw new Error(res.message || 'Failed to load settings');
+    return res.data;
+  },
+
+  async getAnalytics(): Promise<UniversityAnalytics> {
+    const res = await universityApi.getAnalytics();
+    if (!res.data) throw new Error(res.message || 'Failed to load analytics');
     return res.data;
   },
 

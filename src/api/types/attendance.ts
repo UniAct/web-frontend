@@ -53,6 +53,14 @@ export interface AttendanceCourseSummary {
   };
 }
 
+export interface StaffAttendanceCourse {
+  courseId: number;
+  courseName: string;
+  courseCode: string;
+  courseCredits: number;
+  description?: string | null;
+}
+
 export interface AttendanceSessionRecord {
   id: number;
   studentId: number;

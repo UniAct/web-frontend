@@ -32,6 +32,12 @@ export const attendanceApi = {
     });
   },
 
+  getStaffCourses(staffId: number) {
+    return httpClient.request('GET', `/course/staff/${staffId}`, undefined, {
+      requireResolvedTenant: true,
+    });
+  },
+
   createSession(data: CreateAttendanceSessionDto) {
     return httpClient.request('POST', '/attendance/session', data, { requireResolvedTenant: true });
   },

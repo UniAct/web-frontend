@@ -1,5 +1,12 @@
 import { httpClient } from '../../core/http-client';
-import type { ApiResponse, PublicTenantProfile, University, UniversityCreateInput, UniversitySettings } from '../../types';
+import type {
+  ApiResponse,
+  PublicTenantProfile,
+  University,
+  UniversityAnalytics,
+  UniversityCreateInput,
+  UniversitySettings,
+} from '../../types';
 
 export const universityApi = {
   createUniversity(data: UniversityCreateInput): Promise<ApiResponse<University>> {
@@ -50,6 +57,12 @@ export const universityApi = {
 
   getSettings(): Promise<ApiResponse<UniversitySettings>> {
     return httpClient.request<UniversitySettings>('GET', '/university/settings', undefined, {
+      requireResolvedTenant: true,
+    });
+  },
+
+  getAnalytics(): Promise<ApiResponse<UniversityAnalytics>> {
+    return httpClient.request<UniversityAnalytics>('GET', '/university/analytics', undefined, {
       requireResolvedTenant: true,
     });
   },
