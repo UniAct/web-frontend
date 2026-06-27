@@ -190,11 +190,32 @@ export function GroupsPage({ user }: GroupsPageProps) {
   };
 
   const handleFileSelection = (selectedFiles: FileList | null) => {
-    const nextFiles = Array.from(selectedFiles ?? []);
-    if (nextFiles.length > 5) {
-      toast.error('You can attach up to 5 files.');
+    const selected = Array.from(selectedFiles ?? []);
+    setFiles((current) => {
+      const byFileSignature = new Map(
+        current.map((file) => [
+          `${file.name}-${file.size}-${file.lastModified}`,
+          file,
+        ]),
+      );
+
+      selected.forEach((file) => {
+        byFileSignature.set(
+          `${file.name}-${file.size}-${file.lastModified}`,
+          file,
+        );
+      });
+
+      const nextFiles = Array.from(byFileSignature.values());
+      if (nextFiles.length > 5) {
+        toast.error('You can attach up to 5 files.');
+      }
+      return nextFiles.slice(0, 5);
+    });
+
+    if (fileRef.current) {
+      fileRef.current.value = '';
     }
-    setFiles(nextFiles.slice(0, 5));
   };
 
   const removeSelectedFile = (fileToRemove: File) => {
@@ -501,7 +522,7 @@ export function GroupsPage({ user }: GroupsPageProps) {
                 </div>
                 <Button variant="outline" type="button" onClick={() => fileRef.current?.click()} className="gap-2">
                   <Paperclip className="h-4 w-4" />
-                  {files.length > 0 ? 'Change files' : 'Attach files'}
+                  {files.length > 0 ? 'Add files' : 'Attach files'}
                 </Button>
               </div>
               {files.length > 0 && (

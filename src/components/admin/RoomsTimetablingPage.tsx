@@ -586,7 +586,7 @@ export function RoomsTimetablingPage({
     const loadPrograms = async () => {
       try {
         setIsLoadingLookups(true); // Re-use lookup loader or create a specific one
-        const programData = await FacultyService.getProgramsByFacultyId(Number(selFacultyId));
+        const programData = await ProgramService.getProgramsByFacultyId(Number(selFacultyId));
         setPrograms(programData);
       } catch (error: any) {
         toast.error(error?.message || "Failed to load programs for this faculty");
@@ -659,8 +659,13 @@ export function RoomsTimetablingPage({
     [filteredLevels, selLevelId],
   );
 
+  const selectedProgramLevelId = useMemo(() => {
+    const parsed = Number(selLevel?.id);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  }, [selLevel]);
+
   useEffect(() => {
-    if (!selectedUniversity || !selFacultyId || !selProgramId || !selLevel || !activeSemesterId) {
+    if (!selectedUniversity || !selFacultyId || !selProgramId || !selectedProgramLevelId || !activeSemesterId) {
       setEnrollmentWindow(null);
       setEnrollmentWindowForm(makeDefaultEnrollmentWindowForm());
       return;
@@ -675,7 +680,7 @@ export function RoomsTimetablingPage({
           facultyId: Number(selFacultyId),
           programId: Number(selProgramId),
           semesterId: activeSemesterId,
-          programLevelId: selLevel.id,
+          programLevelId: selectedProgramLevelId,
         });
 
         if (!isMounted) return;
@@ -706,7 +711,7 @@ export function RoomsTimetablingPage({
     return () => {
       isMounted = false;
     };
-  }, [selectedUniversity, selFacultyId, selProgramId, selLevel, activeSemesterId]);
+  }, [selectedUniversity, selFacultyId, selProgramId, selectedProgramLevelId, activeSemesterId]);
 
   const courseOptions = useMemo(
     () =>
@@ -752,7 +757,7 @@ export function RoomsTimetablingPage({
   );
 
   const activeDays = DAYS.filter((d) => dayRanges[d].enabled);
-  const canConfigureEnrollmentWindow = Boolean(selFacultyId && selProgramId && selLevel && activeSemesterId);
+  const canConfigureEnrollmentWindow = Boolean(selFacultyId && selProgramId && selectedProgramLevelId && activeSemesterId);
   const enrollmentWindowStart = enrollmentWindowForm.startTime ? new Date(enrollmentWindowForm.startTime) : null;
   const enrollmentWindowEnd = enrollmentWindowForm.endTime ? new Date(enrollmentWindowForm.endTime) : null;
   const enrollmentWindowNow = new Date();
@@ -831,7 +836,7 @@ export function RoomsTimetablingPage({
   };
 
   const handleSaveEnrollmentWindow = async () => {
-    if (!selFacultyId || !selProgramId || !selLevel || !activeSemesterId) {
+    if (!selFacultyId || !selProgramId || !selectedProgramLevelId || !activeSemesterId) {
       toast.error("Select faculty, program, level, and active semester first.");
       return;
     }
@@ -856,7 +861,7 @@ export function RoomsTimetablingPage({
         facultyId: Number(selFacultyId),
         programId: Number(selProgramId),
         semesterId: activeSemesterId,
-        programLevelId: selLevel.id,
+        programLevelId: selectedProgramLevelId,
         startTime,
         endTime,
         isActive: enrollmentWindowForm.isActive,
@@ -1603,7 +1608,7 @@ export function RoomsTimetablingPage({
               >
                 <option value="">All Levels</option>
                 {filteredLevels.map((l) => (
-                  <option key={l.id} value={l.level}>
+                  <option key={l.id ?? l.level} value={l.level}>
                     {levelLabel(l.level)}
                   </option>
                 ))}
