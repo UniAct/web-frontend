@@ -6,7 +6,17 @@ export type {
   SuperAdminCreateInput,
   AssignRootAccountInput,
 } from './superadmin';
-export type { University, UniversityCreateInput, PublicTenantProfile, UniversitySettings } from './university';
+export type {
+  University,
+  UniversityCreateInput,
+  PublicTenantProfile,
+  UniversitySettings,
+  UniversityAnalytics,
+  UniversityAnalyticsAbsenceLevel,
+  UniversityAnalyticsItem,
+  UniversityAnalyticsProgramAbsence,
+  UniversityAnalyticsSummary,
+} from './university';
 export type { Announcement, AnnouncementInput } from './announcement';
 export type {
   CreateLearningGroupPostInput,
@@ -112,6 +122,7 @@ export type {
   AttendanceSessionRecord,
   CreateAttendanceSessionDto,
   EnrolledStudent,
+  StaffAttendanceCourse,
   StudentAttendanceStatus,
   StudentAttendanceTimelineItem,
   UpsertAttendancesDto,

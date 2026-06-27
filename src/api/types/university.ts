@@ -48,3 +48,39 @@ export interface PublicTenantProfile {
   is_active: boolean;
   settings: UniversitySettings;
 }
+
+export interface UniversityAnalyticsSummary {
+  students: number;
+  staff: number;
+  admins: number;
+  activeTeams: number;
+}
+
+export interface UniversityAnalyticsAbsenceLevel {
+  id: number;
+  name: string;
+  absences: number;
+}
+
+export interface UniversityAnalyticsProgramAbsence {
+  id: number;
+  name: string;
+  absences: number;
+  levels: UniversityAnalyticsAbsenceLevel[];
+}
+
+export interface UniversityAnalyticsItem {
+  id: number;
+  title: string;
+  description: string;
+  type: 'ANNOUNCEMENT' | 'EVENT';
+  date: string;
+  location?: string | null;
+}
+
+export interface UniversityAnalytics {
+  summary: UniversityAnalyticsSummary;
+  todayAbsences: UniversityAnalyticsProgramAbsence[];
+  upcomingItems: UniversityAnalyticsItem[];
+  generatedAt: string;
+}

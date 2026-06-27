@@ -18,7 +18,7 @@ import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { AttendanceService } from '../api/modules/attendance/attendance.service';
 import type { User as AppUser } from '../App';
-import type { AttendanceCourseSummary } from '../api/types';
+import type { StaffAttendanceCourse } from '../api/types';
 import { useResolvedSemester } from '../hooks/useResolvedSemester';
 
 interface AttendancePageProps {
@@ -76,13 +76,13 @@ function formatCourseTime(value: string): string {
   return parsed.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-function buildCourseOptions(options: AttendanceCourseSummary[]): CourseOption[] {
+function buildStaffCourseOptions(options: StaffAttendanceCourse[]): CourseOption[] {
   return options
     .map((item) => ({
       value: String(item.courseId),
       courseId: item.courseId,
-      label: `${item.course.code} - ${item.course.name}`,
-      description: item.course.description?.trim() || `${item.course.credits} credit hours`,
+      label: `${item.courseCode} - ${item.courseName}`,
+      description: item.description?.trim() || `${item.courseCredits} credit hours`,
     }))
     .sort((left, right) => left.label.localeCompare(right.label));
 }
@@ -149,8 +149,8 @@ export function AttendancePage({ user }: AttendancePageProps) {
           return;
         }
 
-        const nextCourses = buildCourseOptions(
-          await AttendanceService.getCourseSummaries({ semesterId: activeSemesterId }),
+        const nextCourses = buildStaffCourseOptions(
+          await AttendanceService.getStaffCourses(user.id),
         );
 
         setCourses(nextCourses);

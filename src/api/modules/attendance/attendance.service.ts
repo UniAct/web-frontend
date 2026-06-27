@@ -4,6 +4,7 @@ import type {
   AttendanceCourseSummary,
   AttendanceSession,
   CreateAttendanceSessionDto,
+  StaffAttendanceCourse,
   StudentAttendanceStatus,
   UpsertAttendancesDto,
 } from '../../types/attendance';
@@ -26,6 +27,12 @@ export const AttendanceService = {
     const res = await attendanceApi.getCourseSummaries(params);
     if (!res.data) return [];
     return res.data as AttendanceCourseSummary[];
+  },
+
+  async getStaffCourses(staffId: number): Promise<StaffAttendanceCourse[]> {
+    const res = await attendanceApi.getStaffCourses(staffId);
+    if (!res.data) return [];
+    return res.data as StaffAttendanceCourse[];
   },
 
   async createSession(data: CreateAttendanceSessionDto): Promise<any> {
