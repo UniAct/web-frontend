@@ -38,6 +38,18 @@ export const attendanceApi = {
     });
   },
 
+  getDashboard() {
+    return httpClient.request('GET', '/attendance/mobile/dashboard', undefined, {
+      requireResolvedTenant: true,
+    });
+  },
+
+  getMobileTimetable() {
+    return httpClient.request('GET', '/attendance/mobile/timetable', undefined, {
+      requireResolvedTenant: true,
+    });
+  },
+
   createSession(data: CreateAttendanceSessionDto) {
     return httpClient.request('POST', '/attendance/session', data, { requireResolvedTenant: true });
   },

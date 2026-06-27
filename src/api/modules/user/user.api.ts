@@ -4,6 +4,9 @@ import type {
   StaffAccountCreateInput,
   StaffAccountUpdateInput,
   StaffDirectoryEntry,
+  CurrentUserProfile,
+  CurrentUserProfileUpdateInput,
+  ChangePasswordInput,
 } from '../../types';
 
 export const userApi = {
@@ -27,6 +30,24 @@ export const userApi = {
 
   deleteStaffAccount(id: number): Promise<ApiResponse<void>> {
     return httpClient.request<void>('DELETE', `/user/account/staff/${id}`, undefined, {
+      requireResolvedTenant: true,
+    });
+  },
+
+  getCurrentUserProfile(): Promise<ApiResponse<CurrentUserProfile>> {
+    return httpClient.request<CurrentUserProfile>('GET', '/user/me', undefined, {
+      requireResolvedTenant: true,
+    });
+  },
+
+  updateCurrentUserProfile(data: CurrentUserProfileUpdateInput): Promise<ApiResponse<CurrentUserProfile>> {
+    return httpClient.request<CurrentUserProfile>('PATCH', '/user/me', data, {
+      requireResolvedTenant: true,
+    });
+  },
+
+  changeCurrentUserPassword(data: ChangePasswordInput): Promise<ApiResponse<void>> {
+    return httpClient.request<void>('PATCH', '/user/me/password', data, {
       requireResolvedTenant: true,
     });
   },

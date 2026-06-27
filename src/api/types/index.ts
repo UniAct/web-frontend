@@ -1,6 +1,14 @@
 export type { ApiResponse, JSendStatus, PaginatedResponse } from './common';
 export type { LoginInput, LoginResponse } from './auth';
-export type { User, StaffAccountCreateInput, StaffAccountUpdateInput, StaffDirectoryEntry } from './user';
+export type {
+  User,
+  StaffAccountCreateInput,
+  StaffAccountUpdateInput,
+  StaffDirectoryEntry,
+  CurrentUserProfile,
+  CurrentUserProfileUpdateInput,
+  ChangePasswordInput,
+} from './user';
 export type {
   SuperAdmin,
   SuperAdminCreateInput,
@@ -124,11 +132,21 @@ export type { Semester, SemesterCreateInput, SemesterUpdateInput } from './semes
 export type {
   AttendanceCourseOption,
   AttendanceCourseSummary,
+  AttendanceDashboardData,
+  DashboardClassroom,
+  DashboardCourse,
   AttendanceSession,
   AttendanceSessionRecord,
   CreateAttendanceSessionDto,
   EnrolledStudent,
+  MobileTimetableData,
+  MobileTimetableItem,
   StaffAttendanceCourse,
+  StaffDashboardData,
+  StaffDashboardScheduleItem,
+  StudentDashboardCreditSegment,
+  StudentDashboardData,
+  StudentDashboardScheduleItem,
   StudentAttendanceStatus,
   StudentAttendanceTimelineItem,
   UpsertAttendancesDto,
@@ -160,4 +178,13 @@ export type {
   EnrollmentJobSlotResult,
   EnrollmentJobResult,
   EnrollmentStatusResponse,
+  AdminEnrollmentStatus,
+  AdminEnrollmentRecord,
+  AdminEnrollmentSlotOption,
+  AdminEnrollmentListQuery,
+  AdminEnrollmentListResponse,
+  AdminEnrollmentOptionsResponse,
+  AdminEnrollmentStudentTrackResponse,
+  AdminEnrollmentCreateInput,
+  AdminEnrollmentUpdateInput,
 } from './enrollment';

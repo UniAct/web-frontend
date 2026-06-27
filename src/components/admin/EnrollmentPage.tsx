@@ -1,866 +1,576 @@
-import { useState, useMemo } from 'react';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Search,
-  Eye,
-  UserMinus,
-  CheckCircle,
-  XCircle,
-  Calendar,
+  AlertCircle,
   BookOpen,
-  Users,
-  BarChart3,
+  Calendar,
+  Eye,
   GraduationCap,
+  Loader2,
   Plus,
-  Trash2
+  RefreshCw,
+  Search,
+  Trash2,
+  UserRound,
+  Wifi,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { EnrollmentService, apiClient } from '../../api';
+import type {
+  AdminEnrollmentListQuery,
+  AdminEnrollmentListResponse,
+  AdminEnrollmentOptionsResponse,
+  AdminEnrollmentRecord,
+  AdminEnrollmentSlotOption,
+  AdminEnrollmentStatus,
+  AdminEnrollmentStudentTrackResponse,
+} from '../../api';
+import { ENROLLMENT_WS_URL } from '../../api/core/constants';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 interface EnrollmentPageProps {
   selectedUniversity: string | null;
   setSelectedUniversity: (university: string | null) => void;
 }
 
+const STATUS_OPTIONS: AdminEnrollmentStatus[] = ['Enrolled', 'InProgress', 'Completed', 'Withdrawn', 'Failed'];
+const ENROLLMENT_WS_PATH = '/ws/enrollment';
+
+function statusBadgeClass(status: AdminEnrollmentStatus) {
+  switch (status) {
+    case 'Enrolled':
+      return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    case 'InProgress':
+      return 'bg-blue-50 text-blue-700 border-blue-200';
+    case 'Completed':
+      return 'bg-slate-100 text-slate-700 border-slate-200';
+    case 'Withdrawn':
+      return 'bg-amber-50 text-amber-700 border-amber-200';
+    case 'Failed':
+      return 'bg-rose-50 text-rose-700 border-rose-200';
+    default:
+      return 'bg-slate-100 text-slate-700 border-slate-200';
+  }
+}
+
+function buildEnrollmentWebSocketUrl(token: string): string {
+  const configuredUrl = ENROLLMENT_WS_URL?.trim();
+  const baseUrl = configuredUrl || apiClient.getApiBaseUrl();
+  const url = new URL(configuredUrl ? baseUrl : ENROLLMENT_WS_PATH, configuredUrl ? undefined : baseUrl);
+
+  if (url.protocol === 'http:') url.protocol = 'ws:';
+  if (url.protocol === 'https:') url.protocol = 'wss:';
+
+  url.searchParams.set('access_token', token);
+  return url.toString();
+}
+
+function formatSlot(slot: AdminEnrollmentSlotOption | AdminEnrollmentRecord) {
+  const schedule = slot.schedule;
+  const course = slot.course;
+  if (!schedule || !course) return 'Unassigned schedule';
+  return `${course.code} - ${schedule.dayOfWeek} ${schedule.startTime}-${schedule.endTime}`;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export function EnrollmentPage({ selectedUniversity }: EnrollmentPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<AdminEnrollmentStatus | 'all'>('all');
   const [semesterFilter, setSemesterFilter] = useState('all');
   const [courseFilter, setCourseFilter] = useState('all');
-  const [activeTab, setActiveTab] = useState('current');
+  const [data, setData] = useState<AdminEnrollmentListResponse | null>(null);
+  const [options, setOptions] = useState<AdminEnrollmentOptionsResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [optionsLoading, setOptionsLoading] = useState(true);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [trackLoading, setTrackLoading] = useState(false);
+  const [studentTrack, setStudentTrack] = useState<AdminEnrollmentStudentTrackResponse | null>(null);
+  const [selectedEnrollment, setSelectedEnrollment] = useState<AdminEnrollmentRecord | null>(null);
+  const [selectedAddSlot, setSelectedAddSlot] = useState('');
+  const [selectedStudentToAdd, setSelectedStudentToAdd] = useState('');
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
-  // Dialog state
-  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
-  const [selectedEnrollment, setSelectedEnrollment] = useState<any>(null);
+  const query = useMemo<AdminEnrollmentListQuery>(() => ({
+    search: searchQuery.trim() || undefined,
+    status: statusFilter === 'all' ? undefined : statusFilter,
+    semesterId: semesterFilter === 'all' ? undefined : Number(semesterFilter),
+    courseId: courseFilter === 'all' ? undefined : Number(courseFilter),
+  }), [courseFilter, searchQuery, semesterFilter, statusFilter]);
 
-  // Course management state for details dialog
-  const [enrolledCourses, setEnrolledCourses] = useState<any[]>([]);
-  const [coursesToAdd, setCoursesToAdd] = useState<any[]>([]);
-  const [coursesToDrop, setCoursesToDrop] = useState<string[]>([]);
-  const [selectedCourseToAdd, setSelectedCourseToAdd] = useState('');
-
-  // Mock data
-  const programs = [
-    { id: '1', name: 'Computer Science', code: 'CS' },
-    { id: '2', name: 'Business Administration', code: 'BA' },
-    { id: '3', name: 'Engineering', code: 'ENG' },
-    { id: '4', name: 'Mathematics', code: 'MATH' }
-  ];
-
-  const levelsByProgram: Record<string, Array<{ id: string; name: string }>> = {
-    '1': [
-      { id: '1', name: 'Level 1' },
-      { id: '2', name: 'Level 2' },
-      { id: '3', name: 'Level 3' },
-      { id: '4', name: 'Level 4' }
-    ],
-    '2': [
-      { id: '5', name: 'Level 1' },
-      { id: '6', name: 'Level 2' },
-      { id: '7', name: 'Level 3' },
-      { id: '8', name: 'Level 4' }
-    ],
-    '3': [
-      { id: '9', name: 'Level 1' },
-      { id: '10', name: 'Level 2' },
-      { id: '11', name: 'Level 3' },
-      { id: '12', name: 'Level 4' }
-    ],
-    '4': [
-      { id: '13', name: 'Level 1' },
-      { id: '14', name: 'Level 2' },
-      { id: '15', name: 'Level 3' },
-      { id: '16', name: 'Level 4' }
-    ]
-  };
-
-  const students = [
-    { id: '1', name: 'John Doe', studentId: '20210001', program: 'Computer Science' },
-    { id: '2', name: 'Sarah Ahmed', studentId: '20220015', program: 'Computer Science' },
-    { id: '3', name: 'Mohamed Ali', studentId: '20200078', program: 'Computer Science' },
-    { id: '4', name: 'Emma Wilson', studentId: '20230045', program: 'Computer Science' },
-    { id: '5', name: 'David Chen', studentId: '20220089', program: 'Computer Science' }
-  ];
-
-  const coursesByLevel: Record<string, Array<{ id: string; name: string; code: string }>> = {
-    '1': [
-      { id: '1', name: 'Introduction to Programming', code: 'CS-101' },
-      { id: '2', name: 'Discrete Mathematics', code: 'CS-102' }
-    ],
-    '2': [
-      { id: '3', name: 'Data Structures', code: 'CS-201' },
-      { id: '4', name: 'Algorithms', code: 'CS-202' }
-    ],
-    '3': [
-      { id: '5', name: 'Database Systems', code: 'CS-301' },
-      { id: '6', name: 'Operating Systems', code: 'CS-302' }
-    ],
-    '4': [
-      { id: '7', name: 'Machine Learning', code: 'CS-401' },
-      { id: '8', name: 'Artificial Intelligence', code: 'CS-402' }
-    ]
-  };
-
-  const courseTypes = ['Lecture', 'Lab', 'Workshop'];
-
-  const courseSchedules = [
-    { id: '1', day: 'Sunday', from: '09:00', to: '11:00', room: 'A1L2' },
-    { id: '2', day: 'Monday', from: '10:00', to: '12:00', room: 'B2L3' },
-    { id: '3', day: 'Tuesday', from: '13:00', to: '15:00', room: 'C1L1' },
-    { id: '4', day: 'Wednesday', from: '14:00', to: '16:00', room: 'A2L4' },
-    { id: '5', day: 'Thursday', from: '11:00', to: '13:00', room: 'B1L2' }
-  ];
-
-  // Mock data for student enrolled courses (multiple courses per student)
-  const studentEnrolledCourses: Record<string, any[]> = {
-    '20210001': [
-      { id: 'c1', name: 'Data Structures', code: 'CS-201', schedule: 'Sunday - 09:00 : 11:00', room: 'A1L2' },
-      { id: 'c2', name: 'Algorithms', code: 'CS-202', schedule: 'Monday - 10:00 : 12:00', room: 'B2L3' },
-      { id: 'c3', name: 'Database Systems', code: 'CS-301', schedule: 'Tuesday - 13:00 : 15:00', room: 'C1L1' },
-      { id: 'c4', name: 'Operating Systems', code: 'CS-302', schedule: 'Wednesday - 14:00 : 16:00', room: 'A2L4' },
-    ],
-    '20220015': [
-      { id: 'c5', name: 'Calculus II', code: 'MATH-201', schedule: 'Monday - 10:00 : 12:00', room: 'B2L3' },
-      { id: 'c6', name: 'Linear Algebra', code: 'MATH-202', schedule: 'Tuesday - 09:00 : 11:00', room: 'A3L1' },
-      { id: 'c7', name: 'Probability Theory', code: 'MATH-301', schedule: 'Thursday - 11:00 : 13:00', room: 'B1L2' },
-    ],
-    '20200078': [
-      { id: 'c8', name: 'Quantum Physics', code: 'PHYS-401', schedule: 'Tuesday - 13:00 : 15:00', room: 'C1L1' },
-      { id: 'c9', name: 'Thermodynamics', code: 'PHYS-301', schedule: 'Wednesday - 10:00 : 12:00', room: 'C2L2' },
-      { id: 'c10', name: 'Electromagnetic Theory', code: 'PHYS-302', schedule: 'Thursday - 14:00 : 16:00', room: 'C3L1' },
-    ],
-    '20230045': [
-      { id: 'c11', name: 'Database Systems', code: 'CS-301', schedule: 'Wednesday - 14:00 : 16:00', room: 'A2L4' },
-      { id: 'c12', name: 'Web Development', code: 'CS-303', schedule: 'Sunday - 11:00 : 13:00', room: 'A1L3' },
-      { id: 'c13', name: 'Software Engineering', code: 'CS-304', schedule: 'Monday - 13:00 : 15:00', room: 'B3L2' },
-      { id: 'c14', name: 'Computer Networks', code: 'CS-305', schedule: 'Thursday - 09:00 : 11:00', room: 'A4L1' },
-    ]
-  };
-
-  // Mock data for available courses to add (for the selected student)
-  const availableCoursesToAdd = [
-    { id: 'ac1', name: 'Machine Learning', code: 'CS-401', schedule: 'Sunday - 14:00 : 16:00', room: 'A1L4' },
-    { id: 'ac2', name: 'Artificial Intelligence', code: 'CS-402', schedule: 'Monday - 15:00 : 17:00', room: 'B1L4' },
-    { id: 'ac3', name: 'Cloud Computing', code: 'CS-403', schedule: 'Tuesday - 10:00 : 12:00', room: 'C1L3' },
-    { id: 'ac4', name: 'Mobile Development', code: 'CS-404', schedule: 'Wednesday - 11:00 : 13:00', room: 'A2L3' },
-    { id: 'ac5', name: 'Cybersecurity', code: 'CS-405', schedule: 'Thursday - 15:00 : 17:00', room: 'B2L4' },
-  ];
-
-  // Mock enrollment data
-  const currentEnrollments = [
-    {
-      id: '1',
-      studentName: 'John Doe',
-      studentId: '20210001',
-      courseName: 'Data Structures',
-      courseCode: 'CS-301',
-      courseType: 'Lecture',
-      instructor: 'Dr. Sarah Wilson',
-      semester: 'Fall 2024',
-      status: 'Enrolled',
-      schedule: 'Sunday - 09:00 : 11:00',
-      room: 'A1L2',
-      enrollmentDate: '2024-08-15',
-      credits: 3,
-      gradeStatus: 'In Progress',
-      prerequisites: 'CS-201',
-      syllabus: 'Advanced data structures and algorithms'
-    },
-    {
-      id: '2',
-      studentName: 'Sarah Ahmed',
-      studentId: '20220015',
-      courseName: 'Calculus II',
-      courseCode: 'MATH-201',
-      courseType: 'Lecture',
-      instructor: 'Prof. Michael Johnson',
-      semester: 'Fall 2024',
-      status: 'Enrolled',
-      schedule: 'Monday - 10:00 : 12:00',
-      room: 'B2L3',
-      enrollmentDate: '2024-08-20',
-      credits: 4,
-      gradeStatus: 'In Progress',
-      prerequisites: 'MATH-101',
-      syllabus: 'Advanced calculus concepts'
-    },
-    {
-      id: '3',
-      studentName: 'Mohamed Ali',
-      studentId: '20200078',
-      courseName: 'Quantum Physics',
-      courseCode: 'PHYS-401',
-      courseType: 'Lab',
-      instructor: 'Dr. Ahmed Hassan',
-      semester: 'Fall 2024',
-      status: 'Enrolled',
-      schedule: 'Tuesday - 13:00 : 15:00',
-      room: 'C1L1',
-      enrollmentDate: '2024-08-18',
-      credits: 3,
-      gradeStatus: 'In Progress',
-      prerequisites: 'PHYS-301',
-      syllabus: 'Quantum mechanics and applications'
-    },
-    {
-      id: '4',
-      studentName: 'Emma Wilson',
-      studentId: '20230045',
-      courseName: 'Database Systems',
-      courseCode: 'CS-301',
-      courseType: 'Lecture',
-      instructor: 'Dr. Sarah Wilson',
-      semester: 'Fall 2024',
-      status: 'Enrolled',
-      schedule: 'Wednesday - 14:00 : 16:00',
-      room: 'A2L4',
-      enrollmentDate: '2024-08-22',
-      credits: 3,
-      gradeStatus: 'In Progress',
-      prerequisites: 'CS-201',
-      syllabus: 'Database design and SQL'
+  const loadEnrollments = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await EnrollmentService.getAdminEnrollments(query);
+      setData(result);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to load enrollments'));
+    } finally {
+      setLoading(false);
     }
-  ];
+  }, [query]);
 
-  const pendingRequests = [
-    {
-      id: '1',
-      studentName: 'Emma Wilson',
-      studentId: '20230045',
-      requestedCourse: 'Advanced Algorithms',
-      courseCode: 'CS-401',
-      courseType: 'Lecture',
-      reason: 'Prerequisites completed',
-      requestDate: '2024-08-22',
-      schedule: 'Thursday - 11:00 : 13:00',
-      room: 'B1L2',
-      priority: 'High'
-    },
-    {
-      id: '2',
-      studentName: 'David Chen',
-      studentId: '20220089',
-      requestedCourse: 'Statistics',
-      courseCode: 'MATH-301',
-      courseType: 'Workshop',
-      reason: 'Course required for major',
-      requestDate: '2024-08-21',
-      schedule: 'Sunday - 09:00 : 11:00',
-      room: 'A1L2',
-      priority: 'Medium'
-    },
-    {
-      id: '3',
-      studentName: 'John Doe',
-      studentId: '20210001',
-      requestedCourse: 'Machine Learning',
-      courseCode: 'CS-401',
-      courseType: 'Lab',
-      reason: 'Interest in AI specialization',
-      requestDate: '2024-08-23',
-      schedule: 'Monday - 10:00 : 12:00',
-      room: 'B2L3',
-      priority: 'Medium'
+  const loadOptions = useCallback(async () => {
+    setOptionsLoading(true);
+    try {
+      const result = await EnrollmentService.getAdminEnrollmentOptions({
+        semesterId: semesterFilter === 'all' ? undefined : Number(semesterFilter),
+        studentId: selectedStudentToAdd ? Number(selectedStudentToAdd) : undefined,
+      });
+      setOptions(result);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to load enrollment options'));
+    } finally {
+      setOptionsLoading(false);
     }
-  ];
+  }, [selectedStudentToAdd, semesterFilter]);
 
-  // Enrollment by Program data (moved from StudentsPage)
-  const programEnrollments = [
-    {
-      program: 'Computer Science',
-      levels: {
-        'Level 1': 245,
-        'Level 2': 198,
-        'Level 3': 176,
-        'Level 4': 142
-      },
-      total: 761
-    },
-    {
-      program: 'Mathematics',
-      levels: {
-        'Level 1': 180,
-        'Level 2': 165,
-        'Level 3': 145,
-        'Level 4': 128
-      },
-      total: 618
-    },
-    {
-      program: 'Physics',
-      levels: {
-        'Level 1': 125,
-        'Level 2': 112,
-        'Level 3': 98,
-        'Level 4': 85
-      },
-      total: 420
-    },
-    {
-      program: 'Chemistry',
-      levels: {
-        'Level 1': 98,
-        'Level 2': 87,
-        'Level 3': 76,
-        'Level 4': 65
-      },
-      total: 326
-    },
-    {
-      program: 'Biology',
-      levels: {
-        'Level 1': 156,
-        'Level 2': 142,
-        'Level 3': 128,
-        'Level 4': 115
-      },
-      total: 541
-    },
-    {
-      program: 'Engineering',
-      levels: {
-        'Level 1': 312,
-        'Level 2': 289,
-        'Level 3': 267,
-        'Level 4': 245
-      },
-      total: 1113
-    },
-    {
-      program: 'Business Administration',
-      levels: {
-        'Level 1': 223,
-        'Level 2': 198,
-        'Level 3': 187,
-        'Level 4': 165
-      },
-      total: 773
+  const loadStudentTrack = useCallback(async (studentId: number) => {
+    setTrackLoading(true);
+    try {
+      const result = await EnrollmentService.getAdminStudentTrack(studentId, {
+        semesterId: semesterFilter === 'all' ? undefined : Number(semesterFilter),
+      });
+      setStudentTrack(result);
+      setSelectedAddSlot('');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to load student enrollment track'));
+    } finally {
+      setTrackLoading(false);
     }
-  ];
+  }, [semesterFilter]);
 
-  // Filtered enrollments based on search and filters
-  const filteredCurrentEnrollments = useMemo(() => {
-    return currentEnrollments.filter(enrollment => {
-      const matchesSearch = searchQuery === '' ||
-        enrollment.studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        enrollment.studentId.includes(searchQuery) ||
-        enrollment.courseName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        enrollment.courseCode.toLowerCase().includes(searchQuery.toLowerCase());
+  useEffect(() => {
+    loadEnrollments();
+  }, [loadEnrollments, refreshNonce, selectedUniversity]);
 
-      const matchesStatus = statusFilter === 'all' || enrollment.status === statusFilter;
-      const matchesSemester = semesterFilter === 'all' || enrollment.semester === semesterFilter;
-      const matchesCourse = courseFilter === 'all' || enrollment.courseCode === courseFilter;
+  useEffect(() => {
+    loadOptions();
+  }, [loadOptions, selectedUniversity]);
 
-      return matchesSearch && matchesStatus && matchesSemester && matchesCourse;
+  useEffect(() => {
+    if (!detailsOpen || !selectedEnrollment) return;
+    loadStudentTrack(selectedEnrollment.studentId);
+  }, [detailsOpen, loadStudentTrack, selectedEnrollment, refreshNonce]);
+
+  useEffect(() => {
+    const token = apiClient.getTokenValue();
+    const slotIds = [...new Set((data?.enrollments ?? [])
+      .map((enrollment) => enrollment.scheduleSlotId)
+      .filter((id): id is number => typeof id === 'number'))];
+
+    if (!token || slotIds.length === 0) return;
+
+    const socket = new WebSocket(buildEnrollmentWebSocketUrl(token));
+    socket.addEventListener('open', () => {
+      socket.send(JSON.stringify({ type: 'subscribe', slotIds }));
     });
-  }, [searchQuery, statusFilter, semesterFilter, courseFilter]);
-
-  // Filtered pending requests based on search and filters
-  const filteredPendingRequests = useMemo(() => {
-    return pendingRequests.filter(request => {
-      const matchesSearch = searchQuery === '' ||
-        request.studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        request.studentId.includes(searchQuery) ||
-        request.requestedCourse.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        request.courseCode.toLowerCase().includes(searchQuery.toLowerCase());
-
-      return matchesSearch;
+    socket.addEventListener('message', () => {
+      setRefreshNonce((value) => value + 1);
     });
-  }, [searchQuery]);
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Enrolled': return 'default';
-      case 'Pending': return 'secondary';
-      case 'Waitlisted': return 'outline';
-      case 'Dropped': return 'destructive';
-      default: return 'secondary';
-    }
-  };
+    return () => socket.close();
+  }, [data?.enrollments]);
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'High': return 'destructive';
-      case 'Medium': return 'secondary';
-      case 'Low': return 'outline';
-      default: return 'secondary';
-    }
-  };
+  const visibleEnrollments = data?.enrollments ?? [];
+  const selectedStudentAvailableSlots = options?.availableSlots ?? [];
+  const trackEnrollments = studentTrack?.enrollments ?? [];
+  const trackAvailableSlots = studentTrack?.availableSlots ?? [];
 
+  const summaryCards = [
+    { label: 'Total records', value: data?.summary.total ?? 0, icon: BookOpen },
+    { label: 'Active seats', value: data?.summary.activeSeats ?? 0, icon: UserRound },
+    { label: 'Completed', value: data?.summary.byStatus.Completed ?? 0, icon: GraduationCap },
+    { label: 'Withdrawn / Failed', value: (data?.summary.byStatus.Withdrawn ?? 0) + (data?.summary.byStatus.Failed ?? 0), icon: AlertCircle },
+  ];
 
-
-  const handleApproveRequest = (requestId: string, studentName: string) => {
-    toast.success(`Enrollment request for ${studentName} approved successfully`);
-  };
-
-  const handleRejectRequest = (requestId: string, studentName: string) => {
-    toast.error(`Enrollment request for ${studentName} rejected`);
-  };
-
-  const handleDropCourse = (enrollmentId: string, studentName: string, courseName: string) => {
-    toast.warning(`${studentName} dropped from ${courseName}`);
-  };
-
-  const handleViewDetails = (enrollment: any) => {
+  const openDetails = (enrollment: AdminEnrollmentRecord) => {
     setSelectedEnrollment(enrollment);
-    // Load the student's enrolled courses
-    const courses = studentEnrolledCourses[enrollment.studentId] || [];
-    setEnrolledCourses([...courses]);
-    // Reset changes
-    setCoursesToAdd([]);
-    setCoursesToDrop([]);
-    setSelectedCourseToAdd('');
-    setDetailsDialogOpen(true);
+    setStudentTrack(null);
+    setDetailsOpen(true);
+    loadStudentTrack(enrollment.studentId);
   };
 
-  const handleAddCourse = () => {
-    if (!selectedCourseToAdd) {
-      toast.error('Please select a course to add');
-      return;
-    }
+  const refreshAll = () => setRefreshNonce((value) => value + 1);
 
-    const courseToAdd = availableCoursesToAdd.find(c => c.id === selectedCourseToAdd);
-    if (!courseToAdd) return;
-
-    // Check if already enrolled or already in add list
-    const alreadyEnrolled = enrolledCourses.some(c => c.id === courseToAdd.id);
-    const alreadyInAddList = coursesToAdd.some(c => c.id === courseToAdd.id);
-
-    if (alreadyEnrolled || alreadyInAddList) {
-      toast.error('Student is already enrolled in this course');
-      return;
-    }
-
-    // Add to courses list
-    setEnrolledCourses(prev => [...prev, { ...courseToAdd, isNew: true }]);
-    setCoursesToAdd(prev => [...prev, courseToAdd]);
-    setSelectedCourseToAdd('');
-    toast.success(`${courseToAdd.name} added to enrollment list`);
-  };
-
-  const handleDropCourseFromList = (courseId: string) => {
-    const course = enrolledCourses.find(c => c.id === courseId);
-    if (!course) return;
-
-    // If it's a newly added course, just remove it from the add list
-    if (course.isNew) {
-      setEnrolledCourses(prev => prev.filter(c => c.id !== courseId));
-      setCoursesToAdd(prev => prev.filter(c => c.id !== courseId));
-      toast.info(`${course.name} removed from enrollment list`);
-    } else {
-      // Mark existing course for dropping
-      setCoursesToDrop(prev => [...prev, courseId]);
-      setEnrolledCourses(prev => prev.filter(c => c.id !== courseId));
-      toast.warning(`${course.name} marked for dropping`);
+  const handleCreateEnrollment = async (studentId: number, slotContextId: number, source: 'modal' | 'toolbar') => {
+    const key = `create-${studentId}-${slotContextId}`;
+    setBusyAction(key);
+    try {
+      await EnrollmentService.createAdminEnrollment({ studentId, slotContextId, status: 'Enrolled' });
+      toast.success('Enrollment added successfully');
+      setSelectedAddSlot('');
+      if (source === 'toolbar') setSelectedStudentToAdd('');
+      refreshAll();
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to add enrollment'));
+    } finally {
+      setBusyAction(null);
     }
   };
 
-  const handleSubmitChanges = () => {
-    if (coursesToAdd.length === 0 && coursesToDrop.length === 0) {
-      toast.info('No changes to submit');
-      return;
+  const handleUpdateEnrollment = async (id: number, payload: { status?: AdminEnrollmentStatus; slotContextId?: number }) => {
+    const key = `update-${id}`;
+    setBusyAction(key);
+    try {
+      await EnrollmentService.updateAdminEnrollment(id, payload);
+      toast.success('Enrollment updated successfully');
+      refreshAll();
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to update enrollment'));
+    } finally {
+      setBusyAction(null);
     }
-
-    const addedCount = coursesToAdd.length;
-    const droppedCount = coursesToDrop.length;
-
-    let message = '';
-    if (addedCount > 0 && droppedCount > 0) {
-      message = `Successfully added ${addedCount} course(s) and dropped ${droppedCount} course(s)`;
-    } else if (addedCount > 0) {
-      message = `Successfully added ${addedCount} course(s)`;
-    } else {
-      message = `Successfully dropped ${droppedCount} course(s)`;
-    }
-
-    toast.success(message);
-
-    // Reset changes
-    setCoursesToAdd([]);
-    setCoursesToDrop([]);
-    setDetailsDialogOpen(false);
   };
 
-  const hasChanges = coursesToAdd.length > 0 || coursesToDrop.length > 0;
+  const handleDeleteEnrollment = async (enrollment: AdminEnrollmentRecord) => {
+    const confirmed = window.confirm(`Delete ${enrollment.course?.code ?? 'this enrollment'} for ${enrollment.studentName}?`);
+    if (!confirmed) return;
+
+    const key = `delete-${enrollment.id}`;
+    setBusyAction(key);
+    try {
+      await EnrollmentService.deleteAdminEnrollment(enrollment.id);
+      toast.success('Enrollment deleted successfully');
+      refreshAll();
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to delete enrollment'));
+    } finally {
+      setBusyAction(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-2xl text-slate-900">Enrollment Management</h2>
-          <p className="text-slate-600 mt-1">Manage student course enrollments and registrations</p>
+          <h2 className="text-2xl font-semibold text-slate-900">Enrollment Management</h2>
+          <p className="mt-1 text-sm text-slate-600">Read, modify, move, add, and delete every student course registration from live backend data.</p>
         </div>
+        <Button variant="outline" className="gap-2" onClick={refreshAll} disabled={loading}>
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
       </div>
 
-      {/* Search and Filters */}
+      <div className="grid gap-3 md:grid-cols-4">
+        {summaryCards.map((item) => {
+          const Icon = item.icon;
+          return (
+            <Card key={item.label}>
+              <CardContent className="flex items-center justify-between p-4">
+                <div>
+                  <p className="text-xs font-medium uppercase text-slate-500">{item.label}</p>
+                  <p className="mt-1 text-2xl font-semibold text-slate-950">{item.value}</p>
+                </div>
+                <Icon className="h-5 w-5 text-slate-400" />
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
       <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+        <CardContent className="space-y-4 p-4">
+          <div className="grid gap-3 lg:grid-cols-[1fr_180px_180px_220px]">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
                 type="search"
-                placeholder="Search by student name, ID, or course..."
+                placeholder="Search student, ID, email, course code, or course name"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(event) => setSearchQuery(event.target.value)}
                 className="pl-10"
               />
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full md:w-[180px]">
-                <SelectValue placeholder="Filter by Status" />
-              </SelectTrigger>
+            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as AdminEnrollmentStatus | 'all')}>
+              <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="Enrolled">Enrolled</SelectItem>
-                <SelectItem value="Pending">Pending</SelectItem>
-                <SelectItem value="Waitlisted">Waitlisted</SelectItem>
-                <SelectItem value="Dropped">Dropped</SelectItem>
+                <SelectItem value="all">All statuses</SelectItem>
+                {STATUS_OPTIONS.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={semesterFilter} onValueChange={setSemesterFilter}>
-              <SelectTrigger className="w-full md:w-[180px]">
-                <SelectValue placeholder="Filter by Semester" />
-              </SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Semester" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Semesters</SelectItem>
-                <SelectItem value="Fall 2024">Fall 2024</SelectItem>
-                <SelectItem value="Spring 2024">Spring 2024</SelectItem>
-                <SelectItem value="Summer 2024">Summer 2024</SelectItem>
+                <SelectItem value="all">All semesters</SelectItem>
+                {(options?.semesters ?? []).map((semester) => (
+                  <SelectItem key={semester.id} value={String(semester.id)}>{semester.label}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Select value={courseFilter} onValueChange={setCourseFilter}>
-              <SelectTrigger className="w-full md:w-[180px]">
-                <SelectValue placeholder="Filter by Course" />
-              </SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Course" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Courses</SelectItem>
-                <SelectItem value="CS-301">CS-301</SelectItem>
-                <SelectItem value="MATH-201">MATH-201</SelectItem>
-                <SelectItem value="PHYS-401">PHYS-401</SelectItem>
+                <SelectItem value="all">All courses</SelectItem>
+                {(options?.courses ?? []).map((course) => (
+                  <SelectItem key={course.id} value={String(course.id)}>{course.code} - {course.name}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-[260px_1fr_auto]">
+            <div className="space-y-2">
+              <Label>Add enrollment for student</Label>
+              <Select value={selectedStudentToAdd} onValueChange={(value) => { setSelectedStudentToAdd(value); setSelectedAddSlot(''); }}>
+                <SelectTrigger><SelectValue placeholder={optionsLoading ? 'Loading students...' : 'Select student'} /></SelectTrigger>
+                <SelectContent>
+                  {(options?.students ?? []).map((student) => (
+                    <SelectItem key={student.id} value={String(student.id)}>
+                      {student.universityStudentId} - {student.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Available schedule slot</Label>
+              <Select value={selectedAddSlot} onValueChange={setSelectedAddSlot} disabled={!selectedStudentToAdd}>
+                <SelectTrigger><SelectValue placeholder={selectedStudentToAdd ? 'Select slot to enroll' : 'Select student first'} /></SelectTrigger>
+                <SelectContent>
+                  {selectedStudentAvailableSlots.map((slot) => (
+                    <SelectItem key={slot.slotContextId} value={String(slot.slotContextId)}>
+                      {formatSlot(slot)} - {slot.schedule.remainingSeats} seats
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-end">
+              <Button
+                className="w-full gap-2"
+                disabled={!selectedStudentToAdd || !selectedAddSlot || busyAction?.startsWith('create')}
+                onClick={() => handleCreateEnrollment(Number(selectedStudentToAdd), Number(selectedAddSlot), 'toolbar')}
+              >
+                {busyAction?.startsWith('create') ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Add
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Tabs for Current Enrollments, Pending Requests, and Enrollment by Program */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="current" className="gap-2">
-            <BookOpen className="w-4 h-4" />
-            Current Enrollments
-          </TabsTrigger>
-          <TabsTrigger value="pending" className="gap-2">
-            <Users className="w-4 h-4" />
-            Pending Requests
-          </TabsTrigger>
-          <TabsTrigger value="program-stats" className="gap-2">
-            <BarChart3 className="w-4 h-4" />
-            Enrollment by Program
-          </TabsTrigger>
-        </TabsList>
-
-        {/* Current Enrollments Tab - Compact View with View Details Button */}
-        <TabsContent value="current" className="space-y-4 mt-6">
-          {filteredCurrentEnrollments.length === 0 ? (
-            <Card>
-              <CardContent className="p-12 text-center">
-                <BookOpen className="w-12 h-12 mx-auto text-slate-300 mb-4" />
-                <p className="text-slate-600">No enrollments found</p>
-              </CardContent>
-            </Card>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <CardTitle className="text-base">Live Enrollment Records</CardTitle>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <Wifi className="h-3.5 w-3.5" />
+            Backend synced
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 p-12 text-slate-500">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Loading enrollments
+            </div>
+          ) : visibleEnrollments.length === 0 ? (
+            <div className="p-12 text-center text-slate-500">No enrollment records match the current filters.</div>
           ) : (
-            filteredCurrentEnrollments.map((enrollment) => (
-              <Card key={enrollment.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
-                      <div>
-                        <p className="text-slate-900">{enrollment.studentName}</p>
-                        <p className="text-sm text-slate-500">ID: {enrollment.studentId}</p>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1050px] text-sm">
+                <thead className="border-y bg-slate-50 text-left text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Student</th>
+                    <th className="px-4 py-3">Course</th>
+                    <th className="px-4 py-3">Schedule</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Seats</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {visibleEnrollments.map((enrollment) => (
+                    <tr key={enrollment.id} className="hover:bg-slate-50/70">
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-slate-900">{enrollment.studentName}</p>
+                        <p className="text-xs text-slate-500">{enrollment.universityStudentId} - {enrollment.programName} L{enrollment.academicLevel}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-slate-900">{enrollment.course?.code ?? 'Unassigned'}</p>
+                        <p className="text-xs text-slate-500">{enrollment.course?.name ?? 'No course attached'}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="text-slate-900">{enrollment.schedule ? `${enrollment.schedule.dayOfWeek} ${enrollment.schedule.startTime}-${enrollment.schedule.endTime}` : 'No schedule'}</p>
+                        <p className="text-xs text-slate-500">{enrollment.classroom?.label ?? 'No room'} - {enrollment.semesterLabel}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="outline" className={statusBadgeClass(enrollment.status)}>{enrollment.status}</Badge>
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {enrollment.schedule ? `${enrollment.schedule.enrolledSeats}/${enrollment.schedule.allowedCapacity}` : '-'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-2">
+                          <Button size="sm" variant="outline" className="gap-1" onClick={() => openDetails(enrollment)}>
+                            <Eye className="h-3.5 w-3.5" />
+                            View
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                            disabled={busyAction === `delete-${enrollment.id}`}
+                            onClick={() => handleDeleteEnrollment(enrollment)}
+                          >
+                            {busyAction === `delete-${enrollment.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                            Delete
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Student Enrollment Track</DialogTitle>
+            <DialogDescription>View full registration history, change status, move slots, add courses, or remove records.</DialogDescription>
+          </DialogHeader>
+
+          {trackLoading || !studentTrack ? (
+            <div className="flex items-center justify-center gap-2 p-10 text-slate-500">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Loading student track
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <div className="grid gap-3 md:grid-cols-4">
+                <div>
+                  <p className="text-xs uppercase text-slate-500">Student</p>
+                  <p className="font-medium text-slate-950">{studentTrack.student.name}</p>
+                  <p className="text-xs text-slate-500">{studentTrack.student.universityStudentId}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-slate-500">Program</p>
+                  <p className="font-medium text-slate-950">{studentTrack.student.program.name}</p>
+                  <p className="text-xs text-slate-500">Level {studentTrack.student.programLevel.level}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-slate-500">Academic State</p>
+                  <p className="font-medium text-slate-950">CGPA {studentTrack.student.cgpa.toFixed(2)}</p>
+                  <p className="text-xs text-slate-500">{studentTrack.student.status}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-slate-500">Enrollment Date</p>
+                  <p className="font-medium text-slate-950">{studentTrack.student.enrollmentDate}</p>
+                  <p className="text-xs text-slate-500">{studentTrack.student.email}</p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+                <Select value={selectedAddSlot} onValueChange={setSelectedAddSlot}>
+                  <SelectTrigger><SelectValue placeholder="Add another schedule slot for this student" /></SelectTrigger>
+                  <SelectContent>
+                    {trackAvailableSlots.map((slot) => (
+                      <SelectItem key={slot.slotContextId} value={String(slot.slotContextId)}>
+                        {formatSlot(slot)} - {slot.semesterLabel} - {slot.schedule.remainingSeats} seats
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  className="gap-2"
+                  disabled={!selectedAddSlot || busyAction?.startsWith('create')}
+                  onClick={() => handleCreateEnrollment(studentTrack.student.id, Number(selectedAddSlot), 'modal')}
+                >
+                  {busyAction?.startsWith('create') ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  Add Course
+                </Button>
+              </div>
+
+              <div className="space-y-3">
+                {trackEnrollments.map((enrollment) => (
+                  <div key={enrollment.id} className="rounded-lg border border-slate-200 p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline" className={statusBadgeClass(enrollment.status)}>{enrollment.status}</Badge>
+                          <span className="font-medium text-slate-950">{enrollment.course?.code} - {enrollment.course?.name}</span>
+                        </div>
+                        <div className="grid gap-2 text-sm text-slate-600 md:grid-cols-3">
+                          <span className="flex items-center gap-2"><Calendar className="h-4 w-4" />{enrollment.schedule?.dayOfWeek} {enrollment.schedule?.startTime}-{enrollment.schedule?.endTime}</span>
+                          <span>{enrollment.classroom?.label}</span>
+                          <span>{enrollment.teacher?.name}</span>
+                        </div>
+                        <p className="text-xs text-slate-500">
+                          Semester {enrollment.semesterLabel} - enrolled {enrollment.enrollmentDate} - seats {enrollment.schedule?.enrolledSeats ?? 0}/{enrollment.schedule?.allowedCapacity ?? 0}
+                        </p>
+                        {enrollment.course?.prerequisites && enrollment.course.prerequisites.length > 0 && (
+                          <p className="text-xs text-slate-500">
+                            Prerequisites: {enrollment.course.prerequisites.map((item) => item.code).join(', ')}
+                          </p>
+                        )}
                       </div>
-                      <div>
-                        <p className="text-slate-900">{enrollment.courseCode}</p>
-                        <p className="text-sm text-slate-500">{enrollment.courseName}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-900">{enrollment.schedule}</p>
-                        <p className="text-sm text-slate-500">Room {enrollment.room}</p>
-                      </div>
-                      <div className="flex items-center gap-2 justify-end">
-                        <Badge variant={getStatusColor(enrollment.status)}>
-                          {enrollment.status}
-                        </Badge>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="gap-1"
-                          onClick={() => handleViewDetails(enrollment)}
+
+                      <div className="grid min-w-[320px] gap-2">
+                        <Select
+                          value={enrollment.status}
+                          onValueChange={(value) => handleUpdateEnrollment(enrollment.id, { status: value as AdminEnrollmentStatus })}
+                          disabled={busyAction === `update-${enrollment.id}`}
                         >
-                          <Eye className="w-3 h-3" />
-                          View Details
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {STATUS_OPTIONS.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        <Select
+                          value={enrollment.slotContextId ? String(enrollment.slotContextId) : ''}
+                          onValueChange={(value) => handleUpdateEnrollment(enrollment.id, { slotContextId: Number(value) })}
+                          disabled={busyAction === `update-${enrollment.id}`}
+                        >
+                          <SelectTrigger><SelectValue placeholder="Move to another slot" /></SelectTrigger>
+                          <SelectContent>
+                            {[
+                              ...trackAvailableSlots,
+                              ...(enrollment.slotContextId ? [{
+                                slotContextId: enrollment.slotContextId,
+                                scheduleSlotId: enrollment.scheduleSlotId ?? 0,
+                                semesterId: enrollment.semesterId,
+                                semesterLabel: enrollment.semesterLabel,
+                                programId: 0,
+                                programName: enrollment.programName,
+                                academicLevel: enrollment.academicLevel,
+                                course: enrollment.course!,
+                                teacher: enrollment.teacher!,
+                                classroom: enrollment.classroom!,
+                                schedule: enrollment.schedule!,
+                              }] : []),
+                            ].filter((slot) => slot.course?.id === enrollment.course?.id).map((slot) => (
+                              <SelectItem key={slot.slotContextId} value={String(slot.slotContextId)}>
+                                {formatSlot(slot)} - {slot.schedule.remainingSeats} seats
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          variant="outline"
+                          className="gap-2 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                          disabled={busyAction === `delete-${enrollment.id}`}
+                          onClick={() => handleDeleteEnrollment(enrollment)}
+                        >
+                          {busyAction === `delete-${enrollment.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                          Delete Enrollment
                         </Button>
                       </div>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            ))
-          )}
-        </TabsContent>
-
-        {/* Pending Requests Tab */}
-        <TabsContent value="pending" className="space-y-4 mt-6">
-          {filteredPendingRequests.length === 0 ? (
-            <Card>
-              <CardContent className="p-12 text-center">
-                <Users className="w-12 h-12 mx-auto text-slate-300 mb-4" />
-                <p className="text-slate-600">No pending requests found</p>
-              </CardContent>
-            </Card>
-          ) : (
-            filteredPendingRequests.map((request) => (
-              <Card key={request.id} className="hover:shadow-lg transition-shadow">
-                <CardContent className="p-6">
-                  <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-                    <div className="flex-1 space-y-3">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h4 className="text-slate-900">{request.studentName}</h4>
-                          <p className="text-slate-600">ID: {request.studentId}</p>
-                        </div>
-                        <Badge variant={getPriorityColor(request.priority)}>
-                          {request.priority} Priority
-                        </Badge>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div className="flex items-center gap-2">
-                          <BookOpen className="w-4 h-4 text-slate-400" />
-                          <div>
-                            <p className="text-slate-600">Requested Course</p>
-                            <p className="text-slate-900">{request.courseCode} - {request.requestedCourse}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Calendar className="w-4 h-4 text-slate-400" />
-                          <div>
-                            <p className="text-slate-600">Schedule</p>
-                            <p className="text-slate-900">{request.schedule} - {request.room}</p>
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-slate-600">Course Type</p>
-                          <p className="text-slate-900">{request.courseType}</p>
-                        </div>
-                        <div>
-                          <p className="text-slate-600">Request Date</p>
-                          <p className="text-slate-900">{new Date(request.requestDate).toLocaleDateString()}</p>
-                        </div>
-                        <div className="md:col-span-2">
-                          <p className="text-slate-600">Reason</p>
-                          <p className="text-slate-900">{request.reason}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-slate-200">
-                    <Button
-                      size="sm"
-                      className="gap-2 bg-green-600 hover:bg-green-700"
-                      onClick={() => handleApproveRequest(request.id, request.studentName)}
-                    >
-                      <CheckCircle className="w-4 h-4" />
-                      Approve
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-2 text-red-600 hover:text-red-700 hover:bg-red-50"
-                      onClick={() => handleRejectRequest(request.id, request.studentName)}
-                    >
-                      <XCircle className="w-4 h-4" />
-                      Reject
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
-          )}
-        </TabsContent>
-
-        {/* Enrollment by Program Tab - Moved from StudentsPage */}
-        <TabsContent value="program-stats" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <GraduationCap className="w-5 h-5" />
-                Student Distribution Across Academic Programs
-              </CardTitle>
-              <CardDescription>
-                View enrollment statistics broken down by program and level
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {programEnrollments.map((enrollment) => (
-                  <div key={enrollment.program} className="p-4 border border-slate-200 rounded-lg hover:shadow-md transition-shadow">
-                    <h4 className="text-slate-900 mb-3">{enrollment.program}</h4>
-                    <div className="space-y-2">
-                      {Object.entries(enrollment.levels).map(([level, count]) => (
-                        <div key={level} className="flex justify-between text-sm">
-                          <span className="text-slate-600">{level}:</span>
-                          <span className="text-slate-900">{count}</span>
-                        </div>
-                      ))}
-                      <div className="flex justify-between text-sm text-slate-900 pt-2 border-t">
-                        <span>Total:</span>
-                        <span>{enrollment.total}</span>
-                      </div>
-                    </div>
-                  </div>
                 ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      {/* Enrollment Details Dialog */}
-      <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Student Enrollment Details</DialogTitle>
-            <DialogDescription>
-              Manage course enrollments for this student
-            </DialogDescription>
-          </DialogHeader>
-          {selectedEnrollment && (
-            <div className="space-y-6 py-4">
-              {/* Student Information */}
-              <div className="space-y-3">
-                <h3 className="text-slate-900 border-b pb-2">Student Information</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-slate-600">Student Name</p>
-                    <p className="text-slate-900">{selectedEnrollment.studentName}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-slate-600">Student ID</p>
-                    <p className="text-slate-900">{selectedEnrollment.studentId}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Add Course Section */}
-              <div className="space-y-3">
-                <h3 className="text-slate-900 border-b pb-2">Add New Course</h3>
-                <div className="flex gap-3">
-                  <Select value={selectedCourseToAdd} onValueChange={setSelectedCourseToAdd}>
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="Select a course to add..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableCoursesToAdd.map((course) => (
-                        <SelectItem key={course.id} value={course.id}>
-                          {course.code} - {course.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    onClick={handleAddCourse}
-                    className="gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Add Course
-                  </Button>
-                </div>
-              </div>
-
-              {/* Enrolled Courses Table */}
-              <div className="space-y-3">
-                <h3 className="text-slate-900 border-b pb-2">Enrolled Courses ({enrolledCourses.length})</h3>
-                {enrolledCourses.length === 0 ? (
-                  <div className="p-8 text-center border rounded-lg bg-slate-50">
-                    <BookOpen className="w-8 h-8 mx-auto text-slate-300 mb-2" />
-                    <p className="text-slate-500">No courses enrolled</p>
-                  </div>
-                ) : (
-                  <div className="border rounded-lg overflow-hidden">
-                    <table className="w-full">
-                      <thead className="bg-slate-50 border-b">
-                        <tr>
-                          <th className="text-left py-3 px-4 text-slate-700">Course Name</th>
-                          <th className="text-left py-3 px-4 text-slate-700">Schedule</th>
-                          <th className="text-center py-3 px-4 text-slate-700">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {enrolledCourses.map((course) => (
-                          <tr
-                            key={course.id}
-                            className={`border-b last:border-b-0 hover:bg-slate-50 transition-colors ${course.isNew ? 'bg-green-50' : ''}`}
-                          >
-                            <td className="py-3 px-4">
-                              <div className="flex items-center gap-2">
-                                <div>
-                                  <p className="text-slate-900">{course.code} - {course.name}</p>
-                                  {course.isNew && (
-                                    <Badge className="mt-1 bg-green-100 text-green-700 hover:bg-green-100">
-                                      New
-                                    </Badge>
-                                  )}
-                                </div>
-                              </div>
-                            </td>
-                            <td className="py-3 px-4">
-                              <p className="text-slate-900">{course.schedule}</p>
-                              <p className="text-sm text-slate-500">Room {course.room}</p>
-                            </td>
-                            <td className="py-3 px-4 text-center">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="gap-2 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                onClick={() => handleDropCourseFromList(course.id)}
-                              >
-                                <Trash2 className="w-3 h-3" />
-                                Drop Course
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-
-              {/* Submit Changes */}
-              <div className="flex gap-2 pt-4 border-t">
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => setDetailsDialogOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-                  onClick={handleSubmitChanges}
-                  disabled={!hasChanges}
-                >
-                  Submit Changes
-                </Button>
               </div>
             </div>
           )}

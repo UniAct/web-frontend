@@ -2,8 +2,11 @@ import { attendanceApi } from './attendance.api';
 import type {
   AttendanceCourseOption,
   AttendanceCourseSummary,
+  AttendanceDashboardData,
+  AttendanceSessionRecord,
   AttendanceSession,
   CreateAttendanceSessionDto,
+  MobileTimetableData,
   StaffAttendanceCourse,
   StudentAttendanceStatus,
   UpsertAttendancesDto,
@@ -33,6 +36,18 @@ export const AttendanceService = {
     const res = await attendanceApi.getStaffCourses(staffId);
     if (!res.data) return [];
     return res.data as StaffAttendanceCourse[];
+  },
+
+  async getDashboard(): Promise<AttendanceDashboardData> {
+    const res = await attendanceApi.getDashboard();
+    if (!res.data) throw new Error(res.message || 'Failed to fetch dashboard data');
+    return res.data as AttendanceDashboardData;
+  },
+
+  async getMobileTimetable(): Promise<MobileTimetableData> {
+    const res = await attendanceApi.getMobileTimetable();
+    if (!res.data) throw new Error(res.message || 'Failed to fetch timetable');
+    return res.data as MobileTimetableData;
   },
 
   async createSession(data: CreateAttendanceSessionDto): Promise<any> {
@@ -65,10 +80,10 @@ export const AttendanceService = {
   },
 
 
-  async saveAttendances(sessionId: number, data: UpsertAttendancesDto) {
+  async saveAttendances(sessionId: number, data: UpsertAttendancesDto): Promise<AttendanceSessionRecord[]> {
     const res = await attendanceApi.saveAttendances(sessionId, data as any);
     if (res.status !== 'success') throw new Error(res.message || 'Failed to save attendances');
-    return res.data;
+    return (res.data as AttendanceSessionRecord[] | undefined) ?? [];
   },
 
   async getStudentAttendanceStatus(semesterId?: number): Promise<StudentAttendanceStatus> {

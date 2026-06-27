@@ -1,16 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
-import { Download, Calendar, Clock, MapPin, BookOpen, User } from 'lucide-react';
+import { Download, Calendar, Clock, MapPin, BookOpen, User, Loader } from 'lucide-react';
 import type { User as AppUser } from '../App';
 import { toast } from 'sonner';
+import { AttendanceService } from '../api/modules/attendance/attendance.service';
+import type { MobileTimetableItem } from '../api/types';
 
 interface TimetablePageProps {
   user: AppUser;
 }
 
-interface SavedCourse {
+interface TimetableCourse {
   id: string;
   name: string;
   code: string;
@@ -22,82 +24,166 @@ interface SavedCourse {
   timeFrom: string;
   timeTo: string;
   room: string;
+  sortTime: string;
+  sortEndTime: string;
 }
 
-// Mock saved timetable data (would come from backend in real app)
-const savedCourses: SavedCourse[] = [
-  {
-    id: 'CS401',
-    name: 'Software Engineering',
-    code: 'CS-401',
-    type: 'Program Mandatory',
-    creditHours: 4,
-    lecturer: 'Prof. Jennifer Clark',
-    content: ['Lecture', 'Project'],
-    day: 'Saturday',
-    timeFrom: '08:00 AM',
-    timeTo: '11:00 AM',
-    room: 'CS-501'
-  },
-  {
-    id: 'SEC401',
-    name: 'Cybersecurity Fundamentals',
-    code: 'SEC-401',
-    type: 'Program Mandatory',
-    creditHours: 3,
-    lecturer: 'Dr. Mark Roberts',
-    content: ['Lecture', 'Lab'],
-    day: 'Tuesday',
-    timeFrom: '10:00 AM',
-    timeTo: '01:00 PM',
-    room: 'Security-Lab-01'
-  },
-  {
-    id: 'ML401',
-    name: 'Machine Learning',
-    code: 'ML-401',
-    type: 'Program Elective',
-    creditHours: 4,
-    lecturer: 'Dr. Anna Rodriguez',
-    content: ['Lecture', 'Lab', 'Project'],
-    day: 'Monday',
-    timeFrom: '02:00 PM',
-    timeTo: '06:00 PM',
-    room: 'AI-Lab-02'
-  },
-  {
-    id: 'CLOUD401',
-    name: 'Cloud Computing',
-    code: 'CLOUD-401',
-    type: 'Program Elective',
-    creditHours: 3,
-    lecturer: 'Prof. Thomas White',
-    content: ['Lecture', 'Workshop'],
-    day: 'Wednesday',
-    timeFrom: '08:00 AM',
-    timeTo: '11:00 AM',
-    room: 'CS-502'
-  }
-];
-
 const timeSlots = [
-  '08:00 AM',
-  '09:00 AM',
-  '10:00 AM',
-  '11:00 AM',
-  '12:00 PM',
-  '01:00 PM',
-  '02:00 PM',
-  '03:00 PM',
-  '04:00 PM',
-  '05:00 PM',
-  '06:00 PM'
+  { value: '08:00', label: '08:00 AM' },
+  { value: '09:00', label: '09:00 AM' },
+  { value: '10:00', label: '10:00 AM' },
+  { value: '11:00', label: '11:00 AM' },
+  { value: '12:00', label: '12:00 PM' },
+  { value: '13:00', label: '01:00 PM' },
+  { value: '14:00', label: '02:00 PM' },
+  { value: '15:00', label: '03:00 PM' },
+  { value: '16:00', label: '04:00 PM' },
+  { value: '17:00', label: '05:00 PM' },
+  { value: '18:00', label: '06:00 PM' }
 ];
 
 const daysOfWeek = ['Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
+function normalizeTime(value: string): string {
+  const timeOnly = value.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  const dateTimeTime = value.match(/(?:T|\s)(\d{2}):(\d{2})(?::\d{2})?/);
+  const match = timeOnly ?? dateTimeTime;
+
+  if (!match) {
+    return value;
+  }
+
+  return `${match[1].padStart(2, '0')}:${match[2]}`;
+}
+
+function formatDisplayTime(value: string): string {
+  const normalized = normalizeTime(value);
+  const [hourRaw, minuteRaw] = normalized.split(':');
+  const hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) {
+    return value;
+  }
+
+  const date = new Date();
+  date.setHours(hour, minute, 0, 0);
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function timeToMinutes(value: string): number {
+  const normalized = normalizeTime(value);
+  const [hourRaw, minuteRaw] = normalized.split(':');
+  const hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) {
+    return 0;
+  }
+
+  return hour * 60 + minute;
+}
+
+function getCourseType(item: MobileTimetableItem): string {
+  const backendType = item.course?.type;
+  if (typeof backendType === 'string' && backendType.trim()) {
+    return backendType;
+  }
+
+  if (item.registrationStatus) {
+    return item.registrationStatus;
+  }
+
+  return 'Registered';
+}
+
+function getRoomLabel(item: MobileTimetableItem): string {
+  if (item.classroom?.label) return item.classroom.label;
+
+  const roomParts = [item.classroom?.building, item.classroom?.classroomNumber]
+    .filter((part): part is string => typeof part === 'string' && part.trim().length > 0);
+
+  return roomParts.length > 0 ? roomParts.join(' / ') : 'Room TBA';
+}
+
+function mapTimetableItem(item: MobileTimetableItem): TimetableCourse | null {
+  if (!item.course || !item.dayOfWeek || !item.startTime || !item.endTime) {
+    return null;
+  }
+
+  return {
+    id: String(item.slotId || item.id),
+    name: item.course.name,
+    code: item.course.code,
+    type: getCourseType(item),
+    creditHours: item.course.credits ?? 0,
+    lecturer: item.teacher?.name?.trim() || 'Instructor TBA',
+    content: [item.type || 'Class'],
+    day: item.dayOfWeek,
+    timeFrom: formatDisplayTime(item.startTime),
+    timeTo: formatDisplayTime(item.endTime),
+    room: getRoomLabel(item),
+    sortTime: normalizeTime(item.startTime),
+    sortEndTime: normalizeTime(item.endTime),
+  };
+}
+
 export function TimetablePage({ user }: TimetablePageProps) {
   const [isExporting, setIsExporting] = useState(false);
+  const [isLoadingTimetable, setIsLoadingTimetable] = useState(true);
+  const [savedCourses, setSavedCourses] = useState<TimetableCourse[]>([]);
+  const [semesterLabel, setSemesterLabel] = useState('Current Semester');
+
+  useEffect(() => {
+    const fetchTimetable = async () => {
+      try {
+        setIsLoadingTimetable(true);
+        const data = await AttendanceService.getMobileTimetable();
+        if (data.role !== 'student') {
+          setSavedCourses([]);
+          toast.error('Student timetable is available for student accounts only');
+          return;
+        }
+
+        const courses = data.timetable
+          .map(mapTimetableItem)
+          .filter((course): course is TimetableCourse => course !== null);
+
+        setSavedCourses(courses);
+        setSemesterLabel(`Semester ${data.semesterId}`);
+      } catch (error) {
+        console.error('Failed to load timetable:', error);
+        toast.error('Failed to load timetable');
+        setSavedCourses([]);
+      } finally {
+        setIsLoadingTimetable(false);
+      }
+    };
+
+    void fetchTimetable();
+  }, []);
+
+  const uniqueCourses = useMemo(() => {
+    const byCourseCode = new Map<string, TimetableCourse>();
+
+    savedCourses.forEach((course) => {
+      const key = course.code || course.id;
+      const existing = byCourseCode.get(key);
+
+      if (!existing) {
+        byCourseCode.set(key, { ...course, content: [...course.content] });
+        return;
+      }
+
+      byCourseCode.set(key, {
+        ...existing,
+        creditHours: existing.creditHours || course.creditHours,
+        content: Array.from(new Set([...existing.content, ...course.content])),
+      });
+    });
+
+    return Array.from(byCourseCode.values());
+  }, [savedCourses]);
 
   const getCourseColor = (courseId: string) => {
     const colors = [
@@ -115,30 +201,32 @@ export function TimetablePage({ user }: TimetablePageProps) {
   };
 
   const getTotalCreditHours = () => {
-    return savedCourses.reduce((sum, course) => sum + course.creditHours, 0);
+    return uniqueCourses.reduce((sum, course) => sum + course.creditHours, 0);
+  };
+
+  const getDistinctRoomCount = () => {
+    return new Set(savedCourses.map((course) => course.room).filter((room) => room !== 'Room TBA')).size;
   };
 
   const getTypeColor = (type: string) => {
     if (type.includes('Mandatory')) return 'bg-green-100 text-green-800';
+    if (type.includes('Enrolled') || type.includes('Registered')) return 'bg-green-100 text-green-800';
     return 'bg-blue-100 text-blue-800';
   };
 
   const renderTimetableCell = (day: string, time: string) => {
+    const slotStart = timeToMinutes(time);
+    const slotEnd = slotStart + 60;
     const course = savedCourses.find(c => {
       if (c.day !== day) return false;
-      const courseStart = c.timeFrom;
-      const courseEnd = c.timeTo;
-      return time >= courseStart && time < courseEnd;
+      const courseStart = timeToMinutes(c.sortTime);
+      return courseStart >= slotStart && courseStart < slotEnd;
     });
 
     if (!course) return null;
 
-    // Only render on the first time slot of the course
-    if (course.timeFrom !== time) return null;
-
-    const startIndex = timeSlots.indexOf(course.timeFrom);
-    const endIndex = timeSlots.indexOf(course.timeTo);
-    const duration = endIndex - startIndex;
+    const durationMinutes = Math.max(60, timeToMinutes(course.sortEndTime) - timeToMinutes(course.sortTime));
+    const duration = Math.max(1, Math.ceil(durationMinutes / 60));
 
     return (
       <div
@@ -336,11 +424,11 @@ export function TimetablePage({ user }: TimetablePageProps) {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-slate-900">My Timetable</h2>
-          <p className="text-slate-600 mt-1">Semester 1 - Academic Year 2024/2025</p>
+          <p className="text-slate-600 mt-1">{semesterLabel}</p>
         </div>
         <Button
           onClick={downloadAsPDF}
-          disabled={isExporting}
+          disabled={isExporting || isLoadingTimetable || savedCourses.length === 0}
           className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-md hover:shadow-lg transition-all"
         >
           <Download className="w-4 h-4 mr-2" />
@@ -355,7 +443,7 @@ export function TimetablePage({ user }: TimetablePageProps) {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-600">Total Courses</p>
-                <p className="text-3xl text-blue-600 mt-1">{savedCourses.length}</p>
+                <p className="text-3xl text-blue-600 mt-1">{uniqueCourses.length}</p>
               </div>
               <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
                 <BookOpen className="w-6 h-6 text-blue-600" />
@@ -380,9 +468,9 @@ export function TimetablePage({ user }: TimetablePageProps) {
           <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-600">Mandatory</p>
+                <p className="text-sm text-slate-600">Class Sessions</p>
                 <p className="text-3xl text-purple-600 mt-1">
-                  {savedCourses.filter(c => c.type.includes('Mandatory')).length}
+                  {savedCourses.length}
                 </p>
               </div>
               <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
@@ -395,13 +483,13 @@ export function TimetablePage({ user }: TimetablePageProps) {
           <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-600">Elective</p>
+                <p className="text-sm text-slate-600">Rooms</p>
                 <p className="text-3xl text-orange-600 mt-1">
-                  {savedCourses.filter(c => c.type.includes('Elective')).length}
+                  {getDistinctRoomCount()}
                 </p>
               </div>
               <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center">
-                <Calendar className="w-6 h-6 text-orange-600" />
+                <MapPin className="w-6 h-6 text-orange-600" />
               </div>
             </div>
           </CardContent>
@@ -417,7 +505,7 @@ export function TimetablePage({ user }: TimetablePageProps) {
               <div>
                 <CardTitle className="text-slate-900">Weekly Schedule</CardTitle>
                 <CardDescription className="text-slate-600">
-                  {user.name} • Semester 1 • {getTotalCreditHours()} Credit Hours
+                  {user.name} - {semesterLabel} - {getTotalCreditHours()} Credit Hours
                 </CardDescription>
               </div>
               <div className="hidden print:block text-sm text-slate-500">
@@ -439,13 +527,13 @@ export function TimetablePage({ user }: TimetablePageProps) {
 
                   {/* Time slots */}
                   {timeSlots.map(time => (
-                    <div key={time} className="contents">
+                    <div key={time.value} className="contents">
                       <div className="bg-slate-50 p-3 rounded-lg text-center text-sm text-slate-700 font-medium">
-                        {time}
+                        {time.label}
                       </div>
                       {daysOfWeek.map(day => (
-                        <div key={`${day}-${time}`} className="bg-white border border-slate-200 rounded-lg p-2 min-h-[100px] relative hover:bg-slate-50/50 transition-colors">
-                          {renderTimetableCell(day, time)}
+                        <div key={`${day}-${time.value}`} className="bg-white border border-slate-200 rounded-lg p-2 min-h-[100px] relative hover:bg-slate-50/50 transition-colors">
+                          {renderTimetableCell(day, time.value)}
                         </div>
                       ))}
                     </div>
@@ -453,6 +541,16 @@ export function TimetablePage({ user }: TimetablePageProps) {
                 </div>
               </div>
             </div>
+            {isLoadingTimetable ? (
+              <div className="mt-6 flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 p-8 text-slate-600">
+                <Loader className="w-5 h-5 mr-2 animate-spin" />
+                Loading timetable...
+              </div>
+            ) : savedCourses.length === 0 ? (
+              <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-8 text-center text-slate-600">
+                No registered timetable entries were found for the active semester.
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -464,7 +562,16 @@ export function TimetablePage({ user }: TimetablePageProps) {
           </CardHeader>
           <CardContent className="p-6">
             <div className="space-y-4">
-              {savedCourses.map((course, index) => (
+              {isLoadingTimetable ? (
+                <div className="flex items-center justify-center p-4 text-slate-600">
+                  <Loader className="w-4 h-4 mr-2 animate-spin" />
+                  Loading course details...
+                </div>
+              ) : savedCourses.length === 0 ? (
+                <div className="p-4 text-center text-slate-600">
+                  No registered courses found.
+                </div>
+              ) : savedCourses.map((course, index) => (
                 <div key={course.id} className="flex items-start gap-4 p-5 bg-slate-50 rounded-lg border border-slate-200 hover:border-blue-200 hover:bg-blue-50/50 transition-all">
                   <div className={`w-12 h-12 ${getCourseColor(course.id)} rounded-xl flex items-center justify-center text-white font-semibold flex-shrink-0 shadow-md`}>
                     {index + 1}
