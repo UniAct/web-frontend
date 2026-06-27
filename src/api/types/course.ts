@@ -51,7 +51,9 @@ export interface CourseAssessment {
 
 export interface CourseStudentGrade {
   gradeId: number;
+  assessmentId: number;
   label: string;
+  assessmentType?: CourseAssessmentType;
   maxMarks: number;
   obtainedMarks: number;
 }

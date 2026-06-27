@@ -12,7 +12,8 @@ import {
   Calendar,
   Download,
   Search,
-  Loader
+  Loader,
+  XCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
@@ -39,6 +40,7 @@ interface Student {
   name: string;
   rollNumber: string;
   isPresent: boolean;
+  attendanceStatus: 'present' | 'absent' | 'late' | null;
   studentId: number;
 }
 
@@ -85,6 +87,12 @@ function buildStaffCourseOptions(options: StaffAttendanceCourse[]): CourseOption
       description: item.description?.trim() || `${item.courseCredits} credit hours`,
     }))
     .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function toAttendanceStatus(status: string): Student['attendanceStatus'] {
+  if (status === 'Present') return 'present';
+  if (status === 'Late') return 'late';
+  return 'absent';
 }
 
 export function AttendancePage({ user }: AttendancePageProps) {
@@ -232,19 +240,25 @@ export function AttendancePage({ user }: AttendancePageProps) {
           AttendanceService.getSessionBySlotAndDate(sectionOption.scheduleSlotId, selectedDate),
         ]);
 
-        const attendanceByStudentId = new Map(
+        const attendanceByStudentId = new Map<number, Student['attendanceStatus']>(
           (existingSession?.attendance ?? []).map((record) => [
             record.studentId,
-            record.status === 'Present' || record.status === 'Late',
+            toAttendanceStatus(record.status),
           ]),
         );
 
         const formattedStudents: Student[] = enrolled.map(e => ({
+          ...(() => {
+            const attendanceStatus = attendanceByStudentId.get(e.studentId) ?? null;
+            return {
+              attendanceStatus,
+              isPresent: attendanceStatus === 'present' || attendanceStatus === 'late',
+            };
+          })(),
           id: e.id,
           studentId: e.studentId,
           name: `${e.student.user.firstName || ''} ${e.student.user.lastName || ''}`.trim(),
           rollNumber: e.student.user.email || 'N/A',
-          isPresent: attendanceByStudentId.get(e.studentId) ?? false,
         }));
 
         setStudents(formattedStudents);
@@ -265,14 +279,20 @@ export function AttendancePage({ user }: AttendancePageProps) {
   const toggleStudentAttendance = (studentId: number) => {
     setStudents(prev => {
       const updated = prev.map(student =>
-        student.id === studentId ? { ...student, isPresent: !student.isPresent } : student
+        student.id === studentId
+          ? {
+            ...student,
+            isPresent: !student.isPresent,
+            attendanceStatus: student.isPresent ? 'absent' : 'present',
+          }
+          : student
       );
 
-      const initialMap = new Map<number, boolean>(
-        initialStudents.map(s => [s.studentId, s.isPresent])
+      const initialMap = new Map<number, Student['attendanceStatus']>(
+        initialStudents.map(s => [s.studentId, s.attendanceStatus])
       );
 
-      const hasChangedNow = updated.some(s => (initialMap.get(s.studentId) ?? false) !== s.isPresent);
+      const hasChangedNow = updated.some(s => (initialMap.get(s.studentId) ?? null) !== s.attendanceStatus);
       setHasChanges(hasChangedNow);
 
       return updated;
@@ -281,9 +301,9 @@ export function AttendancePage({ user }: AttendancePageProps) {
 
   const markAllPresent = () => {
     setStudents(prev => {
-      const updated = prev.map(student => ({ ...student, isPresent: true }));
-      const initialMap = new Map<number, boolean>(initialStudents.map(s => [s.studentId, s.isPresent]));
-      const hasChangedNow = updated.some(s => (initialMap.get(s.studentId) ?? false) !== s.isPresent);
+      const updated = prev.map(student => ({ ...student, isPresent: true, attendanceStatus: 'present' as const }));
+      const initialMap = new Map<number, Student['attendanceStatus']>(initialStudents.map(s => [s.studentId, s.attendanceStatus]));
+      const hasChangedNow = updated.some(s => (initialMap.get(s.studentId) ?? null) !== s.attendanceStatus);
       setHasChanges(hasChangedNow);
       return updated;
     });
@@ -291,9 +311,9 @@ export function AttendancePage({ user }: AttendancePageProps) {
 
   const markAllAbsent = () => {
     setStudents(prev => {
-      const updated = prev.map(student => ({ ...student, isPresent: false }));
-      const initialMap = new Map<number, boolean>(initialStudents.map(s => [s.studentId, s.isPresent]));
-      const hasChangedNow = updated.some(s => (initialMap.get(s.studentId) ?? false) !== s.isPresent);
+      const updated = prev.map(student => ({ ...student, isPresent: false, attendanceStatus: 'absent' as const }));
+      const initialMap = new Map<number, Student['attendanceStatus']>(initialStudents.map(s => [s.studentId, s.attendanceStatus]));
+      const hasChangedNow = updated.some(s => (initialMap.get(s.studentId) ?? null) !== s.attendanceStatus);
       setHasChanges(hasChangedNow);
       return updated;
     });
@@ -316,12 +336,12 @@ export function AttendancePage({ user }: AttendancePageProps) {
       setIsLoading(true);
 
       // Get modified records (compare by studentId to avoid relying on array indices)
-      const initialMap = new Map<number, boolean>(initialStudents.map(s => [s.studentId, s.isPresent]));
+      const initialMap = new Map<number, Student['attendanceStatus']>(initialStudents.map(s => [s.studentId, s.attendanceStatus]));
       const modifiedRecords = students
         .map((student) => ({
           studentId: student.studentId,
           status: student.isPresent ? 'present' : 'absent',
-          changed: (initialMap.get(student.studentId) ?? false) !== student.isPresent,
+          changed: (initialMap.get(student.studentId) ?? null) !== student.attendanceStatus,
         }))
         .filter(r => r.changed);
 
@@ -613,9 +633,11 @@ export function AttendancePage({ user }: AttendancePageProps) {
                         <p className="text-sm">{student.name}</p>
                         <p className="text-xs text-muted-foreground">{student.rollNumber}</p>
                       </div>
-                      {student.isPresent && (
+                      {student.isPresent ? (
                         <CheckCircle className="w-5 h-5 text-green-600" />
-                      )}
+                      ) : student.attendanceStatus === 'absent' ? (
+                        <XCircle className="w-5 h-5 text-red-600" />
+                      ) : null}
                     </div>
                   ))
                 )}
