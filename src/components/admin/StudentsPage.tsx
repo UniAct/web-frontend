@@ -114,6 +114,7 @@ interface StudentDraft {
   highSchoolSeatNumber: string;
   programId: string;
   programLevelId: string;
+  semesterNumber: string;
   semesterId: string;
 }
 
@@ -164,7 +165,8 @@ const emptyStudentDraft: StudentDraft = {
   highSchoolSeatNumber: "",
   programId: "",
   programLevelId: "",
-  semesterId: "",
+  semesterNumber: "",
+  semesterId: ""
 };
 
 const importEditableColumns = [
@@ -444,7 +446,7 @@ function mapDraftToCreatePayload(
     nationalId: draft.nationalId.trim(),
     programId: Number(draft.programId),
     programLevelId: Number(draft.programLevelId),
-    semesterId: Number(draft.semesterId),
+    semesterNumber: Number(draft.semesterNumber),
     email: draft.email.trim().toLowerCase(),
     phone: draft.phone.trim(),
     dateOfBirth: draft.dateOfBirth,
@@ -495,7 +497,8 @@ function mapStudentToEditDraft(
     highSchoolSeatNumber: "",
     programId: String(student.programId),
     programLevelId: String(student.programLevelId),
-    semesterId: "",
+    semesterNumber: "",
+    semesterId: ""
   };
 }
 
@@ -917,7 +920,7 @@ export function StudentsPage({
       createDraft.country,
       createDraft.programId,
       createDraft.programLevelId,
-      createDraft.semesterId,
+      createDraft.semesterNumber,
     ];
 
     if (required.some((value) => !String(value).trim())) {
@@ -1299,7 +1302,7 @@ export function StudentsPage({
     context: {
       programId: string;
       programLevelId: string;
-      semesterId: string;
+      semesterNumber: string;
     },
   ): CreateStudentInput => {
     const fullName =
@@ -1318,7 +1321,7 @@ export function StudentsPage({
       nationalId: (row.data.nationalId || "").trim(),
       programId: Number(context.programId),
       programLevelId: Number(context.programLevelId),
-      semesterId: Number(context.semesterId),
+      semesterNumber: Number(context.semesterNumber),
       email: (row.data.email || "").trim().toLowerCase(),
       phone: (row.data.phone || "").trim(),
       dateOfBirth: (row.data.dateOfBirth || "").trim(),
@@ -1377,7 +1380,7 @@ export function StudentsPage({
             {
               programId: importProgramId,
               programLevelId: importProgramLevelId,
-              semesterId: importSemesterId,
+              semesterNumber: importSemesterId,
             },
           );
 
@@ -2090,7 +2093,23 @@ export function StudentsPage({
                   <SelectField label="Status *" value={createDraft.status} onValueChange={(v) => setCreateDraft((d) => ({ ...d, status: v as StudentStatus }))} options={statusOptions.map((s) => ({ value: s, label: formatStudentStatus(s) }))} />
                   <SelectField label="Program *" value={createDraft.programId} onValueChange={(v) => setCreateDraft((d) => ({ ...d, programId: v, programLevelId: "" }))} options={programs.map((p) => ({ value: String(p.id), label: p.name }))} />
                   <SelectField label="Program Level *" value={createDraft.programLevelId} onValueChange={(v) => setCreateDraft((d) => ({ ...d, programLevelId: v }))} options={selectedProgramLevelsForCreate.map((l) => ({ value: String(l.id), label: `Level ${l.level}` }))} />
-                  <SelectField label="Semester *" value={createDraft.semesterId} onValueChange={(v) => setCreateDraft((d) => ({ ...d, semesterId: v }))} options={semesters.map((s) => ({ value: String(s.id), label: `${s.type} ${s.year}` }))} />
+                  <SelectField label="Semester *" 
+  value={String(createDraft.semesterId || '')} // Use the unique ID for the UI
+  onValueChange={(id) => {
+    // Find the actual semester object using the unique ID
+    const selected = semesters.find((s) => String(s.id) === id);
+
+    setCreateDraft((d) => ({ 
+      ...d, 
+      semesterId: id, // Keeps the UI happy and unique
+      semesterNumber: selected ? (String)(selected.term) : d.semesterNumber // Saves the number
+    }));
+  }} 
+  options={semesters.map((s) => ({ 
+    value: String(s.id), // Keep this unique to fix the label bug
+    label: `${s.type} ${s.year}` 
+  }))} 
+/>
                 </div>
               </section>
 

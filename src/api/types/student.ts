@@ -64,7 +64,7 @@ export interface CreateStudentInput {
   nationalId: string;
   programId: number;
   programLevelId: number;
-  semesterId: number;
+  semesterNumber: number;
   email: string;
   phone: string;
   dateOfBirth: string;
