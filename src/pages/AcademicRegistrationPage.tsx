@@ -447,6 +447,24 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
       } catch (error) {
         if (!isMounted) return;
 
+        // 1. Check if the error is a security/window block (403 Forbidden)
+        const isForbidden = error?.status === 403 || error?.response?.status === 403 || error?.message?.toLowerCase().includes('forbidden');
+
+        if (isForbidden) {
+          // Clear the fraudulent cache so this doesn't happen next time
+          try {
+            window.sessionStorage.removeItem(getScheduleCacheKey(user.programId, Number(selectedLevel), user.currentSemesterId));
+          } catch { }
+
+          // Empty the states entirely
+          setCourses([]);
+          setSelectedSessions([]);
+
+          // Explicitly alert the student
+          toast.error(error instanceof Error ? error.message : 'Your registration window is closed.');
+          return;
+        }
+
         const cachedScheduleSlots = readCachedScheduleSlots(
           user.programId,
           Number(selectedLevel),
@@ -547,13 +565,13 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
             sessions: course.sessions.map((session) =>
               getPhysicalSlotId(session) === parsed.slotId
                 ? {
-                    ...session,
-                    availableSeats: remainingSeats,
-                    rawSlot: {
-                      ...session.rawSlot,
-                      enrolledSeats: Math.max((session.rawSlot.allowedCapacity ?? 0) - remainingSeats, 0),
-                    },
-                  }
+                  ...session,
+                  availableSeats: remainingSeats,
+                  rawSlot: {
+                    ...session.rawSlot,
+                    enrolledSeats: Math.max((session.rawSlot.allowedCapacity ?? 0) - remainingSeats, 0),
+                  },
+                }
                 : session,
             ),
           })),
@@ -671,11 +689,11 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
       const enrollmentData = {
         scheduleSlots: submittedSessions.map((session) => {
           const slot = session.rawSlot;
-            // slot.id is the ScheduleSlotContext ID (required by backend worker)
-            const contextId = slot.id;
+          // slot.id is the ScheduleSlotContext ID (required by backend worker)
+          const contextId = slot.id;
 
           return {
-              id: contextId,
+            id: contextId,
             start_time: buildIsoDateTime(slot.startTime),
             end_time: buildIsoDateTime(slot.endTime, slot.endTime <= slot.startTime ? 1 : 0),
             type: slot.type,
@@ -914,8 +932,8 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
                 const rowBg = isPersisted
                   ? '#eff6ff'
                   : isAdded
-                  ? '#f0fdf4'
-                  : si % 2 === 0 ? '#ffffff' : '#fafafa';
+                    ? '#f0fdf4'
+                    : si % 2 === 0 ? '#ffffff' : '#fafafa';
 
                 return (
                   <tr
@@ -1375,12 +1393,12 @@ export function AcademicRegistrationPage({ user }: AcademicRegistrationPageProps
       )}
 
       {/* Submit button */}
-        <Button
-          onClick={submitRegistration}
-          disabled={!hasPendingSelectedSessions || isSubmittingRegistration}
-          style={{ flexShrink: 0, marginLeft: isSplit ? 'auto' : 0 }}
-          className="bg-blue-500 hover:bg-blue-400 disabled:opacity-40 text-white border-0 gap-1.5 h-8 text-xs font-semibold shadow-lg"
-        >
+      <Button
+        onClick={submitRegistration}
+        disabled={!hasPendingSelectedSessions || isSubmittingRegistration}
+        style={{ flexShrink: 0, marginLeft: isSplit ? 'auto' : 0 }}
+        className="bg-blue-500 hover:bg-blue-400 disabled:opacity-40 text-white border-0 gap-1.5 h-8 text-xs font-semibold shadow-lg"
+      >
         <SendHorizonal style={{ width: 14, height: 14, opacity: isSubmittingRegistration ? 0.6 : 1 }} />
         <span>{isSubmittingRegistration ? 'Submitting...' : 'Submit Registration'}</span>
       </Button>
