@@ -47,6 +47,7 @@ import type { LoginResponse } from '../api';
 import type { Faculty, HomeEvent } from '../features/home';
 import type { Announcement } from '../api';
 import { applyTenantDocumentBranding } from '../app/tenant-branding';
+import { logger } from '../utils/logger';
 
 interface HomePageProps {
   onLogin: (email: string, role: UserRole, session?: LoginResponse) => void;
@@ -152,7 +153,7 @@ export function HomePage({ onLogin }: HomePageProps) {
         }
       })
       .catch((error) => {
-        console.warn('[HomePage] Failed to load public tenant profile:', error);
+        logger.warn('[HomePage] Failed to load public tenant profile:', error);
       });
 
     UniversityService.getPublicStats(tenantContext.subdomain)
@@ -331,9 +332,9 @@ export function HomePage({ onLogin }: HomePageProps) {
     try {
       if (isSuperAdmin) {
         // SuperAdmin login - call API immediately after password
-        console.log('[HomePage] SuperAdmin login attempt:', email);
+        logger.debug('[HomePage] SuperAdmin login attempt:', email);
         const response = await AuthService.loginSuperAdmin(email, password);
-        console.log('[HomePage] SuperAdmin login successful:', response);
+        logger.debug('[HomePage] SuperAdmin login successful:', response);
 
         // Call the onLogin callback with superadmin role
         onLogin(email, 'superadmin' as UserRole, response);
@@ -347,9 +348,9 @@ export function HomePage({ onLogin }: HomePageProps) {
         setCompletedSteps(new Set());
       } else {
         // Tenant user login - still show password validation, then proceed to login
-        console.log('[HomePage] Tenant user login attempt:', email);
+        logger.debug('[HomePage] Tenant user login attempt:', email);
         const response = await AuthService.loginStaff(email, password);
-        console.log('[HomePage] Tenant user login successful:', response);
+        logger.debug('[HomePage] Tenant user login successful:', response);
 
         // App.tsx resolves the final role from backend token/session roles.
         onLogin(email, 'student', response);
@@ -365,7 +366,7 @@ export function HomePage({ onLogin }: HomePageProps) {
     } catch (error: any) {
       const errorMsg = error?.message || 'Login failed. Please check your credentials.';
       setLoginError(errorMsg);
-      console.error('Login error:', error);
+      logger.error('Login error:', error);
     } finally {
       setIsLoading(false);
     }
