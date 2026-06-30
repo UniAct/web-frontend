@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import * as XLSX from "xlsx";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -312,7 +311,8 @@ function resolveProgramLevels(
 function parseImportPreview(
   file: File,
 ): Promise<ImportPreviewRow[]> {
-  return file.arrayBuffer().then((buffer) => {
+  return file.arrayBuffer().then(async (buffer) => {
+    const XLSX = await import("xlsx");
     const workbook = XLSX.read(buffer, { type: "array" });
     const firstSheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheetName];
@@ -344,7 +344,8 @@ function parseDateValue(
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function downloadImportTemplate(): void {
+async function downloadImportTemplate(): Promise<void> {
+  const XLSX = await import("xlsx");
   const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.aoa_to_sheet([
     importTemplateHeaders,

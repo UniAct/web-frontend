@@ -51,6 +51,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
+import { escapeHtml } from "../../utils/html";
 import {
   ScheduleService,
   EnrollmentWindowService,
@@ -999,11 +1000,15 @@ export function RoomsTimetablingPage({
       `;
       const duration =
         timeToMinutes(cls.endTime) - timeToMinutes(cls.startTime);
-      ghost.innerHTML = `
-        <span style="font-size:16px">✦</span>
-        <span>${cls.courseCode || cls.courseName?.slice(0, 8) || "Class"}</span>
-        <span style="opacity:0.75;font-weight:400;font-size:11px">${fmt12(cls.startTime)} · ${duration}min</span>
-      `;
+      const icon = document.createElement("span");
+      icon.style.fontSize = "16px";
+      icon.textContent = "*";
+      const title = document.createElement("span");
+      title.textContent = cls.courseCode || cls.courseName?.slice(0, 8) || "Class";
+      const meta = document.createElement("span");
+      meta.style.cssText = "opacity:0.75;font-weight:400;font-size:11px";
+      meta.textContent = `${fmt12(cls.startTime)} - ${duration}min`;
+      ghost.append(icon, title, meta);
       document.body.appendChild(ghost);
       e.dataTransfer.setDragImage(ghost, -12, -12);
       setTimeout(() => document.body.removeChild(ghost), 0);
@@ -1158,7 +1163,7 @@ export function RoomsTimetablingPage({
           <th style="border:1px solid #cbd5e1; padding:10px 8px; text-align:center;
               background:linear-gradient(180deg,#1e3a8a 0%,#2563eb 100%);
               color:white; font-size:10px; font-weight:700; letter-spacing:0.3px;">
-            <div style="font-size:11px; font-weight:800;">${p.label}</div>
+            <div style="font-size:11px; font-weight:800;">${escapeHtml(p.label)}</div>
             <div style="font-size:9px; opacity:0.85; font-weight:500; margin-top:2px;">${fmt12(p.startTime)} &ndash; ${fmt12(p.endTime)}</div>
             <div style="font-size:8.5px; opacity:0.65; margin-top:1px;">${timeToMinutes(p.endTime) - timeToMinutes(p.startTime)} min</div>
           </th>`,
@@ -1206,14 +1211,14 @@ export function RoomsTimetablingPage({
                   return `
                   <div style="background:${pc.bg}; border-left:3px solid ${pc.header}; border-radius:4px; padding:6px 8px; margin-bottom:4px;">
                     <div style="display:flex; align-items:center; gap:5px; margin-bottom:3px;">
-                      <span style="background:${pc.header}; color:white; padding:1px 6px; border-radius:3px; font-size:7px; font-weight:800; text-transform:uppercase; letter-spacing:0.5px;">${cls.type}</span>
-                      <span style="color:${pc.header}; font-weight:800; font-size:10px;">${cls.courseCode ?? ""}</span>
+                      <span style="background:${pc.header}; color:white; padding:1px 6px; border-radius:3px; font-size:7px; font-weight:800; text-transform:uppercase; letter-spacing:0.5px;">${escapeHtml(cls.type)}</span>
+                      <span style="color:${pc.header}; font-weight:800; font-size:10px;">${escapeHtml(cls.courseCode)}</span>
                     </div>
-                    <div style="color:#1e293b; font-size:9px; font-weight:700; line-height:1.3; margin-bottom:3px;">${cls.courseName ?? ""}</div>
+                    <div style="color:#1e293b; font-size:9px; font-weight:700; line-height:1.3; margin-bottom:3px;">${escapeHtml(cls.courseName)}</div>
                     <div style="font-size:8px; color:#475569; line-height:1.6; border-top:1px solid rgba(0,0,0,0.06); padding-top:3px; margin-top:1px;">
                       <div><strong style="color:#374151;">Time:</strong> ${fmt12(cls.startTime)} &ndash; ${fmt12(cls.endTime)} (${duration} min)</div>
-                      <div><strong style="color:#374151;">Instructor:</strong> ${cls.instructorName ?? ""}</div>
-                      <div><strong style="color:#374151;">Room:</strong> ${cls.roomLabel ?? ""}</div>
+                      <div><strong style="color:#374151;">Instructor:</strong> ${escapeHtml(cls.instructorName)}</div>
+                      <div><strong style="color:#374151;">Room:</strong> ${escapeHtml(cls.roomLabel)}</div>
                     </div>
                   </div>`;
                 })
@@ -1229,7 +1234,7 @@ export function RoomsTimetablingPage({
                 padding:8px 10px; text-align:center; background:${dayLabelBg};
                 vertical-align:middle; font-weight:700;">
               <div style="font-size:13px; font-weight:800; color:#1e3a8a;">${DAY_ABBR[day]}</div>
-              <div style="font-size:9px; color:#64748b; margin-top:1px;">${day}</div>
+              <div style="font-size:9px; color:#64748b; margin-top:1px;">${escapeHtml(day)}</div>
               ${r.enabled
               ? `<div style="margin-top:4px; font-size:7.5px; color:#3b82f6; background:#eff6ff; padding:2px 5px; border-radius:10px; display:inline-block; border:1px solid #bfdbfe;">${dayClasses.length} class${dayClasses.length !== 1 ? "es" : ""}</div>`
               : `<div style="margin-top:4px; font-size:7.5px; color:#94a3b8; background:#f1f5f9; padding:2px 5px; border-radius:10px; display:inline-block;">Closed</div>`
@@ -1268,10 +1273,10 @@ export function RoomsTimetablingPage({
                 Weekly Schedule
               </div>
               <div style="font-size:10.5px; opacity:0.8; font-weight:500;">
-                ${[fac?.name, prog?.name].filter(Boolean).join(" / ") || "All Faculties &amp; Programs"}
+                ${[fac?.name, prog?.name].filter(Boolean).map(escapeHtml).join(" / ") || "All Faculties &amp; Programs"}
               </div>
               <div style="margin-top:6px; background:rgba(255,255,255,0.18); display:inline-flex; align-items:center; padding:4px 12px; border-radius:20px; border:1px solid rgba(255,255,255,0.3);">
-                <span style="font-size:12px; font-weight:800;">${levelLabel(level.level)}</span>
+                <span style="font-size:12px; font-weight:800;">${escapeHtml(levelLabel(level.level))}</span>
               </div>
             </div>
             <div style="text-align:right;">
@@ -1337,7 +1342,7 @@ export function RoomsTimetablingPage({
       <html lang="en">
         <head>
           <meta charset="utf-8">
-          <title>Timetable &mdash; ${exportScope === "current" && selLevel ? levelLabel(selLevel.level) : "All Levels"}</title>
+          <title>Timetable - ${escapeHtml(exportScope === "current" && selLevel ? levelLabel(selLevel.level) : "All Levels")}</title>
           <style>
             @media print {
               @page {

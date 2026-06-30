@@ -33,7 +33,9 @@ import {
   Search,
   Library,
   AlertTriangle,
-  Loader2
+  Loader2,
+  UserCog,
+  University
 } from 'lucide-react';
 import { motion, useInView } from 'framer-motion';
 import { AnnouncementService, AuthService, FacultyService, UniversityService } from '../api';
@@ -44,9 +46,52 @@ import type { UserRole } from '../App';
 import type { LoginResponse } from '../api';
 import type { Faculty, HomeEvent } from '../features/home';
 import type { Announcement } from '../api';
+import { applyTenantDocumentBranding } from '../app/tenant-branding';
 
 interface HomePageProps {
   onLogin: (email: string, role: UserRole, session?: LoginResponse) => void;
+}
+
+const facultyIconRules = [
+  { pattern: /business|account|marketing|finance|commerce|management|economic/i, icon: Briefcase },
+  { pattern: /computer|software|cyber|ai|artificial|data|information|technology/i, icon: BookOpen },
+  { pattern: /engineer|civil|mechanical|electrical|architecture|construction/i, icon: Building2 },
+  { pattern: /science|physics|chemistry|math|biology|laboratory|lab/i, icon: Microscope },
+  { pattern: /art|design|media|language|humanities/i, icon: Palette },
+];
+
+function resolveFacultyIcon(faculty: Pick<Faculty, 'name' | 'programs' | 'icon'>) {
+  if (faculty.icon) return faculty.icon;
+
+  const searchable = `${faculty.name} ${faculty.programs.join(' ')}`;
+  return facultyIconRules.find((rule) => rule.pattern.test(searchable))?.icon ?? GraduationCap;
+}
+
+function dedupeFaculties(items: Faculty[]): Faculty[] {
+  const byName = new Map<string, Faculty>();
+
+  items.forEach((item) => {
+    const key = item.name.trim().toLowerCase();
+    const current = byName.get(key);
+
+    if (!current) {
+      byName.set(key, item);
+      return;
+    }
+
+    const mergedPrograms = Array.from(new Set([...current.programs, ...item.programs]));
+    byName.set(key, {
+      ...current,
+      description: current.description || item.description,
+      fullDescription: current.fullDescription || item.fullDescription,
+      programs: mergedPrograms,
+      students: Math.max(current.students, item.students),
+      icon: current.icon || item.icon,
+      years: current.years || item.years,
+    });
+  });
+
+  return Array.from(byName.values());
 }
 
 export function HomePage({ onLogin }: HomePageProps) {
@@ -120,14 +165,7 @@ export function HomePage({ onLogin }: HomePageProps) {
       .then((items) => {
         if (!isMounted) return;
 
-        const icons = [FlaskConical, Microscope, Briefcase, Palette, Building2];
-        const colors = [
-          'from-blue-500 to-cyan-500',
-          'from-green-500 to-emerald-500',
-          'from-purple-500 to-violet-500',
-          'from-orange-500 to-amber-500',
-          'from-slate-500 to-blue-500',
-        ];
+        const icons = [Building2, BookOpen, Briefcase, Microscope, Palette, FlaskConical];
 
         setRealFaculties(items.map((item, index) => ({
           id: item.id,
@@ -137,7 +175,7 @@ export function HomePage({ onLogin }: HomePageProps) {
           programs: item.programs.length > 0 ? item.programs : ['Programs coming soon'],
           students: item.students,
           icon: icons[index % icons.length],
-          color: colors[index % colors.length],
+          color: '',
           type: 'Academic Faculty',
           years: item.years || 4,
         })));
@@ -183,30 +221,21 @@ export function HomePage({ onLogin }: HomePageProps) {
   const heroImages = tenantProfile?.settings?.hero_images?.length
     ? tenantProfile.settings.hero_images
     : homeHeroImages;
-  const faculties = isRealTenant ? realFaculties : homeFaculties;
+  const faculties = isRealTenant ? realFaculties : dedupeFaculties(homeFaculties);
   const events = isRealTenant ? realAnnouncements : homeEvents;
+  const facultiesTotal = isRealTenant
+    ? (facultiesLoaded ? faculties.length : realStats?.faculties ?? 0)
+    : faculties.length;
 
   useEffect(() => {
     if (!tenantProfile) return;
-
-    const settings = tenantProfile.settings;
-    if (settings?.tab_name) document.title = settings.tab_name;
-    if (settings?.primary_color) document.documentElement.style.setProperty('--primary', settings.primary_color);
-    if (settings?.secondary_color) document.documentElement.style.setProperty('--secondary', settings.secondary_color);
-    if (settings?.logo_url) {
-      const link =
-        document.querySelector<HTMLLinkElement>("link[rel~='icon']") ??
-        document.createElement('link');
-      link.rel = 'icon';
-      link.href = settings.logo_url;
-      document.head.appendChild(link);
-    }
+    applyTenantDocumentBranding(tenantProfile);
   }, [tenantProfile]);
 
   useEffect(() => {
-    if (!realStats) return;
+    if (!realStats && !facultiesLoaded) return;
     setHasAnimated(false);
-  }, [realStats]);
+  }, [realStats, facultiesLoaded, faculties.length]);
 
   useEffect(() => {
     if (heroImageIndex >= heroImages.length) {
@@ -250,9 +279,9 @@ export function HomePage({ onLogin }: HomePageProps) {
       // Animate all counters with slightly different durations for a staggered effect
       animateCounter(realStats?.students ?? 0, setStudentsCount, 2000);
       animateCounter(realStats?.staff ?? 0, setStaffCount, 2200);
-      animateCounter(realStats?.faculties ?? faculties.length, setFacultiesCount, 1800);
+      animateCounter(facultiesTotal, setFacultiesCount, 1800);
     }
-  }, [isStatsInView, hasAnimated, realStats, faculties.length]);
+  }, [isStatsInView, hasAnimated, realStats, facultiesTotal]);
 
   // Auto-advance hero carousel
   useEffect(() => {
@@ -407,9 +436,9 @@ export function HomePage({ onLogin }: HomePageProps) {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-80px" }}
       transition={{ duration: 0.45 }}
-      className="mx-auto max-w-xl rounded-3xl border border-blue-100 bg-white/85 p-10 text-center shadow-sm"
+      className="mx-auto max-w-xl rounded-3xl border brand-border bg-white/85 p-10 text-center shadow-sm"
     >
-      <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-50 to-purple-50 text-blue-600 ring-1 ring-blue-100">
+      <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl brand-soft brand-text ring-1 brand-border">
         <Icon className="h-8 w-8" />
       </div>
       <h3 className="text-xl font-semibold text-gray-900">{title}</h3>
@@ -434,12 +463,12 @@ export function HomePage({ onLogin }: HomePageProps) {
               whileHover={{ scale: 1.02 }}
               transition={{ duration: 0.2 }}
             >
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-md border border-blue-100 bg-white overflow-hidden">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-md border brand-border bg-white overflow-hidden">
                 <img src={isSuperAdmin ? '/favicon.png' : logoUrl} alt={universityName} className="w-full h-full object-contain p-1" />
               </div>
               <div>
-                <h1 className="text-xl text-blue-900">{isSuperAdmin ? 'UniAct' : universityName}</h1>
-                <p className="text-xs text-blue-600">
+                <h1 className="text-xl brand-text">{isSuperAdmin ? 'UniAct' : universityName}</h1>
+                <p className="text-xs brand-secondary-text">
                   {isSuperAdmin ? 'System Administration Portal' : 'University Portal'}
                 </p>
               </div>
@@ -449,30 +478,30 @@ export function HomePage({ onLogin }: HomePageProps) {
             <div className="hidden md:flex items-center gap-8">
               <button onClick={() => scrollToSection('faculties')} className="ui-nav-link group">
                 Faculties
-                <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-blue-600 transition-all group-hover:w-full"></span>
+                <span className="absolute -bottom-1 left-0 w-0 h-0.5 brand-link-underline transition-all group-hover:w-full"></span>
               </button>
               <button onClick={() => setShowProgramsModal(true)} className="ui-nav-link group">
                 Programs
-                <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-blue-600 transition-all group-hover:w-full"></span>
+                <span className="absolute -bottom-1 left-0 w-0 h-0.5 brand-link-underline transition-all group-hover:w-full"></span>
               </button>
               <button onClick={() => scrollToSection('events')} className="ui-nav-link group">
                 Events
-                <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-blue-600 transition-all group-hover:w-full"></span>
+                <span className="absolute -bottom-1 left-0 w-0 h-0.5 brand-link-underline transition-all group-hover:w-full"></span>
               </button>
               <button onClick={() => setShowAboutModal(true)} className="ui-nav-link group">
                 About
-                <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-blue-600 transition-all group-hover:w-full"></span>
+                <span className="absolute -bottom-1 left-0 w-0 h-0.5 brand-link-underline transition-all group-hover:w-full"></span>
               </button>
               <button onClick={() => scrollToSection('contact')} className="ui-nav-link group">
                 Contact
-                <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-blue-600 transition-all group-hover:w-full"></span>
+                <span className="absolute -bottom-1 left-0 w-0 h-0.5 brand-link-underline transition-all group-hover:w-full"></span>
               </button>
             </div>
 
             {/* Login Button */}
             <Button
               onClick={() => setShowLoginModal(true)}
-              className="bg-blue-600 hover:bg-blue-700 transition-all hover:shadow-lg hover:-translate-y-0.5"
+              className="transition-all hover:shadow-lg hover:-translate-y-0.5"
             >
               Login
             </Button>
@@ -481,7 +510,7 @@ export function HomePage({ onLogin }: HomePageProps) {
       </motion.nav>
 
       {/* Hero Section */}
-      <section className="relative bg-gradient-to-br from-blue-50 via-white to-purple-50 py-20 overflow-hidden">
+      <section className="relative brand-hero-surface py-20 overflow-hidden">
         <div className="max-w-7xl mx-auto px-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <motion.div
@@ -491,10 +520,10 @@ export function HomePage({ onLogin }: HomePageProps) {
               className="space-y-8"
             >
               <div>
-                <Badge className="bg-blue-100 text-blue-800 mb-4">
+                <Badge className="brand-soft brand-text mb-4 border-0">
                   AI-Powered Digital Ecosystem
                 </Badge>
-                <h1 className="text-4xl lg:text-6xl mb-6 bg-gradient-to-r from-blue-900 to-purple-900 bg-clip-text text-transparent">
+                <h1 className="text-4xl lg:text-6xl mb-6 bg-clip-text text-transparent" style={{ backgroundImage: 'var(--brand-gradient)' }}>
                   Welcome to the Future of University Education
                 </h1>
                 <p className="text-lg text-gray-600 leading-relaxed">
@@ -529,13 +558,13 @@ export function HomePage({ onLogin }: HomePageProps) {
                   initial={{ opacity: 0, y: 20 }}
                   animate={isStatsInView ? { opacity: 1, y: 0 } : {}}
                   transition={{ duration: 0.5, delay: 0.1 }}
-                  className="flex flex-col items-center justify-center gap-3 group"
+                  className="home-stat-item group"
                 >
-                  <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all duration-300">
+                  <div className="w-12 h-12 brand-gradient rounded-xl flex items-center justify-center shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all duration-300">
                     <Users className="w-6 h-6 text-white" />
                   </div>
                   <div className="text-center">
-                    <div className="text-[32px] text-blue-600 tabular-nums tracking-tight">
+                    <div className="text-[32px] brand-text tabular-nums tracking-tight">
                       {studentsCount.toLocaleString()}
                     </div>
                     <div className="text-sm text-gray-600 tracking-wider mt-1">Students</div>
@@ -547,13 +576,13 @@ export function HomePage({ onLogin }: HomePageProps) {
                   initial={{ opacity: 0, y: 20 }}
                   animate={isStatsInView ? { opacity: 1, y: 0 } : {}}
                   transition={{ duration: 0.5, delay: 0.2 }}
-                  className="flex flex-col items-center justify-center gap-3 group"
+                  className="home-stat-item group"
                 >
-                  <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all duration-300">
-                    <Building2 className="w-6 h-6 text-white" />
+                  <div className="w-12 h-12 brand-gradient rounded-xl flex items-center justify-center shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all duration-300">
+                    <UserCog className="w-6 h-6 text-white" />
                   </div>
                   <div className="text-center">
-                    <div className="text-[32px] text-purple-600 tabular-nums tracking-tight">
+                    <div className="text-[32px] brand-secondary-text tabular-nums tracking-tight">
                       {staffCount.toLocaleString()}
                     </div>
                     <div className="text-sm text-gray-600 tracking-wider mt-1">Staff</div>
@@ -565,13 +594,13 @@ export function HomePage({ onLogin }: HomePageProps) {
                   initial={{ opacity: 0, y: 20 }}
                   animate={isStatsInView ? { opacity: 1, y: 0 } : {}}
                   transition={{ duration: 0.5, delay: 0.3 }}
-                  className="flex flex-col items-center justify-center gap-3 group"
+                  className="home-stat-item group"
                 >
-                  <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all duration-300">
-                    <BookOpen className="w-6 h-6 text-white" />
+                  <div className="w-12 h-12 brand-gradient rounded-xl flex items-center justify-center shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all duration-300">
+                    <University className="w-6 h-6 text-white" />
                   </div>
                   <div className="text-center">
-                    <div className="text-[32px] text-green-600 tabular-nums tracking-tight">
+                    <div className="text-[32px] brand-text tabular-nums tracking-tight">
                       {facultiesCount.toLocaleString()}
                     </div>
                     <div className="text-sm text-gray-600 tracking-wider mt-1">Faculties</div>
@@ -587,7 +616,7 @@ export function HomePage({ onLogin }: HomePageProps) {
               className="relative"
             >
               <div className="relative">
-                <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-purple-400 rounded-3xl blur-3xl opacity-20"></div>
+                <div className="absolute inset-0 rounded-3xl blur-3xl opacity-20" style={{ background: 'var(--brand-gradient)' }}></div>
 
                 {/* Dynamic Photo Carousel */}
                 <div className="relative bg-white/80 backdrop-blur-md rounded-3xl shadow-2xl overflow-hidden border border-gray-100 group">
@@ -655,7 +684,7 @@ export function HomePage({ onLogin }: HomePageProps) {
                   </div>
 
                   {/* Bottom Info Bar */}
-                  <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-4">
+                  <div className="brand-gradient p-4">
                     <div className="flex items-center justify-between text-white">
                       <div className="flex items-center gap-2">
                         <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
@@ -685,10 +714,16 @@ export function HomePage({ onLogin }: HomePageProps) {
             transition={{ duration: 0.6 }}
             className="text-center mb-16"
           >
-            <h2 className="text-3xl lg:text-4xl mb-4 text-gray-900">Our Faculties</h2>
+            <p className="mb-3 text-xs font-bold uppercase tracking-widest brand-text">Academic Structure</p>
+            <h2 className="text-3xl lg:text-4xl mb-4 text-gray-900">Faculties and Programs</h2>
             <p className="text-lg text-gray-600 max-w-3xl mx-auto">
-              Discover world-class education across diverse fields of study, led by renowned faculty and cutting-edge research.
+              Explore the live academic structure published by {isRealTenant ? universityName : 'the university'}, including programs, student reach, and faculty focus areas.
             </p>
+            <div className="mt-5 flex justify-center">
+              <Badge variant="outline" className="brand-border brand-text bg-white px-4 py-1.5 text-sm">
+                {facultiesLoaded ? faculties.length.toLocaleString() : 'Loading'} faculties published
+              </Badge>
+            </div>
           </motion.div>
 
           {!facultiesLoaded && isRealTenant ? (
@@ -704,9 +739,10 @@ export function HomePage({ onLogin }: HomePageProps) {
               description="Academic faculties and programs will appear here as soon as the university publishes them."
             />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
               {filteredFaculties.map((faculty, index) => {
-                const Icon = faculty.icon;
+                const Icon = resolveFacultyIcon(faculty);
+                const hasPrograms = faculty.programs.some((program) => !/coming soon/i.test(program));
                 return (
                   <motion.div
                     key={faculty.id}
@@ -714,20 +750,25 @@ export function HomePage({ onLogin }: HomePageProps) {
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true, margin: "-100px" }}
                     transition={{ duration: 0.5, delay: index * 0.1 }}
-                    whileHover={{ scale: 1.05 }}
+                    whileHover={{ y: -6 }}
                   >
                     <Card
-                      className="group hover:shadow-xl transition-all duration-300 cursor-pointer h-full"
+                      className="group brand-card-hover cursor-pointer h-full overflow-hidden border-slate-200 bg-white transition-all duration-300"
                       onClick={() => setSelectedFaculty(faculty)}
                     >
-                      <CardContent className="p-6">
-                        <div className={`w-16 h-16 bg-gradient-to-br ${faculty.color} rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform`}>
+                      <CardContent className="flex h-full flex-col p-6">
+                        <div className="mb-5 flex items-start justify-between gap-3">
+                          <div className="w-16 h-16 brand-gradient rounded-2xl flex items-center justify-center shadow-lg shadow-slate-900/10 group-hover:scale-105 transition-transform">
                           <Icon className="w-8 h-8 text-white" />
+                          </div>
+                          <Badge variant="outline" className="brand-border brand-text bg-white/80 text-[11px]">
+                            {faculty.type || 'Faculty'}
+                          </Badge>
                         </div>
-                        <h3 className="text-lg mb-2 group-hover:text-blue-600 transition-colors">{faculty.name}</h3>
-                        <p className="text-sm text-gray-600 mb-4">{faculty.description}</p>
+                        <h3 className="text-xl leading-snug mb-2 group-hover:text-blue-600 transition-colors">{faculty.name}</h3>
+                        <p className="text-sm leading-relaxed text-gray-600 mb-5 line-clamp-3">{faculty.description}</p>
 
-                        <div className="space-y-3">
+                        <div className="mt-auto space-y-4">
                           <div className="flex items-center gap-2 text-sm text-gray-500">
                             <Users className="w-4 h-4" />
                             <span>{faculty.students.toLocaleString()} students</span>
@@ -735,22 +776,27 @@ export function HomePage({ onLogin }: HomePageProps) {
 
                           <div className="flex flex-wrap gap-1">
                             {faculty.programs.slice(0, 3).map((program, index) => (
-                              <Badge key={index} variant="outline" className="text-xs">
+                              <Badge key={index} variant="outline" className={`text-xs ${hasPrograms ? 'brand-border' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
                                 {program}
                               </Badge>
                             ))}
+                            {faculty.programs.length > 3 && (
+                              <Badge variant="outline" className="text-xs brand-border brand-text">
+                                +{faculty.programs.length - 3} more
+                              </Badge>
+                            )}
                           </div>
 
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="w-full group-hover:text-blue-600 transition-all hover:bg-blue-50"
+                            className="w-full transition-all"
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedFaculty(faculty);
                             }}
                           >
-                            Learn More
+                            View Faculty
                             <ChevronRight className="w-3 h-3 ml-1 group-hover:translate-x-1 transition-transform" />
                           </Button>
                         </div>
@@ -813,7 +859,7 @@ export function HomePage({ onLogin }: HomePageProps) {
                       }}
                     >
                       <CardContent className="p-6">
-                        <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-purple-500 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                        <div className="w-14 h-14 brand-gradient rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                           <Icon className="w-7 h-7 text-white" />
                         </div>
 
@@ -847,7 +893,7 @@ export function HomePage({ onLogin }: HomePageProps) {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="w-full transition-all hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300"
+                            className="w-full transition-all"
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedEvent(event);

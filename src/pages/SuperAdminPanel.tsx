@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -37,29 +37,12 @@ import {
   CalendarDays
 } from 'lucide-react';
 import type { User as AppUser } from '../App';
-
-// Admin pages
-import { UniversitiesListPage } from '../components/admin/UniversitiesListPage';
-import { UniversitySettingsPage } from '../components/admin/UniversitySettingsPage';
-import { UniversityAdminsPage } from '../components/admin/UniversityAdminsPage';
-import { ProgramsFacultiesPage } from '../components/admin/ProgramsFacultiesPage';
-
-import { RoomsPage } from '../components/admin/RoomsPage';
-import { RoomsTimetablingPage } from '../components/admin/RoomsTimetablingPage';
-import { StaffManagementPage } from '../components/admin/StaffManagementPage';
-import { StudentsPage } from '../components/admin/StudentsPage';
-import { EnrollmentPage } from '../components/admin/EnrollmentPage';
-import { LevelYearTablePage } from '../components/admin/LevelYearTablePage';
-import { AnnouncementsPage } from '../components/admin/AnnouncementsPage';
-import { StatisticsPage } from '../components/admin/StatisticsPage';
-import { AuditLogsPage } from '../components/admin/AuditLogsPage';
-import { AdminAttendancePage } from '../components/admin/AdminAttendancePage';
-import { AdminGradesPage } from '../components/admin/AdminGradesPage';
 import { apiClient, UniversityService } from '../api';
 import { SemesterService } from '../api';
 import type { Semester } from '../api';
 import type { PublicTenantProfile } from '../api';
 import { ACTIVE_SEMESTER_EVENT, writeActiveSemesterId } from '../contexts/SemesterContext';
+import { lazyNamed, RouteLoadingFallback } from '../app/lazy';
 
 interface SuperAdminPanelProps {
   user: AppUser;
@@ -83,6 +66,67 @@ type AdminPage =
   | 'grades'
   | 'announcements'
   | 'audit';
+
+const UniversitiesListPage = lazyNamed<typeof import('../components/admin/UniversitiesListPage').UniversitiesListPage>(
+  () => import('../components/admin/UniversitiesListPage'),
+  'UniversitiesListPage',
+);
+const UniversitySettingsPage = lazyNamed<typeof import('../components/admin/UniversitySettingsPage').UniversitySettingsPage>(
+  () => import('../components/admin/UniversitySettingsPage'),
+  'UniversitySettingsPage',
+);
+const UniversityAdminsPage = lazyNamed<typeof import('../components/admin/UniversityAdminsPage').UniversityAdminsPage>(
+  () => import('../components/admin/UniversityAdminsPage'),
+  'UniversityAdminsPage',
+);
+const ProgramsFacultiesPage = lazyNamed<typeof import('../components/admin/ProgramsFacultiesPage').ProgramsFacultiesPage>(
+  () => import('../components/admin/ProgramsFacultiesPage'),
+  'ProgramsFacultiesPage',
+);
+const RoomsPage = lazyNamed<typeof import('../components/admin/RoomsPage').RoomsPage>(
+  () => import('../components/admin/RoomsPage'),
+  'RoomsPage',
+);
+const RoomsTimetablingPage = lazyNamed<typeof import('../components/admin/RoomsTimetablingPage').RoomsTimetablingPage>(
+  () => import('../components/admin/RoomsTimetablingPage'),
+  'RoomsTimetablingPage',
+);
+const StaffManagementPage = lazyNamed<typeof import('../components/admin/StaffManagementPage').StaffManagementPage>(
+  () => import('../components/admin/StaffManagementPage'),
+  'StaffManagementPage',
+);
+const StudentsPage = lazyNamed<typeof import('../components/admin/StudentsPage').StudentsPage>(
+  () => import('../components/admin/StudentsPage'),
+  'StudentsPage',
+);
+const EnrollmentPage = lazyNamed<typeof import('../components/admin/EnrollmentPage').EnrollmentPage>(
+  () => import('../components/admin/EnrollmentPage'),
+  'EnrollmentPage',
+);
+const LevelYearTablePage = lazyNamed<typeof import('../components/admin/LevelYearTablePage').LevelYearTablePage>(
+  () => import('../components/admin/LevelYearTablePage'),
+  'LevelYearTablePage',
+);
+const AnnouncementsPage = lazyNamed<typeof import('../components/admin/AnnouncementsPage').AnnouncementsPage>(
+  () => import('../components/admin/AnnouncementsPage'),
+  'AnnouncementsPage',
+);
+const StatisticsPage = lazyNamed<typeof import('../components/admin/StatisticsPage').StatisticsPage>(
+  () => import('../components/admin/StatisticsPage'),
+  'StatisticsPage',
+);
+const AuditLogsPage = lazyNamed<typeof import('../components/admin/AuditLogsPage').AuditLogsPage>(
+  () => import('../components/admin/AuditLogsPage'),
+  'AuditLogsPage',
+);
+const AdminAttendancePage = lazyNamed<typeof import('../components/admin/AdminAttendancePage').AdminAttendancePage>(
+  () => import('../components/admin/AdminAttendancePage'),
+  'AdminAttendancePage',
+);
+const AdminGradesPage = lazyNamed<typeof import('../components/admin/AdminGradesPage').AdminGradesPage>(
+  () => import('../components/admin/AdminGradesPage'),
+  'AdminGradesPage',
+);
 
 const navigationItems = [
   { id: 'universities', label: 'Universities', icon: Building2, description: 'Manage institutions' },
@@ -1063,7 +1107,9 @@ export function SuperAdminPanel({ user, onLogout, tenantProfile: tenantProfilePr
           {/* Page Content */}
           <main className="flex-1 overflow-auto bg-slate-50 p-3 min-w-0 sm:p-6">
             <div className="max-w-full">
-              {renderPage()}
+              <Suspense fallback={<RouteLoadingFallback label="Loading admin page" />}>
+                {renderPage()}
+              </Suspense>
             </div>
           </main>
         </div>

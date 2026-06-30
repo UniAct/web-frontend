@@ -15,7 +15,6 @@ import {
   XCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
-import * as XLSX from 'xlsx';
 import { AttendanceService } from '../../api/modules/attendance/attendance.service';
 import type { User as AppUser } from '../../App';
 import type { AttendanceCourseSummary, AttendanceSessionRecord, StaffAttendanceCourse } from '../../api/types';
@@ -404,7 +403,7 @@ export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendanc
     }
   };
 
-  const handleExportAttendance = () => {
+  const handleExportAttendance = async () => {
     if (!selectedCourse) {
       toast.error('Please select a course first');
       return;
@@ -416,6 +415,8 @@ export function AdminAttendancePage({ user, selectedUniversity }: AdminAttendanc
     }
 
     try {
+      const XLSX = await import('xlsx');
+
       // Get the selected course info
       const courseOption = courses.find((c) => c.value === selectedCourse);
       if (!courseOption) return;

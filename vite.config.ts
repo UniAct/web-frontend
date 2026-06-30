@@ -9,6 +9,41 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+
+            if (id.includes('react') || id.includes('react-dom') || id.includes('react-router-dom')) {
+              return 'vendor-react';
+            }
+
+            if (id.includes('@radix-ui') || id.includes('lucide-react') || id.includes('sonner')) {
+              return 'vendor-ui';
+            }
+
+            if (id.includes('recharts') || id.includes('d3-')) {
+              return 'vendor-charts';
+            }
+
+            if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('html2pdf.js') || id.includes('dompurify')) {
+              return undefined;
+            }
+
+            if (id.includes('xlsx')) {
+              return 'vendor-office';
+            }
+
+            if (id.includes('framer-motion')) {
+              return 'vendor-motion';
+            }
+
+            return 'vendor-core';
+          },
+        },
+      },
+    },
     server: {
       host: '0.0.0.0',
       port: 5173,
