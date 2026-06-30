@@ -34,7 +34,6 @@ import {
   type UniversityAnalyticsItem,
   type UniversityAnalyticsProgramBreakdown,
 } from '../../api';
-import { Calendar } from '../ui/calendar';
 
 // ── Palette ──────────────────────────────────────────────────────────────────
 const SERIES = ['#2a78d6', '#1baf7a', '#eda100', '#4a3aa7', '#e34948', '#eb6834', '#e87ba4', '#008300'];
@@ -56,6 +55,21 @@ function toDate(s: string) { const d = new Date(s); return isNaN(d.getTime()) ? 
 function sameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
+function tenantDisplayName(value: string | null) {
+  const raw = value?.replace(/^tenant:/i, '').trim();
+  if (!raw) return 'University';
+  if (/^[a-z0-9-]+$/i.test(raw)) {
+    return raw
+      .split(/[-_\s]+/)
+      .filter(Boolean)
+      .map(part => part.length <= 4 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join(' ');
+  }
+  return raw;
+}
+function shortDate(date: Date) {
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface StatisticsPageProps {
@@ -64,6 +78,13 @@ interface StatisticsPageProps {
 }
 type EventTab = 'ANNOUNCEMENT' | 'EVENT';
 type DistTab = 'faculty' | 'program';
+type DistributionItem = {
+  id: number;
+  name: string;
+  value: number;
+  secondary: string;
+  color: string;
+};
 
 // ── Active Pie Shape ──────────────────────────────────────────────────────────
 // Recharts calls this with a wide set of props we forward to Sector
@@ -169,7 +190,8 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
   const [selDate, setSelDate] = useState<Date | undefined>(new Date());
   const [evTab, setEvTab] = useState<EventTab>('ANNOUNCEMENT');
   const [distTab, setDistTab] = useState<DistTab>('faculty');
-  const [pieIdx, setPieIdx] = useState(0);
+  const [activeDistId, setActiveDistId] = useState<Record<DistTab, number | null>>({ faculty: null, program: null });
+  const tenantName = tenantDisplayName(selectedUniversity);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -178,8 +200,10 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { void load(); setPieIdx(0); }, [load, selectedUniversity]);
-  useEffect(() => { setPieIdx(0); }, [distTab]);
+  useEffect(() => {
+    void load();
+    setActiveDistId({ faculty: null, program: null });
+  }, [load, selectedUniversity]);
 
   const sum = analytics?.summary;
   const att30 = analytics?.attendance.last30Days;
@@ -188,20 +212,58 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
   const avgCap = analytics?.resources.classrooms
     ? Math.round(analytics.resources.totalCapacity / analytics.resources.classrooms) : 0;
 
+  const buildDistribution = useCallback((items: DistributionItem[], totalStudents: number) => {
+    const visibleItems = items.filter(item => item.value > 0);
+    const distributedStudents = visibleItems.reduce((total, item) => total + item.value, 0);
+    const unassignedStudents = Math.max(0, totalStudents - distributedStudents);
+    return unassignedStudents > 0
+      ? [
+        ...visibleItems,
+        {
+          id: -1,
+          name: 'Unassigned students',
+          value: unassignedStudents,
+          secondary: 'No linked faculty/program',
+          color: '#94a3b8',
+        },
+      ]
+      : visibleItems;
+  }, []);
+
   const facultyPie = useMemo(() =>
-    analytics?.facultyBreakdown.map((f, i) => ({
-      name: f.name, value: f.students, secondary: `${f.programs} programs`, color: SERIES[i % SERIES.length],
-    })) ?? [], [analytics]);
+    buildDistribution(
+      analytics?.facultyBreakdown.map((f, i) => ({
+        id: f.id,
+        name: f.name,
+        value: f.students,
+        secondary: `${f.programs} programs`,
+        color: SERIES[i % SERIES.length],
+      })) ?? [],
+      sum?.students ?? 0,
+    ), [analytics, buildDistribution, sum?.students]);
 
   const programPie = useMemo(() =>
-    analytics?.programBreakdown.slice(0, 8).map((p, i) => ({
-      name: p.name, value: p.students, secondary: p.facultyName, color: SERIES[i % SERIES.length],
-    })) ?? [], [analytics]);
+    buildDistribution(
+      analytics?.programBreakdown.map((p, i) => ({
+        id: p.id,
+        name: p.name,
+        value: p.students,
+        secondary: p.facultyName,
+        color: SERIES[i % SERIES.length],
+      })) ?? [],
+      sum?.students ?? 0,
+    ), [analytics, buildDistribution, sum?.students]);
 
   const pieData = distTab === 'faculty' ? facultyPie : programPie;
-  const safeIdx = pieData.length > 0 ? Math.min(pieIdx, pieData.length - 1) : 0;
+  const selectedDistId = activeDistId[distTab];
+  const selectedIdx = selectedDistId == null ? -1 : pieData.findIndex(item => item.id === selectedDistId);
+  const safeIdx = pieData.length > 0 ? Math.max(0, selectedIdx) : 0;
   const active = pieData[safeIdx];
   const pieTotal = pieData.reduce((s, x) => s + x.value, 0);
+  const setActiveDistribution = useCallback((item?: DistributionItem) => {
+    if (!item) return;
+    setActiveDistId(prev => ({ ...prev, [distTab]: item.id }));
+  }, [distTab]);
 
   const topProgs = useMemo(() => analytics?.programBreakdown.slice(0, 6) ?? [], [analytics]);
 
@@ -220,25 +282,33 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
   const selItems = useMemo(() =>
     selDate ? upcomingFiltered.filter(i => sameDay(toDate(i.date), selDate)) : [],
     [selDate, upcomingFiltered]);
+  const agendaItems = selItems.length > 0 ? selItems : upcomingFiltered.slice(0, 6);
+  const agendaIsFiltered = selItems.length > 0;
+  const agendaDates = useMemo(() => {
+    const byDay = new Map<string, { date: Date; count: number }>();
+    upcomingFiltered.forEach(item => {
+      const date = toDate(item.date);
+      const key = date.toISOString().slice(0, 10);
+      const existing = byDay.get(key);
+      byDay.set(key, { date, count: (existing?.count ?? 0) + 1 });
+    });
+    return Array.from(byDay.values()).slice(0, 5);
+  }, [upcomingFiltered]);
 
-  const hasItem = (d: Date) => upcomingFiltered.some(i => sameDay(toDate(i.date), d));
   const toggle = (id: number) => setExpanded(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
 
-  // Donut center label rendered via foreignObject so it doesn't rely on coordinate guessing
+  // Keep the center label numeric only so long faculty/program names cannot collide with the chart.
   const DonutLabel = active ? (
-    <foreignObject x={0} y={60} width={220} height={100} style={{ pointerEvents: 'none' }}>
+    <foreignObject x={50} y={76} width={120} height={76} style={{ pointerEvents: 'none' }}>
       <div style={{ textAlign: 'center', padding: '0 12px' }}>
         <p style={{
-          margin: 0, fontSize: 12, fontWeight: 600, color: '#0f172a',
+          margin: 0, fontSize: 28, lineHeight: 1, fontWeight: 700, color: '#0f172a',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
         }}>
-          {active.name}
+          {fmt(active.value)}
         </p>
         <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
-          {fmt(active.value)} students
-        </p>
-        <p style={{ margin: '1px 0 0', fontSize: 10, color: '#94a3b8' }}>
-          {active.secondary}
+          students
         </p>
       </div>
     </foreignObject>
@@ -271,7 +341,7 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
                 )}
               </div>
               <h2 style={{ margin: '8px 0 0', fontSize: 20, fontWeight: 700, color: '#0f172a' }}>
-                {selectedUniversity ?? 'University'} Statistics
+                {tenantName} Statistics
               </h2>
               <p style={{ margin: '4px 0 0', fontSize: 12, color: '#64748b' }}>
                 Real-time snapshot of academic structure, attendance, and communications.
@@ -305,7 +375,7 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
         </div>
 
         {/* Primary KPIs — explicit 4-col grid, no breakpoint */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, padding: '16px 20px 0' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10, padding: '16px 20px 0' }}>
           <KpiCard label="Students" value={fmt(sum?.students ?? 0)} icon={Users} accent="#2a78d6" loading={loading} />
           <KpiCard label="Faculties" value={fmt(sum?.faculties ?? 0)} icon={School} accent="#1baf7a" loading={loading} />
           <KpiCard label="Programs" value={fmt(sum?.programs ?? 0)} icon={Layers3} accent="#7c3aed" loading={loading} />
@@ -313,7 +383,7 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
         </div>
 
         {/* Secondary strip */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, padding: '10px 20px 20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10, padding: '10px 20px 20px' }}>
           {[
             { icon: GraduationCap, label: 'Staff / Admins', value: `${fmt(sum?.staff ?? 0)} / ${fmt(sum?.admins ?? 0)}` },
             { icon: Network, label: 'Learning groups', value: fmt(sum?.learningGroups ?? 0), sub: `${fmt(sum?.activeRegistrations ?? 0)} active enrollments` },
@@ -341,7 +411,7 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
       </Panel>
 
       {/* ── ROW 2: Distribution + Attendance ─────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 370px', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(560px, 1fr) minmax(320px, 370px)', gap: 16 }}>
 
         {/* Distribution */}
         <Panel>
@@ -372,7 +442,7 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
                 </div>
               </div>
             ) : pieData.length > 0 ? (
-              <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 24, alignItems: 'center' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0, 1fr)', gap: 24, alignItems: 'center' }}>
                 {/* Donut */}
                 <div style={{ position: 'relative' }}>
                   <ResponsiveContainer width={220} height={220}>
@@ -383,11 +453,11 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
                         cx={110} cy={110} innerRadius={62} outerRadius={90}
                         activeIndex={safeIdx}
                         activeShape={ActivePieShape}
-                        onMouseEnter={(_, i) => setPieIdx(i)}
-                        onClick={(_, i) => setPieIdx(i)}
+                        onMouseEnter={(_, i) => setActiveDistribution(pieData[i])}
+                        onClick={(_, i) => setActiveDistribution(pieData[i])}
                       >
                         {pieData.map((entry, i) => (
-                          <Cell key={entry.name} fill={entry.color}
+                          <Cell key={`${distTab}-${entry.id}`} fill={entry.color}
                             opacity={i === safeIdx ? 1 : 0.65}
                             stroke={i === safeIdx ? '#fff' : 'transparent'}
                             strokeWidth={i === safeIdx ? 3 : 0}
@@ -396,16 +466,28 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
                       </Pie>
                     </PieChart>
                   </ResponsiveContainer>
+                  {active && (
+                    <div style={{ marginTop: 8, textAlign: 'center' }}>
+                      <p style={{
+                        margin: 0, fontSize: 12, fontWeight: 600, color: '#0f172a',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                      }}>
+                        {active.name}
+                      </p>
+                      <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>{active.secondary}</p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Legend */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {pieData.slice(0, 8).map((item, i) => {
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 270, overflowY: 'auto', paddingRight: 2 }}>
+                  {pieData.map((item, i) => {
                     const pct = pieTotal > 0 ? Math.round((item.value / pieTotal) * 100) : 0;
                     const isSel = i === safeIdx;
                     return (
-                      <button key={item.name} type="button"
-                        onMouseEnter={() => setPieIdx(i)} onClick={() => setPieIdx(i)}
+                      <button key={`${distTab}-legend-${item.id}`} type="button"
+                        onMouseEnter={() => setActiveDistribution(item)}
+                        onClick={() => setActiveDistribution(item)}
                         style={{
                           display: 'flex', alignItems: 'center', gap: 10,
                           padding: '7px 10px', borderRadius: 8, border: 'none', textAlign: 'left',
@@ -512,7 +594,7 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
       </div>
 
       {/* ── ROW 3: Programs + Absences + Comms ───────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px 330px', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(520px, 1fr) minmax(280px, 320px) minmax(360px, 420px)', gap: 16 }}>
 
         {/* Program scale */}
         <Panel>
@@ -654,12 +736,11 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
           <SectionHeader title="Communications"
             badge={
               <Pill>
-                {fmt(analytics?.communications.announcements ?? 0)} / {fmt(analytics?.communications.events ?? 0)}
+                {fmt(analytics?.communications.announcements ?? 0)} notices / {fmt(analytics?.communications.events ?? 0)} events
               </Pill>
             }
           />
           <div style={{ padding: '12px 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {/* Tab toggle */}
             <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: 8, padding: 3, gap: 2 }}>
               {([['ANNOUNCEMENT', Bell, 'Announcements'], ['EVENT', CalendarIcon, 'Events']] as const).map(([val, Icon, label]) => (
                 <button key={val} onClick={() => setEvTab(val as EventTab)}
@@ -677,37 +758,65 @@ export function StatisticsPage({ selectedUniversity }: StatisticsPageProps) {
               ))}
             </div>
 
-            {/* Calendar */}
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <Calendar
-                mode="single" selected={selDate} onSelect={setSelDate}
-                className="rounded-lg border border-slate-200"
-                modifiers={{ hasItem }}
-                modifiersClassNames={{ hasItem: 'font-semibold text-blue-600 underline underline-offset-2' }}
-              />
-            </div>
+            {agendaDates.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+                <button
+                  type="button"
+                  onClick={() => setSelDate(undefined)}
+                  style={{
+                    flexShrink: 0, border: '1px solid #dbeafe', background: selDate ? '#fff' : '#eff6ff',
+                    color: '#1d4ed8', borderRadius: 7, padding: '6px 9px', cursor: 'pointer',
+                    fontSize: 11, fontWeight: 600,
+                  }}
+                >
+                  Upcoming
+                </button>
+                {agendaDates.map(({ date, count }) => {
+                  const activeDate = selDate ? sameDay(selDate, date) : false;
+                  return (
+                    <button
+                      key={date.toISOString()}
+                      type="button"
+                      onClick={() => setSelDate(date)}
+                      style={{
+                        flexShrink: 0, border: `1px solid ${activeDate ? '#bfdbfe' : '#e2e8f0'}`,
+                        background: activeDate ? '#eff6ff' : '#fff',
+                        color: activeDate ? '#1d4ed8' : '#475569',
+                        borderRadius: 7, padding: '6px 9px', cursor: 'pointer',
+                        fontSize: 11, fontWeight: 600,
+                      }}
+                    >
+                      {shortDate(date)} <span style={{ color: '#94a3b8' }}>({count})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
-            {/* Item list */}
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#475569' }}>
-                  {selDate
-                    ? `${evTab === 'EVENT' ? 'Events' : 'Notices'} on ${selDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-                    : 'Pick a date'}
+                  {agendaIsFiltered && selDate
+                    ? `${evTab === 'EVENT' ? 'Events' : 'Notices'} on ${shortDate(selDate)}`
+                    : `Upcoming ${evTab === 'EVENT' ? 'events' : 'notices'}`}
                 </p>
                 <span style={{
                   fontSize: 10, fontWeight: 700, background: '#f1f5f9', color: '#475569',
                   borderRadius: 5, padding: '2px 7px',
-                }}>{selItems.length}</span>
+                }}>{agendaItems.length}</span>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 360, overflowY: 'auto' }}>
                 {loading ? (
-                  <div style={{ height: 60, background: '#f8fafc', borderRadius: 8 }} />
-                ) : selItems.length > 0 ? selItems.map(item => (
+                  <div style={{ height: 80, background: '#f8fafc', borderRadius: 8 }} />
+                ) : agendaItems.length > 0 ? agendaItems.map(item => (
                   <CommItem key={`${item.type}-${item.id}`} item={item} />
                 )) : (
-                  <EmptySlate title="Nothing scheduled" sub="Underlined dates have items." compact />
+                  <EmptySlate
+                    title={`No upcoming ${evTab === 'EVENT' ? 'events' : 'notices'}`}
+                    sub="Published communications will appear here as soon as they are scheduled."
+                    compact
+                  />
                 )}
               </div>
             </div>
