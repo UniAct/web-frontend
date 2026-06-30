@@ -26,3 +26,17 @@ export interface AssignRootAccountInput {
   country: string;
   nationalId: string;
 }
+
+export interface TenantRootAdmin {
+  id: number;
+  username: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  isVerified: boolean;
+  isBlocked: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  roles: string[];
+}

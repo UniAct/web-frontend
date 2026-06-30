@@ -13,6 +13,7 @@ export type {
   SuperAdmin,
   SuperAdminCreateInput,
   AssignRootAccountInput,
+  TenantRootAdmin,
 } from './superadmin';
 export type {
   University,

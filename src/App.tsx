@@ -19,6 +19,7 @@ import {
 } from './app/session';
 import { applyTenantDocumentBranding } from './app/tenant-branding';
 import { lazyNamed, RouteLoadingFallback } from './app/lazy';
+import { logger } from './utils/logger';
 
 export type { User, UserRole } from './app/types';
 
@@ -77,6 +78,10 @@ const TimetablePage = lazyNamed<typeof import('./pages/TimetablePage').Timetable
 const UniActBrandingPage = lazyNamed<typeof import('./pages/UniActBrandingPage').UniActBrandingPage>(
   () => import('./pages/UniActBrandingPage'),
   'UniActBrandingPage',
+);
+const SuperAdminLoginPage = lazyNamed<typeof import('./pages/SuperAdminLoginPage').SuperAdminLoginPage>(
+  () => import('./pages/SuperAdminLoginPage'),
+  'SuperAdminLoginPage',
 );
 const VerifyRootAccountPage = lazy(() => import('./pages/VerifyRootAccountPage'));
 const VerifyStaffAccountPage = lazy(() => import('./pages/VerifyStaffAccountPage'));
@@ -140,7 +145,7 @@ export default function App() {
         applyTenantDocumentBranding(profile);
       })
       .catch((error) => {
-        console.warn('[App] Failed to load tenant branding:', error);
+        logger.warn('[App] Failed to load tenant branding:', error);
         if (!isMounted) return;
         setTenantProfile(null);
         applyTenantDocumentBranding(null);
@@ -226,45 +231,45 @@ export default function App() {
       try {
         const tenantContext = TenantDetectionService.detectTenant();
 
-        console.log('[App] Checking tenant context:', tenantContext);
+        logger.debug('[App] Checking tenant context:', tenantContext);
 
         if (tenantContext.isBranding) {
-          console.log('[App] Branding access detected, skipping tenant validation');
+          logger.debug('[App] Branding access detected, skipping tenant validation');
           setIsCheckingTenant(false);
           return;
         }
 
         // SuperAdmin doesn't need tenant validation
         if (tenantContext.isSuperAdmin) {
-          console.log('[App] SuperAdmin access detected, skipping tenant validation');
+          logger.debug('[App] SuperAdmin access detected, skipping tenant validation');
           setIsCheckingTenant(false);
           return;
         }
 
         // For tenant-specific access, validate the tenant exists
         if (tenantContext.subdomain) {
-          console.log('[App] Tenant access detected, validating tenant:', tenantContext.subdomain);
+          logger.debug('[App] Tenant access detected, validating tenant:', tenantContext.subdomain);
           setTenantSubdomain(tenantContext.subdomain);
 
           try {
             const isValidTenant = await apiClient.validateCurrentTenant();
 
             if (!isValidTenant) {
-              console.error('[App] Tenant not found or inactive:', tenantContext.subdomain);
+              logger.error('[App] Tenant not found or inactive:', tenantContext.subdomain);
               setTenantNotFound(true);
               setIsCheckingTenant(false);
               return;
             }
 
-            console.log('[App] Tenant validation passed');
+            logger.debug('[App] Tenant validation passed');
             setIsCheckingTenant(false);
           } catch (error) {
-            console.warn('[App] Could not verify tenant:', error);
+            logger.warn('[App] Could not verify tenant:', error);
             setIsCheckingTenant(false);
           }
         }
       } catch (err) {
-        console.error('[App] Error checking tenant:', err);
+        logger.error('[App] Error checking tenant:', err);
         setIsCheckingTenant(false);
       }
     };
@@ -304,7 +309,7 @@ export default function App() {
         let finalRole = role;
         if (parsed.roles && Array.isArray(parsed.roles) && parsed.roles.length > 0) {
           finalRole = resolveUserRole(parsed, role);
-          console.log(`[App] Backend returned roles: ${parsed.roles.join(', ')}; resolved role: ${finalRole}`);
+          logger.debug(`[App] Backend returned roles: ${parsed.roles.join(', ')}; resolved role: ${finalRole}`);
         } else if (parsed?.isStaff === true || parsed?.isStaffAccount === true) {
           finalRole = 'faculty';
         } else if (parsed?.isStudent === true) {
@@ -320,22 +325,22 @@ export default function App() {
         const tenantContext = TenantDetectionService.detectTenant();
         if (tenantContext.isSuperAdmin) {
           // SuperAdmin: show only tenant management page
-          console.log('[App] Routing to SuperAdminPanel (SuperAdmin context)');
+          logger.debug('[App] Routing to SuperAdminPanel (SuperAdmin context)');
           navigateToPage(resolvePageFromQuery(new URLSearchParams(location.search).get('page'), 'superadmin'));
         } else {
           // Tenant users: route based on role
           if (finalRole === 'admin') {
-            console.log('[App] Routing to SuperAdminPanel (Admin role at tenant)');
+            logger.debug('[App] Routing to SuperAdminPanel (Admin role at tenant)');
             navigateToPage(resolvePageFromQuery(new URLSearchParams(location.search).get('page'), 'admin')); // Admin gets admin panel (RBAC Management)
           } else {
             const nextPage = resolvePageFromQuery(new URLSearchParams(location.search).get('page'), finalRole);
-            console.log(`[App] Routing to ${nextPage} (${finalRole} role at tenant)`);
+            logger.debug(`[App] Routing to ${nextPage} (${finalRole} role at tenant)`);
             navigateToPage(nextPage);
           }
         }
         return;
       } catch (err) {
-        console.warn('Failed to parse login response:', err);
+        logger.warn('Failed to parse login response:', err);
         // fall through to mock fallback
       }
     }
@@ -445,7 +450,7 @@ export default function App() {
         phaseDuration={1200}
         onComplete={() => {
           // Animation sequence complete, but still showing until minimum duration reached
-          console.log('[App] Bootstrap animation sequence complete');
+          logger.debug('[App] Bootstrap animation sequence complete');
         }}
       />
     );
@@ -465,6 +470,17 @@ export default function App() {
 
   // Show homepage when not logged in
   if (!effectiveUser) {
+    if (tenantCtx.isSuperAdmin) {
+      return (
+        <>
+          <Suspense fallback={<RouteLoadingFallback label="Loading super admin" />}>
+            <SuperAdminLoginPage onLogin={handleLogin} />
+          </Suspense>
+          <Toaster />
+        </>
+      );
+    }
+
     return (
       <>
         <Suspense fallback={<RouteLoadingFallback label="Loading portal" />}>

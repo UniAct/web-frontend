@@ -17,10 +17,13 @@ import {
   UserCog,
   Loader2,
   Power,
+  KeyRound,
+  Send,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient, SuperAdminService, UniversityService } from '../../api';
 import { TenantDetectionService } from '../../services/TenantDetectionService';
+import type { TenantRootAdmin } from '../../api';
 
 interface University {
   id: number;
@@ -101,6 +104,12 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
   const [showAddRootAdminModal, setShowAddRootAdminModal] = useState(false);
   const [isSubmittingAdmin, setIsSubmittingAdmin] = useState(false);
   const [isLoadingSuperAdmins, setIsLoadingSuperAdmins] = useState(false);
+  const [rootAdmins, setRootAdmins] = useState<TenantRootAdmin[]>([]);
+  const [rootAdminSearchQuery, setRootAdminSearchQuery] = useState('');
+  const [rootTenantSchema, setRootTenantSchema] = useState('');
+  const [isLoadingRootAdmins, setIsLoadingRootAdmins] = useState(false);
+  const [passwordTarget, setPasswordTarget] = useState<TenantRootAdmin | null>(null);
+  const [newRootPassword, setNewRootPassword] = useState('');
 
   // Register SuperAdmin form
   const [registerFormData, setRegisterFormData] = useState({
@@ -142,6 +151,11 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
         })),
       );
       setUniversities(data);
+      const firstTenant = data[0];
+      if (firstTenant && !rootTenantSchema) {
+        setRootTenantSchema(firstTenant.db_schema);
+        await loadRootAdmins(firstTenant.db_schema);
+      }
     } catch (error) {
       console.error('Error loading tenants:', error);
       const message =
@@ -264,6 +278,35 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
     admin.email.toLowerCase().includes(adminSearchQuery.toLowerCase())
   );
 
+  const filteredRootAdmins = rootAdmins.filter((admin) => {
+    const query = rootAdminSearchQuery.toLowerCase();
+    return (
+      admin.username.toLowerCase().includes(query) ||
+      admin.email.toLowerCase().includes(query) ||
+      `${admin.firstName} ${admin.lastName}`.toLowerCase().includes(query)
+    );
+  });
+
+  const selectedRootTenant = universities.find((university) => university.db_schema === rootTenantSchema);
+
+  const loadRootAdmins = async (schema = rootTenantSchema) => {
+    if (!schema) {
+      setRootAdmins([]);
+      return;
+    }
+
+    try {
+      setIsLoadingRootAdmins(true);
+      const data = await SuperAdminService.getTenantRootAdmins(schema);
+      setRootAdmins(data);
+    } catch (error: any) {
+      console.error('Error loading root admins:', error);
+      toast.error(error.message || 'Failed to load root admins');
+    } finally {
+      setIsLoadingRootAdmins(false);
+    }
+  };
+
   // Register a new SuperAdmin
   const handleRegisterSuperAdmin = async () => {
     if (!registerFormData.username || !registerFormData.email || !registerFormData.password) {
@@ -363,6 +406,9 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
         national_id: ''
       });
       toast.success('Root account created successfully! Verification email sent.');
+      if (selectedUni.db_schema === rootTenantSchema) {
+        await loadRootAdmins(selectedUni.db_schema);
+      }
     } catch (error: any) {
       console.error('Error assigning root account:', error);
       toast.error(error.message || 'Failed to create root account');
@@ -386,6 +432,68 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
     }
   };
 
+  const handleChangeRootTenant = async (schema: string) => {
+    setRootTenantSchema(schema);
+    await loadRootAdmins(schema);
+  };
+
+  const handleToggleRootAdminActive = async (admin: TenantRootAdmin) => {
+    if (!rootTenantSchema) return;
+
+    try {
+      const updated = admin.isBlocked
+        ? await SuperAdminService.updateTenantRootAdminStatus(rootTenantSchema, admin.id, {
+          isBlocked: false,
+          isVerified: true,
+        })
+        : await SuperAdminService.updateTenantRootAdminStatus(rootTenantSchema, admin.id, {
+          isBlocked: true,
+        });
+
+      setRootAdmins((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      toast.success(updated.isBlocked ? 'Root admin deactivated' : 'Root admin activated');
+    } catch (error: any) {
+      console.error('Error changing root admin status:', error);
+      toast.error(error.message || 'Failed to change root admin status');
+    }
+  };
+
+  const handleResendRootVerification = async (admin: TenantRootAdmin) => {
+    if (!rootTenantSchema) return;
+
+    try {
+      await SuperAdminService.resendTenantRootAdminVerification(rootTenantSchema, admin.id);
+      toast.success(`Verification email sent to ${admin.email}`);
+    } catch (error: any) {
+      console.error('Error sending root verification:', error);
+      toast.error(error.message || 'Failed to send verification email');
+    }
+  };
+
+  const handleResetRootPassword = async () => {
+    if (!passwordTarget || !rootTenantSchema || !newRootPassword) {
+      toast.error('Please enter a new password');
+      return;
+    }
+
+    try {
+      setIsSubmittingAdmin(true);
+      await SuperAdminService.resetTenantRootAdminPassword(
+        rootTenantSchema,
+        passwordTarget.id,
+        newRootPassword,
+      );
+      toast.success(`Password changed for ${passwordTarget.username}`);
+      setPasswordTarget(null);
+      setNewRootPassword('');
+    } catch (error: any) {
+      console.error('Error resetting root password:', error);
+      toast.error(error.message || 'Failed to change password');
+    } finally {
+      setIsSubmittingAdmin(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Tabs */}
@@ -398,6 +506,10 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
           <TabsTrigger value="superadmins" className="gap-2">
             <Shield className="w-4 h-4" />
             Super Admins
+          </TabsTrigger>
+          <TabsTrigger value="rootadmins" className="gap-2">
+            <UserCog className="w-4 h-4" />
+            Root Admins
           </TabsTrigger>
         </TabsList>
 
@@ -549,6 +661,177 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
                       <TableRow>
                         <TableCell colSpan={6} className="text-center py-8 text-slate-500">
                           {searchQuery ? 'No universities found' : 'No universities yet. Create one to get started.'}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Root Admins Tab */}
+        <TabsContent value="rootadmins" className="space-y-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="text-2xl font-semibold text-slate-900">Tenant Root Admins</h2>
+              <p className="text-slate-600 mt-1">Manage root administrators for every university tenant</p>
+            </div>
+            <Button variant="outline" onClick={() => setShowAddRootAdminModal(true)} className="gap-2">
+              <Plus className="w-4 h-4" />
+              Assign Root Admin
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <Card className="lg:col-span-2">
+              <CardContent className="p-4">
+                <label className="mb-2 block text-sm font-medium text-slate-700">University Tenant</label>
+                <select
+                  value={rootTenantSchema}
+                  onChange={(event) => handleChangeRootTenant(event.target.value)}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={isLoadingTenants || universities.length === 0}
+                >
+                  <option value="">-- Choose a university --</option>
+                  {universities.map((university) => (
+                    <option key={university.id} value={university.db_schema}>
+                      {university.name} ({university.db_schema})
+                    </option>
+                  ))}
+                </select>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="flex items-center justify-between p-4">
+                <div>
+                  <p className="text-sm text-slate-600">Root/Admin Accounts</p>
+                  <p className="text-2xl font-semibold text-slate-900">{rootAdmins.length}</p>
+                </div>
+                <UserCog className="w-8 h-8 text-blue-600" />
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  placeholder="Search root admins by name, username, or email..."
+                  value={rootAdminSearchQuery}
+                  onChange={(event) => setRootAdminSearchQuery(event.target.value)}
+                  className="pl-10"
+                  disabled={!rootTenantSchema}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                {selectedRootTenant ? selectedRootTenant.name : 'Select a university'}
+              </CardTitle>
+              <CardDescription>
+                Activate, deactivate, resend verification emails, and reset passwords for tenant administrators.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              {isLoadingRootAdmins ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                  <span className="ml-2 text-slate-600">Loading root admins...</span>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Admin</TableHead>
+                      <TableHead>Roles</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredRootAdmins.length > 0 ? (
+                      filteredRootAdmins.map((admin) => (
+                        <TableRow key={admin.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
+                                <UserCog className="h-5 w-5 text-blue-600" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-slate-900">
+                                  {admin.firstName} {admin.lastName}
+                                </p>
+                                <p className="text-sm text-slate-500">
+                                  {admin.username} • {admin.email}
+                                </p>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1">
+                              {admin.roles.map((role) => (
+                                <Badge key={role} variant="outline" className="text-xs">
+                                  {role}
+                                </Badge>
+                              ))}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              <Badge className={admin.isBlocked ? getStatusColor(false) : getStatusColor(true)}>
+                                {admin.isBlocked ? 'Blocked' : 'Active'}
+                              </Badge>
+                              <Badge variant="outline" className={admin.isVerified ? 'border-green-200 text-green-700' : 'border-amber-200 text-amber-700'}>
+                                {admin.isVerified ? 'Verified' : 'Pending verification'}
+                              </Badge>
+                            </div>
+                          </TableCell>
+                          <TableCell>{admin.createdAt ? new Date(admin.createdAt).toLocaleDateString() : '-'}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleToggleRootAdminActive(admin)}
+                              >
+                                <Power className="mr-1 h-4 w-4" />
+                                {admin.isBlocked ? 'Activate' : 'Deactivate'}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleResendRootVerification(admin)}
+                              >
+                                <Send className="mr-1 h-4 w-4" />
+                                Verify Email
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setPasswordTarget(admin);
+                                  setNewRootPassword('');
+                                }}
+                              >
+                                <KeyRound className="mr-1 h-4 w-4" />
+                                Password
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={5} className="py-8 text-center text-slate-500">
+                          {rootTenantSchema ? 'No root/admin accounts found for this tenant' : 'Choose a university to view root admins'}
                         </TableCell>
                       </TableRow>
                     )}
@@ -1104,6 +1387,61 @@ export function UniversitiesListPage({ selectedUniversity, setSelectedUniversity
                   </>
                 ) : (
                   'Assign Root Admin'
+                )}
+              </Button>
+            </div>
+          </div>
+        </ModalContent>
+      </Modal>
+
+      <Modal open={!!passwordTarget} onOpenChange={(open) => {
+        if (!open) {
+          setPasswordTarget(null);
+          setNewRootPassword('');
+        }
+      }}>
+        <ModalContent>
+          <ModalHeader>
+            <ModalTitle>Change Root Admin Password</ModalTitle>
+            <ModalDescription>
+              {passwordTarget
+                ? `Set a new password for ${passwordTarget.username}.`
+                : 'Set a new password for this root admin.'}
+            </ModalDescription>
+          </ModalHeader>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                New Password *
+              </label>
+              <Input
+                type="password"
+                value={newRootPassword}
+                onChange={(event) => setNewRootPassword(event.target.value)}
+                placeholder="Enter a secure password"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setPasswordTarget(null);
+                  setNewRootPassword('');
+                }}
+                disabled={isSubmittingAdmin}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleResetRootPassword} disabled={isSubmittingAdmin}>
+                {isSubmittingAdmin ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  'Change Password'
                 )}
               </Button>
             </div>

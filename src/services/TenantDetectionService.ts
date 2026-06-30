@@ -1,3 +1,5 @@
+import { logger } from '../utils/logger';
+
 /**
  * TENANT DETECTION SERVICE
  * 
@@ -40,8 +42,6 @@ export class TenantDetectionService {
   static detectTenant(): TenantContext {
     const hostname = window.location.hostname.toLowerCase();
 
-    console.log(`[TenantDetectionService] Hostname: ${hostname}`);
-
     const localTenantSlug = this.extractLocalTenantOverride(hostname);
     const tenantSlug = localTenantSlug || this.extractSubdomain(hostname);
 
@@ -61,9 +61,12 @@ export class TenantDetectionService {
       hostname === 'public.uniact.local' ||
       tenantSlug === 'public';
 
-    console.log(`[TenantDetectionService] Tenant slug: ${tenantSlug}`);
-    console.log(`[TenantDetectionService] IsSuperAdmin: ${isSuperAdmin}`);
-    console.log(`[TenantDetectionService] IsBranding: ${isBranding}`);
+    logger.debug('[TenantDetectionService] Detected tenant context:', {
+      hostname,
+      tenantSlug,
+      isSuperAdmin,
+      isBranding,
+    });
 
     return {
       subdomain: tenantSlug || undefined,
