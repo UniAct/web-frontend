@@ -1,328 +1,85 @@
-import { useState, useEffect } from 'react';
+import { Suspense, lazy, useState, useEffect } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
-import { HomePage } from './pages/HomePage';
-import { Dashboard } from './pages/Dashboard';
 import { TenantNotFoundPage } from './pages/TenantNotFoundPage';
-import { AttendancePage } from './pages/AttendancePage';
-import { TeamsPage } from './pages/TeamsPage';
-import { GroupsPage } from './pages/GroupsPage';
-import { AIAssistantPage } from './pages/AIAssistantPage';
-import { AlumniHubPage } from './pages/AlumniHubPage';
-import { CareerBoardPage } from './pages/CareerBoardPage';
-import { ProfilePage } from './pages/ProfilePage';
-import { SuperAdminPanel } from './pages/SuperAdminPanel';
-import { AdminGradesPage } from './components/admin/AdminGradesPage';
-import VerifyRootAccountPage from './pages/VerifyRootAccountPage';
-import VerifyStaffAccountPage from './pages/VerifyStaffAccountPage';
-import { AcademicRegistrationPage } from './pages/AcademicRegistrationPage';
-import { TimetablePage } from './pages/TimetablePage';
 import { Navigation } from './components/layout/Navigation';
 import { Header } from './components/layout/Header';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
 import { BootstrapAnimation } from './components/bootstrap/BootstrapAnimation';
 import { TenantDetectionService } from './services/TenantDetectionService';
-import { apiClient, UniversityService, type LoginResponse, type PublicTenantProfile } from './api';
-import { isJwtExpired } from './api/core/jwt';
-import { UniActBrandingPage } from './pages/UniActBrandingPage';
+import { apiClient, UniversityService, type PublicTenantProfile } from './api';
+import type { SessionLoginPayload, User, UserRole } from './app/types';
+import { resolveAdminShellPage, resolvePageFromQuery } from './app/navigation-rules';
+import {
+  buildUserFromSession,
+  clearStoredSession,
+  persistFrontendRole,
+  readStoredSessionUser,
+  resolveUserRole,
+} from './app/session';
+import { applyTenantDocumentBranding } from './app/tenant-branding';
+import { lazyNamed, RouteLoadingFallback } from './app/lazy';
 
-export type UserRole = 'student' | 'faculty' | 'admin' | 'alumni' | 'superadmin';
-const FRONTEND_ROLE_STORAGE_KEY = 'role';
+export type { User, UserRole } from './app/types';
 
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  avatar?: string;
-  facultyName?: string;
-  year?: number;
-  studentId?: string;
-  facultyId?: number;
-  programId?: number;
-  programName?: string;
-  programLevelId?: number;
-  programLevel?: number;
-  currentSemesterId?: number;
-  currentSemesterType?: 'Fall' | 'Spring' | 'Summer';
-  currentSemesterYear?: number;
-  currentSemesterTerm?: number;
-}
-
-type SessionLoginPayload = Pick<LoginResponse, 'token' | 'user'>;
-
-function isUserRole(value: unknown): value is UserRole {
-  return value === 'student' || value === 'faculty' || value === 'admin' || value === 'alumni' || value === 'superadmin';
-}
-
-function readStoredFrontendRole(): UserRole | undefined {
-  try {
-    const raw = localStorage.getItem(FRONTEND_ROLE_STORAGE_KEY);
-    return isUserRole(raw) ? raw : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function persistFrontendRole(role: UserRole): void {
-  localStorage.setItem(FRONTEND_ROLE_STORAGE_KEY, role);
-}
-
-function resolveFrontendRoleFromBackendRoles(rawRoles: unknown): UserRole {
-  if (!Array.isArray(rawRoles) || rawRoles.length === 0) return 'student';
-
-  const normalizedRoles = rawRoles
-    .filter((role): role is string => typeof role === 'string')
-    .map((role) => role.toLowerCase());
-
-  // Priority matters for users with multiple roles.
-  if (normalizedRoles.some((role) => role.includes('superadmin'))) return 'superadmin';
-  if (normalizedRoles.some((role) => role.includes('admin') || role.includes('root'))) return 'admin';
-  if (normalizedRoles.some((role) => role.includes('staff') || role.includes('faculty'))) return 'faculty';
-  if (normalizedRoles.some((role) => role.includes('alumni'))) return 'alumni';
-  if (normalizedRoles.some((role) => role.includes('student'))) return 'student';
-
-  return 'student';
-}
-
-function resolveUserRole(parsed: any, fallbackRole: UserRole = 'student'): UserRole {
-  const roles = Array.isArray(parsed?.roles) ? parsed.roles : [];
-  const roleFromRoles = roles.length > 0 ? resolveFrontendRoleFromBackendRoles(roles) : fallbackRole;
-
-  if (roleFromRoles === 'superadmin' || roleFromRoles === 'admin') return roleFromRoles;
-  if (parsed?.isStaff === true || parsed?.isStaffAccount === true) return 'faculty';
-  if (parsed?.isStudent === true) return 'student';
-
-  return roleFromRoles;
-}
-
-function resolveDashboardPage(role: UserRole): string {
-  if (role === 'admin' || role === 'superadmin') {
-    return 'superadmin';
-  }
-
-  return 'dashboard';
-}
-
-function resolvePageFromQuery(page: string | null, role: UserRole): string {
-  if (!page) return resolveDashboardPage(role);
-
-  const allowedPages: Record<UserRole, string[]> = {
-    student: ['dashboard', 'academic-registration', 'timetable', 'attendance', 'teams', 'groups', 'ai-assistant', 'alumni-hub', 'career-board', 'profile'],
-    faculty: ['dashboard', 'attendance', 'grades', 'teams', 'groups', 'ai-assistant', 'profile'],
-    admin: ['superadmin'],
-    alumni: ['dashboard', 'alumni-hub', 'career-board', 'profile'],
-    superadmin: ['superadmin'],
-  };
-
-  const rolePages = allowedPages[role] ?? allowedPages.student;
-  return rolePages.includes(page) ? page : resolveDashboardPage(role);
-}
-
-function resolveAdminShellPage(page: string | null, role: Extract<UserRole, 'admin' | 'superadmin'>): string {
-  if (role === 'superadmin') {
-    return 'universities';
-  }
-
-  const allowedPages = [
-    'statistics',
-    'settings',
-    'admins',
-    'programs',
-    'rooms',
-    'timetabling',
-    'staff',
-    'students',
-    'enrollment',
-    'level-tables',
-    'attendance',
-    'grades',
-    'announcements',
-    'audit',
-  ];
-
-  if (!page) return 'statistics';
-  return allowedPages.includes(page) ? page : 'statistics';
-}
-
-function parseOptionalNumber(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim().length > 0) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-  return undefined;
-}
-
-function parseOptionalString(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function applyTenantDocumentBranding(profile: PublicTenantProfile | null): void {
-  const settings = profile?.settings;
-  const tabName = settings?.tab_name?.trim() || profile?.name?.trim() || 'UniAct';
-  const logoUrl = settings?.logo_url?.trim() || '/favicon.png';
-
-  document.title = tabName;
-
-  const icon =
-    document.querySelector<HTMLLinkElement>("link[rel~='icon']") ??
-    document.createElement('link');
-  icon.rel = 'icon';
-  icon.href = logoUrl;
-  document.head.appendChild(icon);
-
-  if (settings?.primary_color) {
-    document.documentElement.style.setProperty('--primary', settings.primary_color);
-  }
-  if (settings?.secondary_color) {
-    document.documentElement.style.setProperty('--secondary', settings.secondary_color);
-  }
-}
-
-function buildUserFromSession(parsed: any, role: UserRole): User {
-  const firstName = parseOptionalString(parsed?.firstName);
-  const lastName = parseOptionalString(parsed?.lastName);
-
-  const resolvedName =
-    parseOptionalString(parsed?.studentFullname) ||
-    parseOptionalString(parsed?.student_fullname) ||
-    parseOptionalString(parsed?.['student Fullname']) ||
-    parseOptionalString(parsed?.student?.fullname) ||
-    (firstName ? `${firstName} ${lastName ?? ''}`.trim() : undefined) ||
-    parseOptionalString(parsed?.username) ||
-    parseOptionalString(parsed?.email) ||
-    'Unknown User';
-
-  const resolvedEmail =
-    parseOptionalString(parsed?.email) ||
-    parseOptionalString(parsed?.username) ||
-    'unknown@example.com';
-
-  return {
-    id:
-      parsed?.id !== undefined && parsed?.id !== null
-        ? String(parsed.id)
-        : parseOptionalString(parsed?.username) || resolvedEmail || 'unknown',
-    name: resolvedName,
-    email: resolvedEmail,
-    role,
-    facultyName:
-      parseOptionalString(parsed?.department) ||
-      parseOptionalString(parsed?.university) ||
-      parseOptionalString(parsed?.university_name) ||
-      undefined,
-    studentId:
-      (parsed?.universityStudentId !== undefined && parsed?.universityStudentId !== null
-        ? String(parsed.universityStudentId)
-        : undefined) ||
-      (parsed?.student?.universityStudentId !== undefined && parsed?.student?.universityStudentId !== null
-        ? String(parsed.student.universityStudentId)
-        : undefined) ||
-      (parsed?.id !== undefined && parsed?.id !== null ? String(parsed.id) : undefined),
-    facultyId: parseOptionalNumber(
-      parsed?.facultyId ??
-      parsed?.facultyID ??
-      parsed?.faculty?.id ??
-      parsed?.program?.facultyId ??
-      parsed?.student?.facultyId ??
-      parsed?.student?.program?.facultyId,
-    ),
-    programId: parseOptionalNumber(
-      parsed?.programId ??
-      parsed?.programID ??
-      parsed?.program?.id ??
-      parsed?.student?.programId ??
-      parsed?.student?.program?.id,
-    ),
-    programName:
-      parseOptionalString(parsed?.programName) ||
-      parseOptionalString(parsed?.program_name) ||
-      parseOptionalString(parsed?.program) ||
-      parseOptionalString(parsed?.program?.programName) ||
-      parseOptionalString(parsed?.program?.name) ||
-      parseOptionalString(parsed?.student?.program?.name) ||
-      undefined,
-    programLevelId: parseOptionalNumber(
-      parsed?.programLevelId ??
-      parsed?.programLevelID ??
-      parsed?.programLevel?.id ??
-      parsed?.student?.programLevelId ??
-      parsed?.student?.programLevel?.id,
-    ),
-    programLevel: parseOptionalNumber(
-      parsed?.programLevel?.level ??
-      parsed?.programLevel ??
-      parsed?.programLEVEL ??
-      parsed?.programLevelNumber ??
-      parsed?.program_level ??
-      parsed?.student?.programLevel?.level,
-    ),
-    currentSemesterId: parseOptionalNumber(
-      parsed?.semester?.id ??
-      parsed?.currentSemesterId ??
-      parsed?.currentSemesterID ??
-      parsed?.semesterId ??
-      parsed?.semesterID ??
-      parsed?.student?.currentSemesterId,
-    ),
-    currentSemesterType: (() => {
-      const semesterType =
-        parseOptionalString(parsed?.semester?.type) ||
-        parseOptionalString(parsed?.currentSemesterType) ||
-        parseOptionalString(parsed?.currentSemesterTYPE) ||
-        parseOptionalString(parsed?.student?.currentSemesterType);
-
-      return semesterType === 'Fall' || semesterType === 'Spring' || semesterType === 'Summer'
-        ? semesterType
-        : undefined;
-    })(),
-    currentSemesterYear: parseOptionalNumber(
-      parsed?.semester?.year ??
-      parsed?.currentSemesterYear ??
-      parsed?.currentSemesterYEAR ??
-      parsed?.student?.currentSemesterYear,
-    ),
-    currentSemesterTerm: parseOptionalNumber(
-      parsed?.semester?.term ??
-      parsed?.currentSemesterTerm ??
-      parsed?.currentSemesterTERM ??
-      parsed?.student?.currentSemesterTerm,
-    ),
-  };
-}
-
-function readStoredSessionUser(): User | null {
-  try {
-    const token = localStorage.getItem('token');
-    const userJson = localStorage.getItem('user');
-
-    if (!token || !userJson) {
-      return null;
-    }
-
-    if (isJwtExpired(token)) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      localStorage.removeItem(FRONTEND_ROLE_STORAGE_KEY);
-      localStorage.removeItem('tenantId');
-      return null;
-    }
-
-    const parsed = JSON.parse(userJson);
-    const restoredRole = resolveUserRole(parsed, readStoredFrontendRole() ?? 'student');
-    return buildUserFromSession(parsed, restoredRole);
-  } catch {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem(FRONTEND_ROLE_STORAGE_KEY);
-    localStorage.removeItem('tenantId');
-    console.warn('Failed to restore session, cleared localStorage.');
-    return null;
-  }
-}
+const HomePage = lazyNamed<typeof import('./pages/HomePage').HomePage>(
+  () => import('./pages/HomePage'),
+  'HomePage',
+);
+const Dashboard = lazyNamed<typeof import('./pages/Dashboard').Dashboard>(
+  () => import('./pages/Dashboard'),
+  'Dashboard',
+);
+const AttendancePage = lazyNamed<typeof import('./pages/AttendancePage').AttendancePage>(
+  () => import('./pages/AttendancePage'),
+  'AttendancePage',
+);
+const TeamsPage = lazyNamed<typeof import('./pages/TeamsPage').TeamsPage>(
+  () => import('./pages/TeamsPage'),
+  'TeamsPage',
+);
+const GroupsPage = lazyNamed<typeof import('./pages/GroupsPage').GroupsPage>(
+  () => import('./pages/GroupsPage'),
+  'GroupsPage',
+);
+const AIAssistantPage = lazyNamed<typeof import('./pages/AIAssistantPage').AIAssistantPage>(
+  () => import('./pages/AIAssistantPage'),
+  'AIAssistantPage',
+);
+const AlumniHubPage = lazyNamed<typeof import('./pages/AlumniHubPage').AlumniHubPage>(
+  () => import('./pages/AlumniHubPage'),
+  'AlumniHubPage',
+);
+const CareerBoardPage = lazyNamed<typeof import('./pages/CareerBoardPage').CareerBoardPage>(
+  () => import('./pages/CareerBoardPage'),
+  'CareerBoardPage',
+);
+const ProfilePage = lazyNamed<typeof import('./pages/ProfilePage').ProfilePage>(
+  () => import('./pages/ProfilePage'),
+  'ProfilePage',
+);
+const SuperAdminPanel = lazyNamed<typeof import('./pages/SuperAdminPanel').SuperAdminPanel>(
+  () => import('./pages/SuperAdminPanel'),
+  'SuperAdminPanel',
+);
+const AdminGradesPage = lazyNamed<typeof import('./components/admin/AdminGradesPage').AdminGradesPage>(
+  () => import('./components/admin/AdminGradesPage'),
+  'AdminGradesPage',
+);
+const AcademicRegistrationPage = lazyNamed<typeof import('./pages/AcademicRegistrationPage').AcademicRegistrationPage>(
+  () => import('./pages/AcademicRegistrationPage'),
+  'AcademicRegistrationPage',
+);
+const TimetablePage = lazyNamed<typeof import('./pages/TimetablePage').TimetablePage>(
+  () => import('./pages/TimetablePage'),
+  'TimetablePage',
+);
+const UniActBrandingPage = lazyNamed<typeof import('./pages/UniActBrandingPage').UniActBrandingPage>(
+  () => import('./pages/UniActBrandingPage'),
+  'UniActBrandingPage',
+);
+const VerifyRootAccountPage = lazy(() => import('./pages/VerifyRootAccountPage'));
+const VerifyStaffAccountPage = lazy(() => import('./pages/VerifyStaffAccountPage'));
 
 export default function App() {
   const location = useLocation();
@@ -633,14 +390,8 @@ export default function App() {
 
   const handleLogout = () => {
     setUser(null);
-    // clear storage
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem(FRONTEND_ROLE_STORAGE_KEY);
-    localStorage.removeItem('tenantId');
+    clearStoredSession();
     setSearchParams(new URLSearchParams(), { replace: true });
-    // keep tenantId for dev convenience if you want; remove if you prefer full logout
-    // localStorage.removeItem('tenantId');
   };
 
   const markNotificationAsRead = (notificationId: string) => {
@@ -655,7 +406,9 @@ export default function App() {
   if (location.pathname.startsWith('/verify-root-account')) {
     return (
       <>
-        <VerifyRootAccountPage />
+        <Suspense fallback={<RouteLoadingFallback label="Loading verification" />}>
+          <VerifyRootAccountPage />
+        </Suspense>
         <Toaster />
       </>
     );
@@ -664,7 +417,9 @@ export default function App() {
   if (location.pathname.startsWith('/verify-staff-account')) {
     return (
       <>
-        <VerifyStaffAccountPage />
+        <Suspense fallback={<RouteLoadingFallback label="Loading verification" />}>
+          <VerifyStaffAccountPage />
+        </Suspense>
         <Toaster />
       </>
     );
@@ -674,7 +429,9 @@ export default function App() {
   if (tenantCtx.isBranding) {
     return (
       <>
-        <UniActBrandingPage />
+        <Suspense fallback={<RouteLoadingFallback label="Loading UniAct" />}>
+          <UniActBrandingPage />
+        </Suspense>
         <Toaster />
       </>
     );
@@ -710,7 +467,9 @@ export default function App() {
   if (!effectiveUser) {
     return (
       <>
-        <HomePage onLogin={handleLogin} />
+        <Suspense fallback={<RouteLoadingFallback label="Loading portal" />}>
+          <HomePage onLogin={handleLogin} />
+        </Suspense>
         <Toaster />
       </>
     );
@@ -751,7 +510,9 @@ export default function App() {
   if (effectiveUser?.role === 'superadmin') {
     return (
       <>
-        {renderPage()}
+        <Suspense fallback={<RouteLoadingFallback label="Loading admin workspace" />}>
+          {renderPage()}
+        </Suspense>
         <Toaster />
       </>
     );
@@ -761,7 +522,9 @@ export default function App() {
   if (effectiveUser?.role === 'admin') {
     return (
       <>
-        {renderPage()}
+        <Suspense fallback={<RouteLoadingFallback label="Loading admin workspace" />}>
+          {renderPage()}
+        </Suspense>
         <Toaster />
       </>
     );
@@ -785,7 +548,9 @@ export default function App() {
           onNotificationRead={markNotificationAsRead}
         />
         <main className="pt-28 lg:pt-32 px-4 md:px-6 lg:px-8 pb-8">
-          {renderPage()}
+          <Suspense fallback={<RouteLoadingFallback label="Loading page" />}>
+            {renderPage()}
+          </Suspense>
         </main>
       </div>
 

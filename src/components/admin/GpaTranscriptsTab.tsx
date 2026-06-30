@@ -30,6 +30,7 @@ import {
   Star,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { escapeHtml } from '../../utils/html';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -612,15 +613,18 @@ export function GpaTranscriptsTab() {
     const getUniversityName = () => 'Arab International University';
     const facultyName = mockFacultiesGPA.find(f => f.id === selectedStudent.facultyId)?.name ?? '';
     const programName = mockProgramsGPA.find(p => p.id === selectedStudent.programId)?.name ?? '';
+    const universityName = escapeHtml(getUniversityName());
+    const studentName = escapeHtml(selectedStudent.name);
+    const studentId = escapeHtml(selectedStudent.studentId);
 
     const semesterRows = selectedStudent.semesters.map(sem => {
       const isInProgress = sem.earnedHours === 0 && sem.semesterGPA === null;
       const courseRows = sem.courses.map(c => {
         const gradeCell = c.grade === '' ? '<span style="color:#94a3b8;font-style:italic;">In Progress</span>' :
-          c.grade === 'P' ? '<span style="color:#059669;">Pass</span>' : c.grade;
+          c.grade === 'P' ? '<span style="color:#059669;">Pass</span>' : escapeHtml(c.grade);
         return `<tr style="border-bottom:1px solid #f1f5f9;">
-          <td style="padding:7px 10px;font-size:11px;color:#374151;font-family:monospace;">${c.code}</td>
-          <td style="padding:7px 10px;font-size:11px;color:#111827;">${c.name}</td>
+          <td style="padding:7px 10px;font-size:11px;color:#374151;font-family:monospace;">${escapeHtml(c.code)}</td>
+          <td style="padding:7px 10px;font-size:11px;color:#111827;">${escapeHtml(c.name)}</td>
           <td style="padding:7px 10px;font-size:11px;color:#374151;text-align:center;">${c.creditHours}</td>
           <td style="padding:7px 10px;font-size:11px;font-weight:600;text-align:center;">${gradeCell}</td>
         </tr>`;
@@ -638,7 +642,7 @@ export function GpaTranscriptsTab() {
            </div>`;
 
       return `<div style="margin-bottom:20px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;page-break-inside:avoid;">
-        <div style="background:#1e3a5f;color:white;padding:10px 14px;font-size:12px;font-weight:700;">${sem.name}</div>
+        <div style="background:#1e3a5f;color:white;padding:10px 14px;font-size:12px;font-weight:700;">${escapeHtml(sem.name)}</div>
         <table style="width:100%;border-collapse:collapse;">
           <thead>
             <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">
@@ -658,7 +662,7 @@ export function GpaTranscriptsTab() {
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Academic Transcript — ${selectedStudent.name}</title>
+  <title>Academic Transcript - ${studentName}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; color: #111; padding: 0; }
@@ -672,18 +676,18 @@ export function GpaTranscriptsTab() {
   <div style="max-width:720px;margin:0 auto;padding:24px;">
     <!-- Header -->
     <div style="text-align:center;border-bottom:3px solid #1e3a5f;padding-bottom:20px;margin-bottom:24px;">
-      <div style="font-size:22px;font-weight:800;color:#1e3a5f;letter-spacing:0.5px;">${getUniversityName()}</div>
+      <div style="font-size:22px;font-weight:800;color:#1e3a5f;letter-spacing:0.5px;">${universityName}</div>
       <div style="font-size:13px;color:#6b7280;margin-top:4px;">Office of the Registrar</div>
       <div style="font-size:18px;font-weight:700;color:#374151;margin-top:12px;letter-spacing:1px;text-transform:uppercase;">Official Academic Transcript</div>
     </div>
 
     <!-- Student Info -->
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px 20px;margin-bottom:24px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-      <div><span style="font-size:10.5px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Student Name</span><div style="font-size:14px;font-weight:700;color:#111827;margin-top:2px;">${selectedStudent.name}</div></div>
-      <div><span style="font-size:10.5px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Student ID</span><div style="font-size:14px;font-weight:700;color:#111827;margin-top:2px;font-family:monospace;">${selectedStudent.studentId}</div></div>
-      <div><span style="font-size:10.5px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Faculty</span><div style="font-size:13px;color:#374151;margin-top:2px;">${facultyName}</div></div>
-      <div><span style="font-size:10.5px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Program</span><div style="font-size:13px;color:#374151;margin-top:2px;">${programName}</div></div>
-      <div><span style="font-size:10.5px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Level</span><div style="font-size:13px;color:#374151;margin-top:2px;">${selectedStudent.level}</div></div>
+      <div><span style="font-size:10.5px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Student Name</span><div style="font-size:14px;font-weight:700;color:#111827;margin-top:2px;">${studentName}</div></div>
+      <div><span style="font-size:10.5px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Student ID</span><div style="font-size:14px;font-weight:700;color:#111827;margin-top:2px;font-family:monospace;">${studentId}</div></div>
+      <div><span style="font-size:10.5px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Faculty</span><div style="font-size:13px;color:#374151;margin-top:2px;">${escapeHtml(facultyName)}</div></div>
+      <div><span style="font-size:10.5px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Program</span><div style="font-size:13px;color:#374151;margin-top:2px;">${escapeHtml(programName)}</div></div>
+      <div><span style="font-size:10.5px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Level</span><div style="font-size:13px;color:#374151;margin-top:2px;">${escapeHtml(selectedStudent.level)}</div></div>
       <div><span style="font-size:10.5px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Cumulative GPA</span><div style="font-size:14px;font-weight:800;color:#1e3a5f;margin-top:2px;">${selectedStudent.cgpa.toFixed(4)}</div></div>
     </div>
 
@@ -692,7 +696,7 @@ export function GpaTranscriptsTab() {
 
     <!-- Footer -->
     <div style="margin-top:32px;border-top:2px solid #e2e8f0;padding-top:16px;text-align:center;color:#9ca3af;font-size:10px;">
-      This is an official transcript issued by ${getUniversityName()}. Issued on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}.
+      This is an official transcript issued by ${universityName}. Issued on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}.
     </div>
   </div>
   <script>window.onload = function() { window.print(); }</script>

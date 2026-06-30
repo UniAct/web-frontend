@@ -16,7 +16,6 @@ import {
   XCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
-import * as XLSX from 'xlsx';
 import { AttendanceService } from '../api/modules/attendance/attendance.service';
 import type { User as AppUser } from '../App';
 import type { AttendanceSessionRecord, StaffAttendanceCourse } from '../api/types';

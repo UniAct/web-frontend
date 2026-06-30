@@ -1,4 +1,5 @@
 import * as React from 'react';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { cn } from './utils';
 
@@ -10,55 +11,24 @@ interface ModalProps {
 }
 
 export function Modal({ open, onOpenChange, children, maxWidth = 'max-w-md' }: ModalProps) {
-  const [isOpen, setIsOpen] = React.useState(open);
-
-  React.useEffect(() => {
-    setIsOpen(open);
-  }, [open]);
-
-  React.useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-
-    return () => {
-      document.body.style.overflow = 'unset';
-    };
-  }, [isOpen]);
-
-  React.useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onOpenChange(false);
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown);
-    }
-
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, onOpenChange]);
-
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50">
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={() => onOpenChange(false)}
-      />
-
-      {/* Modal Wrapper - Viewport-safe width with per-modal maxWidth override */}
-      <div className={cn("fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-1.5rem)]", maxWidth)}>
-        {children}
-      </div>
-    </div>
+    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/45 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=open]:fade-in-0" />
+        <DialogPrimitive.Content
+          className={cn(
+            "fixed left-1/2 top-1/2 z-50 w-[calc(100vw-1.5rem)] -translate-x-1/2 -translate-y-1/2 outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+            maxWidth,
+          )}
+        >
+          {children}
+          <DialogPrimitive.Close className="absolute right-4 top-4 inline-flex size-8 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+            <X className="size-4" />
+            <span className="sr-only">Close</span>
+          </DialogPrimitive.Close>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }
 
@@ -70,7 +40,7 @@ interface ModalContentProps {
 export function ModalContent({ className, children }: ModalContentProps) {
   return (
     <div className={cn(
-      "bg-background rounded-lg border shadow-lg p-6 w-full animate-in fade-in-0 zoom-in-95 duration-300",
+      "w-full max-h-[90vh] overflow-y-auto rounded-xl border border-slate-200/80 bg-white p-6 text-slate-900 shadow-[0_24px_80px_rgba(15,23,42,0.22)] animate-in fade-in-0 zoom-in-95 duration-300",
       className
     )}>
       {children}
@@ -98,9 +68,9 @@ interface ModalTitleProps {
 
 export function ModalTitle({ children, className }: ModalTitleProps) {
   return (
-    <h2 className={cn("text-lg leading-none font-semibold", className)}>
+    <DialogPrimitive.Title className={cn("text-lg font-semibold leading-tight tracking-normal", className)}>
       {children}
-    </h2>
+    </DialogPrimitive.Title>
   );
 }
 
@@ -111,8 +81,8 @@ interface ModalDescriptionProps {
 
 export function ModalDescription({ children, className }: ModalDescriptionProps) {
   return (
-    <p className={cn("text-muted-foreground text-sm", className)}>
+    <DialogPrimitive.Description className={cn("text-muted-foreground text-sm leading-relaxed", className)}>
       {children}
-    </p>
+    </DialogPrimitive.Description>
   );
 }
